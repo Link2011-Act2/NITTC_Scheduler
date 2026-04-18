@@ -54,4 +54,13 @@ MIT Licenseです
 * Nothing Phone (2) Pong-B4.0-260226-0955
 * Nothing Phone (3) Metroid-B4.0-260206-1135-JPN
 
+## 動作イメージ
+<img width="300" alt="HGLdI_la0AAvCw8" src="https://github.com/user-attachments/assets/adbde189-2862-4e6a-87ad-ab11743a8b12" />
+<img width="300" alt="HGLdJEXbYAEnZYY" src="https://github.com/user-attachments/assets/971ccfcc-b59d-48e5-895b-2d4da1778b91" />
+<img width="300" alt="HGLdJHIa4AAood3" src="https://github.com/user-attachments/assets/79d464d3-b98d-482c-86f0-51db5f25ee1d" />
+<img width="300" alt="HGLdJEraEAAY6SM" src="https://github.com/user-attachments/assets/5353da59-663c-4d23-9372-4bf0f1cd7417" />
+
+
+
+
 
