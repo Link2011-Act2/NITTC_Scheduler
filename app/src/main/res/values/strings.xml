@@ -1,0 +1,398 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NITTC Scheduler</string>
+
+    <!-- Phase Labels -->
+    <string name="phase_image_processing">【画像処理】</string>
+    <string name="phase_json_correction">【JSON校正】</string>
+    <string name="phase_ocr_fallback">【OCRフォールバック】</string>
+
+    <!-- VLM Inference Messages -->
+    <string name="msg_model_initializing">モデルを初期化中...</string>
+    <string name="msg_model_loading">モデルをロード中...</string>
+    <string name="msg_model_load_complete">モデルロード完了</string>
+    <string name="msg_inference_running">推論を実行中...\nローカルAI処理には数分かかります。アプリを閉じないでください。</string>
+    <string name="msg_inference_cancelled">推論がキャンセルされました</string>
+    <string name="msg_inference_timeout">推論処理がタイムアウトしました（制限時間: 20分）</string>
+    <string name="msg_no_model_response">モデルからの応答がありません。別のモデルをお試しください。</string>
+    <string name="msg_processing_result">結果を処理中...</string>
+    <string name="msg_text_analyzing">テキストを解析中...</string>
+    <string name="msg_starting_correction_model">プロンプト生成完了。修正モデルを起動中...</string>
+    <string name="msg_correction_failed">校正に失敗。元のJSONを使用します</string>
+    <string name="msg_format_validating">形式を検証中...</string>
+    <string name="msg_json_correction_complete">JSON校正完了</string>
+    <string name="msg_direct_vision_failed">画像直読に失敗。ローカルOCRフォールバック中...</string>
+    <string name="err_image_load_failed">画像の読み込みに失敗しました</string>
+    <string name="err_ocr_scan_failed">画像のテキストスキャンに失敗しました: %s</string>
+    <string name="err_ocr_no_text">画像から文字情報を認識できませんでした。</string>
+
+    <!-- Local AI Warning Dialog -->
+    <string name="dialog_local_ai_warning_title">AI機能について</string>
+    <string name="dialog_local_ai_warning_body">ローカルAI機能は実験的な機能です。\n\n⚠️\n・AIモデルをダウンロードするのに、1GB～20GBほどのストレージを使用します。\n・処理には基本的に10分ほどかかります。\n・モデルによっては多大な負荷がかかるため、アプリがクラッシュする可能性があります。\n・認識精度は保証されません。\n\n✅\n・スマホ内のチップのみで処理するため、外部に情報を送信しません。\n\n有効にしますか？</string>
+    <string name="dialog_local_ai_warning_confirm">有効にする</string>
+
+    <!-- Notification Titles and Descriptions -->
+    <string name="notif_ai_processing_start">AI処理を開始...</string>
+    <string name="notif_ai_processing_title">AI処理中</string>
+    <string name="notif_ai_processing_channel">VLM推論</string>
+    <string name="notif_ai_processing_desc">ローカルAI処理の進捗</string>
+    <string name="notif_cancel_action">キャンセル</string>
+    <string name="notif_download_channel">AIモデルのダウンロード</string>
+    <string name="notif_download_channel_desc">AIモデルをバックグラウンドでダウンロード中の進捗を表示します</string>
+    <string name="notif_download_title">ダウンロード中: %s</string>
+    <string name="notif_download_complete_title">ダウンロード完了</string>
+    <string name="notif_download_complete_text">%s をダウンロードしました</string>
+    <string name="notif_download_failed_title">ダウンロード失敗</string>
+    <string name="notif_download_failed_text">%s のダウンロードに失敗しました: %s</string>
+
+    <!-- UI Text -->
+    <string name="label_json_correction_model">JSON校正用モデル</string>
+    <string name="label_same_as_main_model">メインモデルと同じ</string>
+
+    <!-- Model Categories -->
+    <string name="model_family_smolvlm2">SmolVLM2</string>
+    <string name="model_family_gemma">Gemma</string>
+    <string name="model_family_qwen">Qwen3.5</string>
+
+    <!-- Model Names -->
+    <string name="model_smolvlm2_256m">SmolVLM2 256M</string>
+    <string name="model_smolvlm2_500m">SmolVLM2 500M</string>
+    <string name="model_smolvlm2_2_2b">SmolVLM2 2.2B</string>
+    <string name="model_gemma4_e2b">Gemma 4 E2B</string>
+    <string name="model_gemma4_e4b">Gemma 4 E4B-it</string>
+    <string name="model_gemma3_270m">Gemma 3 270M</string>
+    <string name="model_qwen3_5_0_8b">Qwen3.5 0.8B</string>
+    <string name="model_qwen3_5_2b">Qwen3.5 2B</string>
+    <string name="model_qwen3_5_4b">Qwen3.5 4B</string>
+    <string name="model_qwen3_5_9b">Qwen3.5 9B</string>
+
+    <!-- Model Descriptions -->
+    <string name="model_desc_smolvlm2_256m">~279 MB</string>
+    <string name="model_desc_smolvlm2_500m">~546 MB</string>
+    <string name="model_desc_smolvlm2_2_2b">~1.7 GB</string>
+    <string name="model_desc_gemma4_e2b">~3.7 GB</string>
+    <string name="model_desc_gemma4_e4b">~14.5 GB</string>
+    <string name="model_desc_gemma3_270m">292 MB</string>
+    <string name="model_desc_qwen3_5_0_8b">~1.7 GB</string>
+    <string name="model_desc_qwen3_5_2b">~4.0 GB</string>
+    <string name="model_desc_qwen3_5_4b">~7.5 GB</string>
+    <string name="model_desc_qwen3_5_9b">~17.5 GB</string>
+
+    <!-- Download Speed Format -->
+    <string name="format_speed_mbps">%.2f Mbps</string>
+    <string name="format_progress_percent">%d%%</string>
+
+    <!-- Button Labels -->
+    <string name="btn_save">保存</string>
+    <string name="btn_cancel">キャンセル</string>
+    <string name="btn_add">追加</string>
+    <string name="btn_delete">削除</string>
+    <string name="btn_download">ダウンロード</string>
+    <string name="btn_reset">リセット</string>
+    <string name="btn_timetable">時間割</string>
+    <string name="btn_ab_table">A/B表</string>
+    <string name="btn_open_token_page">トークン取得ページを開く</string>
+    <string name="btn_delete_token">トークンを削除</string>
+    <string name="btn_apply_to_period">この期間で反映</string>
+    <string name="btn_back_to_original">今年度に戻す</string>
+    <string name="btn_export_this_week">今週のみ追加</string>
+    <string name="btn_export_all">全部追加</string>
+    <string name="btn_paste">貼り付け</string>
+
+    <!-- Screen Titles -->
+    <string name="title_settings">設定</string>
+    <string name="title_ai_import">AI インポート (BETA)</string>
+    <string name="title_ai_center">インポートする</string>
+    <string name="title_add_break">長期休みを追加</string>
+    <string name="title_nittc_scheduler">NITTC Scheduler</string>
+
+    <!-- Form Labels -->
+    <string name="label_subject_name">授業名</string>
+    <string name="label_teacher_name">担当教員</string>
+    <string name="label_day_a_subject">A日の授業名</string>
+    <string name="label_day_a_teacher">A日の担当教員</string>
+    <string name="label_day_b_subject">B日の授業名</string>
+    <string name="label_day_b_teacher">B日の担当教員</string>
+    <string name="label_model_to_use">使用するモデル</string>
+    <string name="label_hf_token">Hugging Face Access Token (Read)</string>
+    <string name="label_break_name">名称（夏休みなど）</string>
+
+    <!-- VLM Import Screen -->
+    <string name="msg_offline_notice">一部のモデルでは、ダウンロードにHugging Faceのアクセストークンが必要な場合があります</string>
+    <string name="msg_token_configured">Access Token 設定済み</string>
+    <string name="msg_analysis_result">解析結果:</string>
+    <string name="msg_preparing">準備中...</string>
+    <string name="msg_show_detail">解析詳細を確認</string>
+    <string name="msg_error_prefix">エラー: </string>
+    <string name="msg_model_size_hint">目安容量: </string>
+    <string name="msg_file_count_hint">ファイル数: </string>
+    <string name="msg_old_models_title">旧バージョン / 未知のモデル</string>
+    <string name="msg_old_models_desc">以下のファイルは現在のアプリではサポートされていないか古い可能性があります。ストレージ節約のため削除を推奨します。</string>
+    <string name="msg_download_skip">同名・同時間の既存イベントはスキップします。</string>
+
+    <!-- Lesson/Schedule Labels -->
+    <string name="label_day_a">A日</string>
+    <string name="label_day_b">B日</string>
+    <string name="label_weekly">毎週</string>
+    <string name="label_biweekly">隔週(A/B)</string>
+    <string name="label_long_holidays">長期休み</string>
+    <string name="label_not_registered">未登録</string>
+    <string name="label_lesson_style">タップで切替: A → B → 休日</string>
+    <string name="label_select_base_date">基準日を選ぶ</string>
+    <string name="label_this_week">今週1週間</string>
+    <string name="label_no_class">授業なし / 休日</string>
+    <string name="label_no_class_short">授業なし</string>
+    <string name="label_in_charge">担当: </string>
+    <string name="label_period">期間</string>
+    <string name="label_period_settings">期間設定</string>
+    <string name="label_calendar_export">端末カレンダーへ出力</string>
+    <string name="label_loading">読み込み中...</string>
+
+    <!-- Date/Time Related -->
+    <string name="label_start_date">開始日: %s</string>
+    <string name="label_end_date">終了日: %s</string>
+    <string name="label_start">開始</string>
+    <string name="label_end">終了</string>
+
+    <!-- Weekday Labels -->
+    <string name="weekday_monday">月</string>
+    <string name="weekday_tuesday">火</string>
+    <string name="weekday_wednesday">水</string>
+    <string name="weekday_thursday">木</string>
+    <string name="weekday_friday">金</string>
+    <string name="weekday_saturday">土</string>
+    <string name="weekday_sunday">日</string>
+
+    <!-- Day Type Labels (for A/B/Holiday) -->
+    <string name="daytype_a">A</string>
+    <string name="daytype_b">B</string>
+    <string name="daytype_holiday">休日</string>
+
+    <!-- Download Related -->
+    <string name="msg_downloading">ダウンロード中</string>
+    <string name="msg_download_percent">%d%%</string>
+
+    <!-- Dropdown Menu Items -->
+    <string name="menu_same_as_main">メインモデルと同じ</string>
+    <string name="menu_no_json_correction">JSON校正を行わない</string>
+
+    <!-- Description Texts -->
+    <string name="desc_expand">広げる</string>
+    <string name="desc_close">閉じる</string>
+    <string name="desc_switch_models">モデルを切り替え</string>
+    <string name="desc_switch_daytype">タップで日種を切り替え</string>
+
+    <!-- Navigation/Tab Labels -->
+    <string name="tab_schedule">時間割</string>
+    <string name="tab_calendar">カレンダー</string>
+    <string name="tab_import">インポート</string>
+    <string name="tab_tasks">課題</string>
+
+    <!-- Task Management -->
+    <string name="section_task_basic">基本情報</string>
+    <string name="section_task_subject">教科・担当教員</string>
+    <string name="section_task_due">期限</string>
+    <string name="placeholder_task_title">課題のタイトルを入力</string>
+    <string name="placeholder_task_description">説明を入力（オプション）</string>
+    <string name="title_add_task">課題を追加</string>
+    <string name="title_edit_task">課題を編集</string>
+    <string name="label_task_subject">教科</string>
+    <string name="label_task_teacher">担当教員</string>
+    <string name="label_task_title">課題内容</string>
+    <string name="label_task_description">説明（オプション）</string>
+    <string name="label_task_due_date">期限</string>
+    <string name="label_task_priority">優先度</string>
+    <string name="label_task_use_teacher_matching">教員マッチングを使用</string>
+    <string name="label_task_link_lesson">レッスンにリンク</string>
+    <string name="label_task_due_autofill_hint">教科名に応じて、次回授業日を期限に自動設定します</string>
+    <string name="label_task_due_autofill_searching">次回授業日を検索中…</string>
+    <string name="btn_show_subject_suggestions">候補</string>
+    <string name="label_task_teacher_candidates">担当教員候補</string>
+    <string name="label_task_priority_high">高</string>
+    <string name="label_task_priority_normal">通常</string>
+    <string name="label_task_priority_low">低</string>
+    <string name="label_completed_tasks">完了済み課題</string>
+    <string name="label_incomplete_tasks">未完了課題</string>
+    <string name="msg_task_no_lessons">確認できるレッスンがありません</string>
+    <string name="msg_task_saved">課題を保存しました</string>
+    <string name="msg_task_deleted">課題を削除しました</string>
+    <string name="msg_task_completed">課題を完了しました</string>
+    <string name="msg_task_incomplete">課題を未完了に戻しました</string>
+    <string name="msg_task_no_tasks">課題がありません</string>
+    <string name="btn_mark_complete">完了</string>
+    <string name="btn_mark_incomplete">未完了に</string>
+    <string name="btn_edit_task">編集</string>
+    <string name="section_task_overdue_count">期限超過 (%d)</string>
+    <string name="section_task_today_count">今日が期限 (%d)</string>
+    <string name="section_task_upcoming_count">今後の期限 (%d)</string>
+    <string name="label_task_due_overdue_days">%d日遅れ</string>
+    <string name="label_task_due_today">今日まで</string>
+    <string name="label_task_due_remaining_days">後%d日</string>
+    <string name="label_task_exists">課題あり</string>
+    <string name="dialog_task_delete_title">課題を削除</string>
+    <string name="dialog_task_delete_message">「%1$s」を削除しますか？</string>
+
+    <!-- Tab Labels (actual app tabs) -->
+    <string name="tab_timetable">時間割編集</string>
+    <string name="tab_ab_table">A/B表</string>
+    <string name="tab_output">時間割</string>
+
+    <!-- Output Display Modes -->
+    <string name="display_mode_day">1日のみ</string>
+    <string name="display_mode_week">今週1週間</string>
+
+    <!-- Content Descriptions (missing from existing) -->
+    <string name="cd_ai_import">AI自動インポート</string>0
+    <string name="cd_back">戻る</string>
+
+    <!-- Timetable Input Placeholders/Labels -->
+    <string name="placeholder_not_set">（未設定）</string>
+    <string name="placeholder_teacher">担当</string>
+    <string name="placeholder_location">場所</string>
+    <string name="label_alternating">隔週</string>
+
+    <!-- A/B Table: period range -->
+    <string name="label_term_range">現在の反映範囲: %1$s - %2$s</string>
+    <string name="label_start_date_plain">開始日</string>
+    <string name="label_end_date_plain">終了日</string>
+    <string name="label_due_time">期限時刻</string>
+
+    <!-- Schedule Table -->
+    <string name="label_lunch_break">昼休み</string>
+
+    <!-- Settings: Timetable Settings Section -->
+    <string name="section_timetable_settings">時間割設定</string>
+    <string name="label_koshi_notation">校時表記</string>
+    <string name="mode_kosen">高専モード（1/2校時）</string>
+    <string name="mode_regular">普通校モード（1校時）</string>
+    <string name="label_periods_per_day">1日の授業コマ数</string>
+    <string name="unit_period">コマ</string>
+    <string name="label_period_duration">1コマの授業時間</string>
+    <string name="unit_minute">分</string>
+    <string name="label_break_duration">コマ間の休憩時間</string>
+    <string name="label_lunch_duration">昼休みの時間</string>
+    <string name="label_lunch_after">昼休みの位置</string>
+    <string name="unit_after_period">コマ目の後</string>
+    <string name="label_first_period_start">最初の授業開始時刻</string>
+    <string name="label_hour">時</string>
+    <string name="label_minute">分</string>
+    <string name="label_arrival_time">登校時刻（空欄で自動）</string>
+    <string name="label_departure_time">下校時刻（空欄で自動）</string>
+    <string name="placeholder_time">--</string>
+    <string name="btn_save_timetable_settings">時間割設定を保存</string>
+    <string name="section_navigation_settings">ナビゲーション設定</string>
+    <string name="label_use_hamburger_navigation">実験的UIを使用</string>
+    <string name="desc_use_hamburger_navigation">下部ナビゲーションバーは非表示になり、左上のハンバーガーメニューから切り替える方式になります</string>
+    <string name="label_add_tasks_to_calendar">課題をカレンダーに追加する</string>
+    <string name="desc_add_tasks_to_calendar">課題の追加・編集時に端末カレンダーへ自動で反映します</string>
+    <string name="section_experimental">実験的機能 (Experimental)</string>
+    <string name="label_local_ai_import">AI画像インポート</string>
+    <string name="desc_local_ai_import">スマホ内でローカルAIを動かし、時間割の画像から自動でインポートすることができます。\n⚠️非常に大きな負荷がかかるため、機種によってはアプリがクラッシュする可能性があります</string>
+    <string name="section_data_transfer">設定データの移行</string>
+    <string name="desc_data_transfer">時間割・A/B表・長期休み・課題・各種設定をJSONでエクスポート/インポートできます。</string>
+    <string name="btn_export_json">JSONを保存</string>
+    <string name="btn_import_json">JSONを読込</string>
+    <string name="msg_export_success">JSONを書き出しました。</string>
+    <string name="msg_export_failed">JSONの書き出しに失敗しました。</string>
+    <string name="msg_import_read_failed">JSONの読み込みに失敗しました。</string>
+    <string name="dialog_import_confirm_title">インポート確認</string>
+    <string name="dialog_import_confirm_message">現在のデータをJSON内容で上書きします。続行しますか？</string>
+    <string name="dialog_import_confirm_action">インポートする</string>
+    <string name="msg_import_started">インポートを開始しました。</string>
+
+    <!-- VLM: Download Progress -->
+    <string name="label_model_size_files">目安容量: %1$s\nファイル数: %2$d</string>
+    <string name="label_download_progress_info">%1$d%% | %2$.1f Mbps</string>
+    <string name="label_download_error">エラー: %s</string>
+
+    <!-- VLM: Action Buttons -->
+    <string name="btn_apply_to_schedule">スケジュールに反映</string>
+    <string name="btn_analyzing">解析中…</string>
+    <string name="btn_edit_result">手動編集</string>
+    <string name="btn_reparse">再解析して反映</string>
+    <string name="label_edit_result_json">JSON（手動編集）</string>
+
+    <!-- VLM: Import Selection Dialog -->
+    <string name="dialog_title_import_timetable">時間割をインポート</string>
+    <string name="dialog_title_import_ab">A/B表をインポート</string>
+    <string name="dialog_text_select_import">インポートする方法を選択してください。</string>
+    <string name="btn_take_photo">写真を撮影</string>
+    <string name="btn_select_image">画像を選択</string>
+
+    <!-- VLM: Overwrite Confirm Dialog -->
+    <string name="dialog_title_data_warning">データの警告</string>
+    <string name="dialog_text_overwrite_confirm">既に入力されているデータがあります。上書きしてもよろしいですか？</string>
+    <string name="btn_overwrite">上書きする</string>
+
+    <!-- VLM: Delete Model Dialog -->
+    <string name="dialog_title_delete_model">モデルの削除</string>
+    <string name="dialog_text_delete_model">このモデルを削除してもよろしいですか？（約%1$s / %2$dファイル）</string>
+    <string name="btn_delete_confirm">削除する</string>
+
+    <!-- Task Screen: Completed Tasks -->
+    <string name="section_completed_tasks_count">完了済み課題 (%d)</string>
+    <string name="label_completed_date">完了: %s</string>
+    <string name="label_due_date">期限</string>
+
+    <!-- Add Task Dialog -->
+    <string name="desc_teacher_matching">有効な場合: 学科と教師の組み合わせで検索\n無効な場合: 学科のみで検索</string>
+    <string name="msg_no_calendar_permission">カレンダー権限がないため出力できませんでした。</string>
+    <string name="msg_task_calendar_auto_disabled">カレンダー権限がないため、自動追加はオフのままです。</string>
+    <string name="msg_task_calendar_sync_skipped">カレンダー権限がないため、課題の自動同期は行われませんでした。</string>
+    <string name="cd_sync_tasks_to_calendar">課題をカレンダーに同期</string>
+    <string name="dialog_sync_tasks_to_calendar_title">課題をカレンダーに同期</string>
+    <string name="dialog_sync_tasks_to_calendar_message">現在の課題を端末カレンダーに手動で同期します。続行しますか？</string>
+    <string name="btn_ok">OK</string>
+    <string name="msg_no_tasks_to_sync">同期する課題がありません。</string>
+    <string name="msg_tasks_synced_to_calendar">%1$d件の課題をカレンダーに同期しました。</string>
+
+    <!-- Missing strings -->
+    <string name="settings_title">設定</string>
+    <string name="cd_add_task">課題を追加</string>
+    <string name="cd_open_navigation_menu">ナビゲーションメニューを開く</string>
+    <string name="label_no_model_selected">選択なし</string>
+    <string name="cd_settings">設定</string>
+    <string name="legend_ab_toggle">タップで切替: A → B → 休日</string>
+
+    <!-- About Screen -->
+    <string name="about_screen_title">このアプリについて</string>
+    <string name="about_section_title">このアプリについて</string>
+    <string name="about_section_help">アプリ情報とサポート情報を表示します</string>
+    <string name="about_section_open">表示する</string>
+    <string name="about_version_section_title">バージョン情報</string>
+    <string name="about_version_label" translatable="false">%1$s  v%2$s (%3$d)</string>
+    <string name="about_simple_version_title">バージョン</string>
+    <string name="about_simple_version_value" translatable="false">v%1$s</string>
+    <string name="about_dev_channel_title">開発チャネル</string>
+    <string name="about_dev_channel_dialog_title">開発チャネル: %1$s</string>
+    <string name="about_dev_channel_value_intdev">内部検証版</string>
+    <string name="about_dev_channel_value_beta">ベータ版</string>
+    <string name="about_dev_channel_value_stable">安定版</string>
+    <string name="about_dev_channel_value_unknown">不明</string>
+    <string name="about_dev_channel_desc_intdev">IntDev は内部検証時に使用されます。開発者と一部のメンバーにのみ公開され、仕様変更や不安定な挙動が含まれる可能性があります。</string>
+    <string name="about_dev_channel_desc_dev">Beta はプレリリースのバージョンです。GitHubなどで公開されますが、不安定な挙動になる可能性があります。</string>
+    <string name="about_dev_channel_desc_stable">Stable は安定版で、バグ検証などが十分に行われた後に配布されます。</string>
+    <string name="about_dev_channel_desc_unknown">このチャネルの説明は未登録です。</string>
+    <string name="about_version_details_title">バージョン詳細</string>
+    <string name="about_version_details_message">バージョン: %1$s\n内部バージョン番号: %2$d</string>
+    <string name="about_support_title">サポート情報</string>
+    <string name="about_support_help">不具合報告や連絡先はこちら</string>
+    <string name="about_support_open_site">サイトを開く</string>
+    <string name="about_support_open_twitter">X (Twitter) を開く</string>
+    <string name="about_support_site_url" translatable="false">https://linkserver.jp/</string>
+    <string name="about_support_twitter_url" translatable="false">https://x.com/Link_2011A</string>
+
+    <!-- OSS ライセンス（About 画面） -->
+    <string name="about_oss_title">オープンソースライセンス</string>
+    <string name="about_oss_help">このアプリで使用しているオープンソースソフトウェアのライセンス情報</string>
+    <string name="about_oss_open">ライセンス一覧を表示</string>
+
+    <!-- OSS ライセンス一覧画面 -->
+    <string name="oss_screen_title">オープンソースライセンス</string>
+    <string name="oss_button_open_url">URLを開く</string>
+    <string name="oss_button_show_text">本文を表示</string>
+    <string name="oss_load_failed">ライセンス情報を読み込めませんでした。</string>
+    <string name="oss_unknown_license">ライセンス不明</string>
+    <string name="oss_unknown_url">URLなし</string>
+    <string name="license_apache_body" translatable="false">Apache License\nVersion 2.0, January 2004\nhttp://www.apache.org/licenses/\n\nTERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION\n\n[Full Apache 2.0 License text: https://www.apache.org/licenses/LICENSE-2.0]</string>
+</resources>
