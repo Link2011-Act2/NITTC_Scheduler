@@ -1,10 +1,37 @@
-*.iml
-.gradle
-/local.properties
-/.idea
-/build
-/captures
-.externalNativeBuild
-.cxx
+# OS
 .DS_Store
-app/build
+Thumbs.db
+
+# IDE
+.idea/
+*.iml
+
+# Android/Gradle local settings
+local.properties
+
+# Build system caches and outputs
+.gradle/
+.kotlin/
+build/
+app/build/
+*/build/
+captures/
+out/
+
+# Native/NDK/CMake
+.externalNativeBuild/
+.cxx/
+
+# Logs and temp files
+*.log
+build_error*.txt
+build_out.txt
+temp_llama/
+
+# Temporary local artifacts
+tmp_llamacpp_*/
+tmp_llamacpp_*.aar
+classes.jar
+
+# APK
+*.apk

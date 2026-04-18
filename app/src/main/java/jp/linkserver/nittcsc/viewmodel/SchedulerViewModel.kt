@@ -193,6 +193,29 @@ class SchedulerViewModel(
         }
     }
 
+    fun updateScheduleSettingsSilently(
+        periodsPerDay: Int,
+        periodDurationMin: Int,
+        breakBetweenPeriodsMin: Int,
+        lunchBreakMin: Int,
+        lunchAfterPeriod: Int,
+        firstPeriodStartHour: Int,
+        firstPeriodStartMinute: Int,
+        useKosenMode: Boolean,
+        arrivalHour: Int,
+        arrivalMinute: Int,
+        departureHour: Int,
+        departureMinute: Int
+    ) {
+        viewModelScope.launch {
+            repository.updateScheduleSettings(
+                periodsPerDay, periodDurationMin, breakBetweenPeriodsMin,
+                lunchBreakMin, lunchAfterPeriod, firstPeriodStartHour, firstPeriodStartMinute, useKosenMode,
+                arrivalHour, arrivalMinute, departureHour, departureMinute
+            )
+        }
+    }
+
     fun updateHfToken(token: String?) {
         viewModelScope.launch {
             repository.updateHfToken(token)

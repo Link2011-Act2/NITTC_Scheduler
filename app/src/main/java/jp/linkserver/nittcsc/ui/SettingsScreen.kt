@@ -36,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import jp.linkserver.nittcsc.viewmodel.SchedulerUiState
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -91,6 +93,55 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     var showImportConfirmDialog by remember { mutableStateOf(false) }
     var pendingImportJson by remember { mutableStateOf<String?>(null) }
+
+    // 時間割設定は入力後に自動保存（デバウンス）
+    LaunchedEffect(
+        periodsPerDay,
+        periodDurationMin,
+        breakBetweenPeriodsMin,
+        lunchBreakMin,
+        lunchAfterPeriod,
+        startHour,
+        startMinute,
+        useKosenMode,
+        arrivalHour,
+        arrivalMinute,
+        departureHour,
+        departureMinute,
+        s
+    ) {
+        delay(500)
+
+        val p = periodsPerDay.toIntOrNull()?.coerceIn(1, 12) ?: 4
+        val d = periodDurationMin.toIntOrNull()?.coerceIn(10, 300) ?: 90
+        val b = breakBetweenPeriodsMin.toIntOrNull()?.coerceIn(0, 120) ?: 10
+        val l = lunchBreakMin.toIntOrNull()?.coerceIn(0, 180) ?: 50
+        val la = lunchAfterPeriod.toIntOrNull()?.coerceIn(0, p) ?: (p / 2)
+        val h = startHour.toIntOrNull()?.coerceIn(0, 23) ?: 8
+        val m = startMinute.toIntOrNull()?.coerceIn(0, 59) ?: 40
+        val ah = arrivalHour.toIntOrNull()?.coerceIn(0, 23) ?: -1
+        val am = if (ah >= 0) arrivalMinute.toIntOrNull()?.coerceIn(0, 59) ?: 0 else -1
+        val dh = departureHour.toIntOrNull()?.coerceIn(0, 23) ?: -1
+        val dm = if (dh >= 0) departureMinute.toIntOrNull()?.coerceIn(0, 59) ?: 0 else -1
+
+        val changed = s == null ||
+            s.periodsPerDay != p ||
+            s.periodDurationMin != d ||
+            s.breakBetweenPeriodsMin != b ||
+            s.lunchBreakMin != l ||
+            s.lunchAfterPeriod != la ||
+            s.firstPeriodStartHour != h ||
+            s.firstPeriodStartMinute != m ||
+            s.useKosenMode != useKosenMode ||
+            s.arrivalHour != ah ||
+            s.arrivalMinute != am ||
+            s.departureHour != dh ||
+            s.departureMinute != dm
+
+        if (changed) {
+            onUpdateScheduleSettings(p, d, b, l, la, h, m, useKosenMode, ah, am, dh, dm)
+        }
+    }
 
     val exportJsonLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
@@ -259,26 +310,11 @@ fun SettingsScreen(
                             onHourChange = { departureHour = it },
                             onMinuteChange = { departureMinute = it }
                         )
-
-                        Button(
-                            onClick = {
-                                val p = periodsPerDay.toIntOrNull()?.coerceIn(1, 12) ?: 4
-                                val d = periodDurationMin.toIntOrNull()?.coerceIn(10, 300) ?: 90
-                                val b = breakBetweenPeriodsMin.toIntOrNull()?.coerceIn(0, 120) ?: 10
-                                val l = lunchBreakMin.toIntOrNull()?.coerceIn(0, 180) ?: 50
-                                val la = lunchAfterPeriod.toIntOrNull()?.coerceIn(0, p) ?: (p / 2)
-                                val h = startHour.toIntOrNull()?.coerceIn(0, 23) ?: 8
-                                val m = startMinute.toIntOrNull()?.coerceIn(0, 59) ?: 40
-                                val ah = arrivalHour.toIntOrNull()?.coerceIn(0, 23) ?: -1
-                                val am = if (ah >= 0) arrivalMinute.toIntOrNull()?.coerceIn(0, 59) ?: 0 else -1
-                                val dh = departureHour.toIntOrNull()?.coerceIn(0, 23) ?: -1
-                                val dm = if (dh >= 0) departureMinute.toIntOrNull()?.coerceIn(0, 59) ?: 0 else -1
-                                onUpdateScheduleSettings(p, d, b, l, la, h, m, useKosenMode, ah, am, dh, dm)
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(stringResource(R.string.btn_save_timetable_settings))
-                        }
+                        Text(
+                            text = "変更は自動保存されます",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }

@@ -466,7 +466,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                             viewModel.toggleAddTasksToCalendar(enabled)
                         }
                     },
-                    onUpdateScheduleSettings = viewModel::updateScheduleSettings,
+                    onUpdateScheduleSettings = viewModel::updateScheduleSettingsSilently,
                     onExportAllAsJson = { viewModel.exportAllData() },
                     onImportAllFromJson = viewModel::importAllData
                 )
@@ -750,7 +750,6 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 20.dp)
                                         )
-                                        HorizontalDivider()
 
                                         AppTab.entries.forEach { tab ->
                                             val isSelected = selectedTab == tab
@@ -1605,28 +1604,6 @@ private fun OutputScreen(
                         )
                     }
                     IconButton(onClick = { onShiftDate(shiftUnit) }) { Text(">") }
-                    if (displayMode == OutputDisplayMode.DAY) {
-                        val headerVisual = dayTypeVisual(dayType)
-                        Surface(
-                            modifier = Modifier.height(32.dp),
-                            shape = RoundedCornerShape(8.dp),
-                            color = headerVisual.container
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .padding(horizontal = 10.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    stringResource(dayTypeRes(dayType)),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = headerVisual.content,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -2354,26 +2331,20 @@ private fun WeekScheduleTable(
                                         if (lesson.teacher.isNotBlank()) {
                                             Text(
                                                 text = lesson.teacher,
-                                                style = MaterialTheme.typography.labelSmall,
+                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                                                 color = contentColor.copy(alpha = 0.8f),
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
                                             )
                                         }
                                         if (!lesson.location.isNullOrBlank()) {
-                                            Surface(
-                                                shape = RoundedCornerShape(50),
-                                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)
-                                            ) {
-                                                Text(
-                                                    text = lesson.location,
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = contentColor,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
+                                            Text(
+                                                text = lesson.location,
+                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+                                                color = contentColor.copy(alpha = 0.8f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
                                         }
                                     }
                                 }

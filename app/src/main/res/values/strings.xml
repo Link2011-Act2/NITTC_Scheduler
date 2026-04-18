@@ -238,8 +238,8 @@
     <string name="tab_output">時間割</string>
 
     <!-- Output Display Modes -->
-    <string name="display_mode_day">1日のみ</string>
-    <string name="display_mode_week">今週1週間</string>
+    <string name="display_mode_day">1日</string>
+    <string name="display_mode_week">1週間</string>
 
     <!-- Content Descriptions (missing from existing) -->
     <string name="cd_ai_import">AI自動インポート</string>0
@@ -395,4 +395,11 @@
     <string name="oss_unknown_license">ライセンス不明</string>
     <string name="oss_unknown_url">URLなし</string>
     <string name="license_apache_body" translatable="false">Apache License\nVersion 2.0, January 2004\nhttp://www.apache.org/licenses/\n\nTERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION\n\n[Full Apache 2.0 License text: https://www.apache.org/licenses/LICENSE-2.0]</string>
+
+    <!-- Widget descriptions -->
+    <string name="widget_timetable_small_desc">今日の1〜4コマ目の時間割を表示します</string>
+    <string name="widget_timetable_huge_desc">今週の時間割を一覧表示します</string>
+    <string name="widget_next_lesson_desc">次の授業の情報を表示します</string>
+    <string name="widget_task_small_desc">直近の課題を最大2件表示します</string>
+    <string name="widget_task_huge_desc">直近の課題を最大3件表示し、完了チェックができます</string>
 </resources>
