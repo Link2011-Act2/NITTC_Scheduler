@@ -64,6 +64,7 @@ fun SettingsScreen(
     onToggleLocalAi: (Boolean) -> Unit,
     onToggleDrawerNavigation: (Boolean) -> Unit,
     onToggleAddTasksToCalendar: (Boolean) -> Unit,
+    onToggleCurrentTimeMarker: (Boolean) -> Unit,
     onUpdateScheduleSettings: (periodsPerDay: Int, periodDurationMin: Int, breakBetweenPeriodsMin: Int, lunchBreakMin: Int, lunchAfterPeriod: Int, startHour: Int, startMinute: Int, useKosenMode: Boolean, arrivalHour: Int, arrivalMinute: Int, departureHour: Int, departureMinute: Int) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _ -> },
     onExportAllAsJson: suspend () -> String = { "{}" },
     onImportAllFromJson: (String) -> Unit = {}
@@ -71,6 +72,7 @@ fun SettingsScreen(
     val enabledLocalAi = state.settings?.enableLocalAi ?: false
     val enabledDrawerNavigation = state.settings?.useDrawerNavigation ?: false
     val enabledTaskCalendarSync = state.settings?.addTasksToCalendar ?: false
+    val enabledCurrentTimeMarker = state.settings?.showCurrentTimeMarker ?: false
     var expandTimetableSettings by rememberSaveable { mutableStateOf(true) }
     var showLocalAiWarningDialog by remember { mutableStateOf(false) }
     val s = state.settings
@@ -79,7 +81,7 @@ fun SettingsScreen(
     var periodsPerDay by remember(s) { mutableStateOf(s?.periodsPerDay?.toString() ?: "4") }
     var periodDurationMin by remember(s) { mutableStateOf(s?.periodDurationMin?.toString() ?: "90") }
     var breakBetweenPeriodsMin by remember(s) { mutableStateOf(s?.breakBetweenPeriodsMin?.toString() ?: "10") }
-    var lunchBreakMin by remember(s) { mutableStateOf(s?.lunchBreakMin?.toString() ?: "50") }
+    var lunchBreakMin by remember(s) { mutableStateOf(s?.lunchBreakMin?.toString() ?: "60") }
     var lunchAfterPeriod by remember(s) { mutableStateOf(s?.lunchAfterPeriod?.toString() ?: "2") }
     var startHour by remember(s) { mutableStateOf(s?.firstPeriodStartHour?.toString() ?: "8") }
     var startMinute by remember(s) { mutableStateOf(s?.firstPeriodStartMinute?.toString() ?: "40") }
@@ -115,7 +117,7 @@ fun SettingsScreen(
         val p = periodsPerDay.toIntOrNull()?.coerceIn(1, 12) ?: 4
         val d = periodDurationMin.toIntOrNull()?.coerceIn(10, 300) ?: 90
         val b = breakBetweenPeriodsMin.toIntOrNull()?.coerceIn(0, 120) ?: 10
-        val l = lunchBreakMin.toIntOrNull()?.coerceIn(0, 180) ?: 50
+        val l = lunchBreakMin.toIntOrNull()?.coerceIn(0, 180) ?: 60
         val la = lunchAfterPeriod.toIntOrNull()?.coerceIn(0, p) ?: (p / 2)
         val h = startHour.toIntOrNull()?.coerceIn(0, 23) ?: 8
         val m = startMinute.toIntOrNull()?.coerceIn(0, 59) ?: 40
@@ -381,6 +383,31 @@ fun SettingsScreen(
                             Switch(
                                 checked = enabledTaskCalendarSync,
                                 onCheckedChange = onToggleAddTasksToCalendar
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                                Text(
+                                    stringResource(R.string.label_show_current_time_marker),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    stringResource(R.string.desc_show_current_time_marker),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = enabledCurrentTimeMarker,
+                                onCheckedChange = onToggleCurrentTimeMarker
                             )
                         }
 

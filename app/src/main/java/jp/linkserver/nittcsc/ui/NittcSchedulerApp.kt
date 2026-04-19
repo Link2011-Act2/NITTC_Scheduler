@@ -18,6 +18,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -98,18 +99,23 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
@@ -142,6 +148,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
 
@@ -212,8 +219,11 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     }
 
     BackHandler(enabled = showOssLicenses) { showOssLicenses = false }
-    BackHandler(enabled = showAbout) { showAbout = false }
-    BackHandler(enabled = showSettings) { showSettings = false }
+    BackHandler(enabled = showAbout && !showOssLicenses) {
+        showAbout = false
+        showSettings = true
+    }
+    BackHandler(enabled = showSettings && !showAbout && !showOssLicenses) { showSettings = false }
     BackHandler(enabled = showVlmImport) { showVlmImport = false }
     BackHandler(enabled = transientTabOrigin != null && transientTabTarget == selectedTab) {
         selectedTab = transientTabOrigin ?: selectedTab
@@ -421,7 +431,10 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
             }
             "about" -> {
                 AboutScreen(
-                    onBack = { showAbout = false },
+                    onBack = {
+                        showAbout = false
+                        showSettings = true
+                    },
                     onOssLicenses = { showOssLicenses = true }
                 )
             }
@@ -450,7 +463,10 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                 SettingsScreen(
                     state = uiState,
                     onBack = { showSettings = false },
-                    onAbout = { showAbout = true },
+                    onAbout = {
+                        showSettings = true
+                        showAbout = true
+                    },
                     onToggleLocalAi = viewModel::toggleLocalAi,
                     onToggleDrawerNavigation = viewModel::toggleDrawerNavigation,
                     onToggleAddTasksToCalendar = { enabled ->
@@ -466,6 +482,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                             viewModel.toggleAddTasksToCalendar(enabled)
                         }
                     },
+                    onToggleCurrentTimeMarker = viewModel::toggleCurrentTimeMarker,
                     onUpdateScheduleSettings = viewModel::updateScheduleSettingsSilently,
                     onExportAllAsJson = { viewModel.exportAllData() },
                     onImportAllFromJson = viewModel::importAllData
@@ -628,7 +645,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                     AppTab.AbTable -> AbTableScreen(
                                         modifier = Modifier.padding(padding),
                                         state = uiState,
-                                        onToggleDayType = viewModel::toggleDayType,
+                                        onSaveDayTypes = viewModel::saveDayTypes,
                                         onResetFiscalYear = viewModel::resetFiscalYear,
                                         onUpdateTerm = viewModel::updateTerm,
                                         onSaveBreak = viewModel::saveLongBreak,
@@ -1124,7 +1141,7 @@ private fun LessonEditorCard(
 private fun AbTableScreen(
     modifier: Modifier,
     state: SchedulerUiState,
-    onToggleDayType: (LocalDate) -> Unit,
+    onSaveDayTypes: (List<LocalDate>, DayType) -> Unit,
     onResetFiscalYear: () -> Unit,
     onUpdateTerm: (LocalDate, LocalDate) -> Unit,
     onSaveBreak: (Long?, String, LocalDate, LocalDate) -> Unit,
@@ -1150,6 +1167,51 @@ private fun AbTableScreen(
     }
     val currentWeeks = remember(weeks) { weeks.filter { !it.weekEnd.isBefore(today) } }
     val pastWeeks = remember(weeks) { weeks.filter { it.weekEnd.isBefore(today) } }
+    val displayedWeeks = remember(currentWeeks, pastWeeks) {
+        currentWeeks.map { DisplayWeekRow(it, false) } + pastWeeks.map { DisplayWeekRow(it, true) }
+    }
+
+    // ドラッグ状態（AbTableGrid から AbTableScreen に移動）
+    val haptic = LocalHapticFeedback.current
+    val dateBounds = remember(displayedWeeks) { HashMap<LocalDate, Rect>() }
+    var dragStartDate by remember(displayedWeeks) { mutableStateOf<LocalDate?>(null) }
+    var dragCurrentDate by remember(displayedWeeks) { mutableStateOf<LocalDate?>(null) }
+    var dragTargetDayType by remember(displayedWeeks) { mutableStateOf<DayType?>(null) }
+
+    val displayDates = remember(displayedWeeks, settings.termStart, settings.termEnd) {
+        displayedWeeks.flatMap { it.row.days }.filter { it in settings.termStart..settings.termEnd }
+    }
+    val previewDates = remember(displayDates, dragStartDate, dragCurrentDate) {
+        val s = dragStartDate
+        val c = dragCurrentDate ?: s
+        if (s == null || c == null) emptySet()
+        else {
+            val si = displayDates.indexOf(s)
+            val ei = displayDates.indexOf(c)
+            if (si == -1 || ei == -1) emptySet()
+            else displayDates.subList(minOf(si, ei), maxOf(si, ei) + 1).toSet()
+        }
+    }
+
+    fun dateAtRoot(rootOffset: Offset): LocalDate? =
+        dateBounds.entries.firstOrNull { (_, rect) -> rect.contains(rootOffset) }?.key
+
+    fun resetDragState() { dragStartDate = null; dragCurrentDate = null; dragTargetDayType = null }
+
+    fun dragSelectedDates(): List<LocalDate> {
+        val s = dragStartDate ?: return emptyList()
+        val c = dragCurrentDate ?: s
+        val si = displayDates.indexOf(s)
+        val ei = displayDates.indexOf(c)
+        if (si == -1 || ei == -1) return emptyList()
+        return displayDates.subList(minOf(si, ei), maxOf(si, ei) + 1)
+    }
+
+    fun commitDragRange() {
+        val t = dragTargetDayType; val d = dragSelectedDates()
+        if (t != null && d.isNotEmpty()) onSaveDayTypes(d, t)
+        resetDragState()
+    }
 
     LazyColumn(
         modifier = modifier
@@ -1239,25 +1301,34 @@ private fun AbTableScreen(
 
         item { DayTypeLegend() }
         item { WeekHeader() }
-
-        items(currentWeeks) { row ->
+        items(displayedWeeks, key = { it.row.weekStart }) { displayWeek ->
             WeekRow(
-                row = row,
+                row = displayWeek.row,
                 settingsStart = settings.termStart,
                 settingsEnd = settings.termEnd,
                 dayTypeForDate = dayTypeForDate,
-                onToggle = onToggleDayType
-            )
-        }
-
-        items(pastWeeks) { row ->
-            WeekRow(
-                row = row,
-                settingsStart = settings.termStart,
-                settingsEnd = settings.termEnd,
-                dayTypeForDate = dayTypeForDate,
-                onToggle = onToggleDayType,
-                isPast = true
+                onSaveDayTypes = onSaveDayTypes,
+                isPast = displayWeek.isPast,
+                previewDates = previewDates,
+                previewDayType = dragTargetDayType,
+                onUpdateDayBounds = { date, rect -> dateBounds[date] = rect },
+                onDragStartRoot = { rootOffset ->
+                    val startDate = dateAtRoot(rootOffset) ?: return@WeekRow
+                    dragStartDate = startDate
+                    dragCurrentDate = startDate
+                    dragTargetDayType = nextDayType(dayTypeForDate(startDate))
+                },
+                onDragRoot = { rootOffset ->
+                    if (dragStartDate == null) return@WeekRow
+                    dateAtRoot(rootOffset)?.let { date ->
+                        if (date != dragCurrentDate) {
+                            dragCurrentDate = date
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                    }
+                },
+                onDragEnd = { commitDragRange() },
+                onDragCancel = { resetDragState() }
             )
         }
     }
@@ -1384,9 +1455,17 @@ private fun WeekRow(
     settingsStart: LocalDate,
     settingsEnd: LocalDate,
     dayTypeForDate: (LocalDate) -> DayType,
-    onToggle: (LocalDate) -> Unit,
-    isPast: Boolean = false
+    onSaveDayTypes: (List<LocalDate>, DayType) -> Unit,
+    isPast: Boolean = false,
+    previewDates: Set<LocalDate> = emptySet(),
+    previewDayType: DayType? = null,
+    onUpdateDayBounds: (LocalDate, Rect) -> Unit = { _, _ -> },
+    onDragStartRoot: (Offset) -> Unit = {},
+    onDragRoot: (Offset) -> Unit = {},
+    onDragEnd: () -> Unit = {},
+    onDragCancel: () -> Unit = {}
 ) {
+    val rowBoundsRef = remember { arrayOfNulls<Rect>(1) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1401,26 +1480,75 @@ private fun WeekRow(
             style = MaterialTheme.typography.bodySmall
         )
 
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .onGloballyPositioned { rowBoundsRef[0] = it.boundsInRoot() }
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDragStart = { localOffset ->
+                            val rb = rowBoundsRef[0] ?: return@detectDragGestures
+                            onDragStartRoot(Offset(rb.left + localOffset.x, rb.top + localOffset.y))
+                        },
+                        onDrag = { change, _ ->
+                            change.consume()
+                            val rb = rowBoundsRef[0] ?: return@detectDragGestures
+                            onDragRoot(Offset(rb.left + change.position.x, rb.top + change.position.y))
+                        },
+                        onDragEnd = onDragEnd,
+                        onDragCancel = onDragCancel
+                    )
+                }
+        ) {
+
         row.days.forEach { date ->
             if (date < settingsStart || date > settingsEnd) {
                 Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) { Text("-") }
             } else {
-                val dayType = dayTypeForDate(date)
-                val visual = dayTypeVisual(dayType)
+                val previewActive = previewDayType != null && date in previewDates
+                val shownDayType = if (previewActive) previewDayType else dayTypeForDate(date)
+                val visual = dayTypeVisual(shownDayType)
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .padding(2.dp)
+                        .onGloballyPositioned { onUpdateDayBounds(date, it.boundsInRoot()) }
+                        .then(
+                            if (previewActive) {
+                                Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(10.dp))
+                            } else {
+                                Modifier
+                            }
+                        )
                         .background(visual.container, RoundedCornerShape(10.dp))
-                        .clickable { onToggle(date) }
+                        .clickable { onSaveDayTypes(listOf(date), nextDayType(dayTypeForDate(date))) }
                         .padding(vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(stringResource(dayTypeRes(dayType)), color = visual.content, fontWeight = FontWeight.Bold)
+                    Text(stringResource(dayTypeRes(shownDayType)), color = visual.content, fontWeight = FontWeight.Bold)
                 }
             }
         }
+        } // inner Row (drag area)
+    } // outer Row
+}
+
+private fun nextDayType(current: DayType): DayType = when (current) {
+    DayType.A -> DayType.B
+    DayType.B -> DayType.HOLIDAY
+    DayType.HOLIDAY -> DayType.A
+}
+
+@Composable
+private fun rememberCurrentTime(): LocalTime {
+    val currentTime by produceState(initialValue = LocalTime.now()) {
+        while (true) {
+            value = LocalTime.now()
+            val delayMs = 60000L - (System.currentTimeMillis() % 60000L) + 50L
+            kotlinx.coroutines.delay(delayMs)
+        }
     }
+    return currentTime
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1514,6 +1642,7 @@ private fun OutputScreen(
         if (displayMode == OutputDisplayMode.DAY) selectedDate == today
         else weekDates.contains(today)
     }
+    val showCurrentTimeMarker = state.settings?.showCurrentTimeMarker ?: false
     val shiftUnit = if (displayMode == OutputDisplayMode.DAY) 1L else 7L
     val classSlots = remember(state.settings) { state.settings.toClassSlots() }
 
@@ -1599,6 +1728,13 @@ private fun OutputScreen(
                         val shortFmt = remember { java.time.format.DateTimeFormatter.ofPattern("MM/dd") }
                         Text(
                             "${weekDates.first().format(shortFmt)}-${weekDates.last().format(shortFmt)}",
+                            modifier = Modifier.combinedClickable(
+                                onClick = {},
+                                onLongClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onPickDate(today)
+                                }
+                            ),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -1648,6 +1784,7 @@ private fun OutputScreen(
                     classSlots = classSlots,
                     arrivalMin = arrivalMin,
                     departureMin = departureMin,
+                    showCurrentTimeMarker = showCurrentTimeMarker,
                     modifier = swipeModifier
                 )
             } else {
@@ -1657,6 +1794,7 @@ private fun OutputScreen(
                     resolveLesson = resolveLesson,
                     tasks = state.tasks,
                     classSlots = classSlots,
+                    showCurrentTimeMarker = showCurrentTimeMarker,
                     onDayClick = { date ->
                         onPickDate(date)
                         displayMode = OutputDisplayMode.DAY
@@ -1691,8 +1829,11 @@ private fun DayScheduleTable(
     classSlots: List<ClassSlot> = CLASS_SLOTS,
     arrivalMin: Int? = null,
     departureMin: Int? = null,
+    showCurrentTimeMarker: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    val today = remember { LocalDate.now() }
+    val currentTime = if (showCurrentTimeMarker) rememberCurrentTime() else null
     val dpPerMinute = 1.3f
     val timeColWidth = 52.dp
     val strLunchBreak = stringResource(R.string.label_lunch_break)
@@ -1752,6 +1893,8 @@ private fun DayScheduleTable(
     // 最後の刻み目から次の30分境界まで余白を確保
     val tickEnd = tickMaxMin?.let { ((it + 30) / 30) * 30 }
     val timelineEndMin = if (tickEnd != null) maxOf(defaultTermMin, tickEnd) else defaultTermMin
+    val currentMinuteOfDay = currentTime?.let { it.hour * 60 + it.minute }
+    val shouldShowCurrentTimeMarker = showCurrentTimeMarker && date == today && currentMinuteOfDay != null && currentMinuteOfDay in timelineStartMin..timelineEndMin
 
     val segments = buildList {
         val firstStart = slotStartMin(0)
@@ -1830,6 +1973,31 @@ private fun DayScheduleTable(
                     result
                 } else {
                     (defaultTermMin - seg.startMin).toFloat() * dpPerMinute
+                }
+            } else null
+            val currentTimeMarkOffsetDp: Float? = if (
+                shouldShowCurrentTimeMarker && currentMinuteOfDay in seg.startMin until segmentEndMin
+            ) {
+                if (useCompressedCoords) {
+                    var cumDp = 0f
+                    var result = 0f
+                    for (j in 1 until keyMinutes.size) {
+                        val spanStart = keyMinutes[j - 1]
+                        val spanEnd = keyMinutes[j]
+                        if (currentMinuteOfDay <= spanEnd) {
+                            val posInSpan = (currentMinuteOfDay - spanStart).coerceAtLeast(0)
+                            val spanMin = spanEnd - spanStart
+                            result = cumDp + if (spanMin > compressedCapMin)
+                                compressedCapDp * posInSpan.toFloat() / spanMin.toFloat()
+                            else
+                                posInSpan * dpPerMinute
+                            break
+                        }
+                        cumDp += spanDps[j - 1]
+                    }
+                    result
+                } else {
+                    (currentMinuteOfDay - seg.startMin).toFloat() * dpPerMinute
                 }
             } else null
 
@@ -2005,6 +2173,17 @@ private fun DayScheduleTable(
                             )
                         }
                     }
+                        if (currentTimeMarkOffsetDp != null) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .offset(y = currentTimeMarkOffsetDp.dp)
+                                    .padding(end = 1.dp)
+                                    .width(16.dp)
+                                    .height(2.5.dp)
+                                    .background(MaterialTheme.colorScheme.error, RoundedCornerShape(50))
+                            )
+                        }
                 }
 
                 // 右: コンテンツ
@@ -2199,12 +2378,15 @@ private fun WeekScheduleTable(
     resolveLesson: (LocalDate, Int) -> ResolvedLesson?,
     tasks: List<TaskEntity>,
     classSlots: List<ClassSlot> = CLASS_SLOTS,
+    showCurrentTimeMarker: Boolean = false,
     onDayClick: (LocalDate) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val today = remember { LocalDate.now() }
+    val currentTime = if (showCurrentTimeMarker) rememberCurrentTime() else null
     val slotLabelWidth = 44.dp
     val cellHeight = 140.dp
+    val currentMinuteOfDay = currentTime?.let { it.hour * 60 + it.minute }
 
     Column(
         modifier = modifier.fillMaxWidth()
@@ -2282,6 +2464,13 @@ private fun WeekScheduleTable(
                 // 各曜日のセル
                 dates.forEach { date ->
                     val lesson = resolveLesson(date, slot.index)
+                    val slotStartMin = slot.start.hour * 60 + slot.start.minute
+                    val slotEndMin = slot.end.hour * 60 + slot.end.minute
+                    val currentTimeOffsetDp = if (showCurrentTimeMarker && date == today && currentMinuteOfDay != null && currentMinuteOfDay in slotStartMin until slotEndMin) {
+                        ((currentMinuteOfDay - slotStartMin).toFloat() / (slotEndMin - slotStartMin).toFloat()) * cellHeight.value
+                    } else {
+                        null
+                    }
                     val hasTask = lesson != null && tasks.any { task ->
                         task.dueDate == date && taskMatchesLesson(task, lesson)
                     }
@@ -2350,6 +2539,17 @@ private fun WeekScheduleTable(
                                 }
                             }
                         }
+                        if (currentTimeOffsetDp != null) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 6.dp)
+                                    .offset(y = currentTimeOffsetDp.dp)
+                                    .height(2.5.dp)
+                                    .background(MaterialTheme.colorScheme.error, RoundedCornerShape(50))
+                            )
+                        }
                     }
                 }
             }
@@ -2412,6 +2612,11 @@ private data class WeekRow(
     val weekStart: LocalDate,
     val weekEnd: LocalDate,
     val days: List<LocalDate>
+)
+
+private data class DisplayWeekRow(
+    val row: WeekRow,
+    val isPast: Boolean
 )
 
 private fun buildWeekRows(startDate: LocalDate, endDate: LocalDate): List<WeekRow> {

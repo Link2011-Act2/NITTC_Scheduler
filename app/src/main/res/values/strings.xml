@@ -285,6 +285,8 @@
     <string name="desc_use_hamburger_navigation">下部ナビゲーションバーは非表示になり、左上のハンバーガーメニューから切り替える方式になります</string>
     <string name="label_add_tasks_to_calendar">課題をカレンダーに追加する</string>
     <string name="desc_add_tasks_to_calendar">課題の追加・編集時に端末カレンダーへ自動で反映します</string>
+    <string name="label_show_current_time_marker">現在時刻マーカーを表示</string>
+    <string name="desc_show_current_time_marker">時間割画面に現在時刻の表示を追加します</string>
     <string name="section_experimental">実験的機能 (Experimental)</string>
     <string name="label_local_ai_import">AI画像インポート</string>
     <string name="desc_local_ai_import">スマホ内でローカルAIを動かし、時間割の画像から自動でインポートすることができます。\n⚠️非常に大きな負荷がかかるため、機種によってはアプリがクラッシュする可能性があります</string>

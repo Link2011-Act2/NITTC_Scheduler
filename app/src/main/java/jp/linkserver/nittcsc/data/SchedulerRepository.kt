@@ -103,6 +103,11 @@ class SchedulerRepository(private val db: AppDatabase) {
         dao.upsertSettings(current.copy(addTasksToCalendar = enabled))
     }
 
+    suspend fun toggleCurrentTimeMarker(enabled: Boolean) {
+        val current = dao.getSettings() ?: return
+        dao.upsertSettings(current.copy(showCurrentTimeMarker = enabled))
+    }
+
     suspend fun updateHfToken(token: String?) {
         val current = dao.getSettings() ?: return
         dao.upsertSettings(current.copy(hfToken = token))
@@ -120,6 +125,15 @@ class SchedulerRepository(private val db: AppDatabase) {
 
     suspend fun upsertDayType(date: LocalDate, dayType: DayType) {
         dao.upsertDayType(DayTypeEntity(date = date, dayType = dayType))
+    }
+
+    suspend fun upsertDayTypes(dates: List<LocalDate>, dayType: DayType) {
+        val entities = dates.distinct().map { date ->
+            DayTypeEntity(date = date, dayType = dayType)
+        }
+        if (entities.isNotEmpty()) {
+            dao.upsertDayTypes(entities)
+        }
     }
 
     suspend fun upsertLongBreak(id: Long?, name: String, startDate: LocalDate, endDate: LocalDate) {
@@ -488,6 +502,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                 s.put("useKosenMode", settings.useKosenMode)
                 s.put("useDrawerNavigation", settings.useDrawerNavigation)
                 s.put("addTasksToCalendar", settings.addTasksToCalendar)
+                s.put("showCurrentTimeMarker", settings.showCurrentTimeMarker)
                 s.put("arrivalHour", settings.arrivalHour)
                 s.put("arrivalMinute", settings.arrivalMinute)
                 s.put("departureHour", settings.departureHour)
@@ -584,13 +599,14 @@ class SchedulerRepository(private val db: AppDatabase) {
                 periodsPerDay = s.optInt("periodsPerDay", 4),
                 periodDurationMin = s.optInt("periodDurationMin", 90),
                 breakBetweenPeriodsMin = s.optInt("breakBetweenPeriodsMin", 10),
-                lunchBreakMin = s.optInt("lunchBreakMin", 50),
+                lunchBreakMin = s.optInt("lunchBreakMin", 60),
                 lunchAfterPeriod = s.optInt("lunchAfterPeriod", 2),
                 firstPeriodStartHour = s.optInt("firstPeriodStartHour", 8),
                 firstPeriodStartMinute = s.optInt("firstPeriodStartMinute", 40),
                 useKosenMode = s.optBoolean("useKosenMode", true),
                 useDrawerNavigation = s.optBoolean("useDrawerNavigation", false),
                 addTasksToCalendar = s.optBoolean("addTasksToCalendar", false),
+                showCurrentTimeMarker = s.optBoolean("showCurrentTimeMarker", false),
                 arrivalHour = s.optInt("arrivalHour", -1),
                 arrivalMinute = s.optInt("arrivalMinute", -1),
                 departureHour = s.optInt("departureHour", -1),
@@ -717,6 +733,9 @@ class SchedulerRepository(private val db: AppDatabase) {
             }
             if (!s.has("addTasksToCalendar")) {
                 s.put("addTasksToCalendar", false)
+            }
+            if (!s.has("showCurrentTimeMarker")) {
+                s.put("showCurrentTimeMarker", false)
             }
         }
 

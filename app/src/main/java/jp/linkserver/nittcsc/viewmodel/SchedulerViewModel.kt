@@ -137,6 +137,12 @@ class SchedulerViewModel(
         }
     }
 
+    fun saveDayTypes(dates: List<LocalDate>, dayType: DayType) {
+        viewModelScope.launch {
+            repository.upsertDayTypes(dates, dayType)
+        }
+    }
+
     fun resetFiscalYear() {
         viewModelScope.launch {
             repository.resetToCurrentFiscalYear()
@@ -166,6 +172,12 @@ class SchedulerViewModel(
     fun toggleAddTasksToCalendar(enabled: Boolean) {
         viewModelScope.launch {
             repository.toggleAddTasksToCalendar(enabled)
+        }
+    }
+
+    fun toggleCurrentTimeMarker(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.toggleCurrentTimeMarker(enabled)
         }
     }
 
