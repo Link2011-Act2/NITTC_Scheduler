@@ -23,6 +23,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -34,6 +35,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -81,6 +83,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.RadioButton
@@ -117,10 +121,12 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -133,6 +139,7 @@ import jp.linkserver.nittcsc.data.LessonDraft
 import jp.linkserver.nittcsc.data.LessonEntity
 import jp.linkserver.nittcsc.data.LessonMode
 import jp.linkserver.nittcsc.data.LongBreakEntity
+import jp.linkserver.nittcsc.data.PlanEntity
 import jp.linkserver.nittcsc.data.ResolvedLesson
 import jp.linkserver.nittcsc.data.SettingsEntity
 import jp.linkserver.nittcsc.data.TaskEntity
@@ -166,6 +173,11 @@ enum class AppTab(
         R.string.tab_tasks,
         Icons.AutoMirrored.Filled.Assignment,
         Icons.AutoMirrored.Outlined.Assignment
+    ),
+    Plans(
+        R.string.tab_plans,
+        Icons.Filled.Event,
+        Icons.Filled.Event
     ),
     Timetable(
         R.string.tab_timetable,
@@ -202,6 +214,11 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     var showTaskEditor by rememberSaveable { mutableStateOf(false) }
     var editingTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
     var focusedTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var showPlanEditor by rememberSaveable { mutableStateOf(false) }
+    var editingPlanId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var focusedPlanId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var prefillSubject by rememberSaveable { mutableStateOf("") }
+    var prefillTeacher by rememberSaveable { mutableStateOf("") }
     var transientTabOrigin by rememberSaveable { mutableStateOf<AppTab?>(null) }
     var transientTabTarget by rememberSaveable { mutableStateOf<AppTab?>(null) }
 
@@ -230,16 +247,26 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         transientTabOrigin = null
         transientTabTarget = null
         focusedTaskId = null
+        focusedPlanId = null
     }
     BackHandler(enabled = showTaskEditor) {
         showTaskEditor = false
         editingTaskId = null
+            prefillSubject = ""
+            prefillTeacher = ""
+    }
+    BackHandler(enabled = showPlanEditor) {
+        showPlanEditor = false
+        editingPlanId = null
+            prefillSubject = ""
+            prefillTeacher = ""
     }
     val snackbarHostState = remember { SnackbarHostState() }
     val appScope = rememberCoroutineScope()
     var pendingTaskCalendarSync by remember { mutableStateOf<TaskEntity?>(null) }
+    var pendingPlanCalendarSync by remember { mutableStateOf<PlanEntity?>(null) }
     var pendingToggleAddTasksToCalendar by remember { mutableStateOf<Boolean?>(null) }
-    var pendingManualTaskCalendarSync by remember { mutableStateOf(false) }
+    var pendingManualCalendarSyncTab by rememberSaveable { mutableStateOf<AppTab?>(null) }
     var showTaskCalendarSyncDialog by rememberSaveable { mutableStateOf(false) }
     val msgTaskCalendarAutoDisabled = stringResource(R.string.msg_task_calendar_auto_disabled)
     val msgTaskCalendarSyncSkipped = stringResource(R.string.msg_task_calendar_sync_skipped)
@@ -294,24 +321,36 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
             }
         }
 
-        if (pendingManualTaskCalendarSync) {
-            pendingManualTaskCalendarSync = false
+        pendingManualCalendarSyncTab?.let { syncTab ->
+            pendingManualCalendarSyncTab = null
             if (granted) {
                 appScope.launch {
-                    val (updatedTasks, syncedCount) = withContext(Dispatchers.IO) {
+                    val (updatedTasks, updatedPlans, syncedCount) = withContext(Dispatchers.IO) {
                         val sync = TaskCalendarSync(context)
                         val changedTasks = mutableListOf<TaskEntity>()
+                        val changedPlans = mutableListOf<PlanEntity>()
                         var successCount = 0
-                        uiState.tasks.forEach { task ->
-                            val eventId = sync.upsertTaskEvent(task) ?: return@forEach
-                            successCount++
-                            if (task.calendarEventId != eventId) {
-                                changedTasks += task.copy(calendarEventId = eventId)
+                        when (syncTab) {
+                            AppTab.Tasks -> uiState.tasks.forEach { task ->
+                                val eventId = sync.upsertTaskEvent(task) ?: return@forEach
+                                successCount++
+                                if (task.calendarEventId != eventId) {
+                                    changedTasks += task.copy(calendarEventId = eventId)
+                                }
                             }
+                            AppTab.Plans -> uiState.plans.forEach { plan ->
+                                val eventId = sync.upsertPlanEvent(plan) ?: return@forEach
+                                successCount++
+                                if (plan.calendarEventId != eventId) {
+                                    changedPlans += plan.copy(calendarEventId = eventId)
+                                }
+                            }
+                            else -> Unit
                         }
-                        changedTasks to successCount
+                        Triple(changedTasks, changedPlans, successCount)
                     }
                     viewModel.saveTasksSilently(updatedTasks)
+                    viewModel.savePlansSilently(updatedPlans)
                     snackbarHostState.showSnackbar(
                         context.getString(R.string.msg_tasks_synced_to_calendar, syncedCount)
                     )
@@ -346,6 +385,22 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                 viewModel.saveTask(taskToSave)
             }
         }
+
+        pendingPlanCalendarSync?.let { pendingPlan ->
+            pendingPlanCalendarSync = null
+            appScope.launch {
+                val planToSave = if (granted) {
+                    withContext(Dispatchers.IO) {
+                        val eventId = TaskCalendarSync(context).upsertPlanEvent(pendingPlan)
+                        if (eventId != null) pendingPlan.copy(calendarEventId = eventId) else pendingPlan
+                    }
+                } else {
+                    snackbarHostState.showSnackbar(msgTaskCalendarSyncSkipped)
+                    pendingPlan
+                }
+                viewModel.savePlan(planToSave)
+            }
+        }
     }
 
     fun requestCalendarExport(range: ExportRange) {
@@ -368,34 +423,52 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         }
     }
 
-    fun syncTasksToCalendarManually() {
-        if (uiState.tasks.isEmpty()) {
+    fun syncItemsToCalendarManually(tab: AppTab) {
+        val hasItems = when (tab) {
+            AppTab.Tasks -> uiState.tasks.isNotEmpty()
+            AppTab.Plans -> uiState.plans.isNotEmpty()
+            else -> false
+        }
+
+        if (!hasItems) {
             appScope.launch { snackbarHostState.showSnackbar(msgNoTasksToSync) }
             return
         }
 
         if (hasCalendarPermission(context)) {
             appScope.launch {
-                val (updatedTasks, syncedCount) = withContext(Dispatchers.IO) {
+                val (updatedTasks, updatedPlans, syncedCount) = withContext(Dispatchers.IO) {
                     val sync = TaskCalendarSync(context)
                     val changedTasks = mutableListOf<TaskEntity>()
+                    val changedPlans = mutableListOf<PlanEntity>()
                     var successCount = 0
-                    uiState.tasks.forEach { task ->
-                        val eventId = sync.upsertTaskEvent(task) ?: return@forEach
-                        successCount++
-                        if (task.calendarEventId != eventId) {
-                            changedTasks += task.copy(calendarEventId = eventId)
+                    when (tab) {
+                        AppTab.Tasks -> uiState.tasks.forEach { task ->
+                            val eventId = sync.upsertTaskEvent(task) ?: return@forEach
+                            successCount++
+                            if (task.calendarEventId != eventId) {
+                                changedTasks += task.copy(calendarEventId = eventId)
+                            }
                         }
+                        AppTab.Plans -> uiState.plans.forEach { plan ->
+                            val eventId = sync.upsertPlanEvent(plan) ?: return@forEach
+                            successCount++
+                            if (plan.calendarEventId != eventId) {
+                                changedPlans += plan.copy(calendarEventId = eventId)
+                            }
+                        }
+                        else -> Unit
                     }
-                    changedTasks to successCount
+                    Triple(changedTasks, changedPlans, successCount)
                 }
                 viewModel.saveTasksSilently(updatedTasks)
+                viewModel.savePlansSilently(updatedPlans)
                 snackbarHostState.showSnackbar(
                     context.getString(R.string.msg_tasks_synced_to_calendar, syncedCount)
                 )
             }
         } else {
-            pendingManualTaskCalendarSync = true
+            pendingManualCalendarSyncTab = tab
             calendarPermissionLauncher.launch(
                 arrayOf(
                     Manifest.permission.READ_CALENDAR,
@@ -483,6 +556,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                         }
                     },
                     onToggleCurrentTimeMarker = viewModel::toggleCurrentTimeMarker,
+                    onToggleUnifyTaskPlanView = viewModel::toggleUnifyTaskPlanView,
                     onUpdateScheduleSettings = viewModel::updateScheduleSettingsSilently,
                     onExportAllAsJson = { viewModel.exportAllData() },
                     onImportAllFromJson = viewModel::importAllData
@@ -523,9 +597,37 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                 val editingTask = editingTaskId?.let { id ->
                     uiState.tasks.firstOrNull { it.id == id }
                 }
+                val editingPlan = editingPlanId?.let { id ->
+                    uiState.plans.firstOrNull { it.id == id }
+                }
+                val prefillDueHour = uiState.settings?.firstPeriodStartHour ?: 8
+                val prefillDueMinute = uiState.settings?.firstPeriodStartMinute ?: 40
+                val prefillTaskTemplate = if (editingTask == null && !showPlanEditor && prefillSubject.isNotBlank()) {
+                    TaskEntity(
+                        subject = prefillSubject,
+                        teacher = prefillTeacher.takeIf { it.isNotBlank() },
+                        title = "",
+                        dueDate = LocalDate.now(),
+                        dueHour = prefillDueHour,
+                        dueMinute = prefillDueMinute,
+                        createdDate = LocalDate.now()
+                    )
+                } else null
+                val prefillPlanTemplate = if (editingPlan == null && showPlanEditor && prefillSubject.isNotBlank()) {
+                    TaskEntity(
+                        subject = prefillSubject,
+                        teacher = prefillTeacher.takeIf { it.isNotBlank() },
+                        title = "",
+                        dueDate = LocalDate.now(),
+                        dueHour = prefillDueHour,
+                        dueMinute = prefillDueMinute,
+                        createdDate = LocalDate.now()
+                    )
+                } else null
+                val isAnyEditorVisible = showTaskEditor || showPlanEditor
 
                 AnimatedContent(
-                    targetState = showTaskEditor,
+                    targetState = isAnyEditorVisible,
                     transitionSpec = {
                         val spec = tween<IntOffset>(220, easing = FastOutSlowInEasing)
                         if (targetState) {
@@ -540,45 +642,104 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                 ) { isTaskEditorVisible ->
                     if (isTaskEditorVisible) {
                         AddTaskScreen(
-                            task = editingTask,
+                            task = if (showPlanEditor) (editingPlan?.toTaskEntityLike() ?: prefillPlanTemplate) else (editingTask ?: prefillTaskTemplate),
                             subjectSuggestions = taskSubjectSuggestions,
                             subjectTeacherCandidates = taskTeacherCandidates,
                             defaultDueHour = uiState.settings?.firstPeriodStartHour ?: 8,
                             defaultDueMinute = uiState.settings?.firstPeriodStartMinute ?: 40,
-                            onResolveNextLessonDateTime = { subject, teacher ->
+                            isPlan = showPlanEditor,
+                            onResolveNextLessonDateTime = { subject, teacher, fromDate, fromTime ->
                                 viewModel.calculateNextLessonDateTime(
                                     subject = subject,
                                     teacher = teacher,
-                                    useTeacherMatching = true
+                                    useTeacherMatching = true,
+                                    fromDate = fromDate,
+                                    fromTime = fromTime
+                                )
+                            },
+                            onResolvePreviousLessonDateTime = { subject, teacher, fromDate, fromTime ->
+                                viewModel.calculatePreviousLessonDateTime(
+                                    subject = subject,
+                                    teacher = teacher,
+                                    useTeacherMatching = true,
+                                    fromDate = fromDate,
+                                    currentTime = fromTime
+                                )
+                            },
+                            onResolveNextLessonDateTimeSkipCurrent = { subject, teacher, fromDate, fromTime ->
+                                viewModel.calculateNextLessonDateTimeSkipCurrent(
+                                    subject = subject,
+                                    teacher = teacher,
+                                    useTeacherMatching = true,
+                                    fromDate = fromDate,
+                                    currentTime = fromTime
                                 )
                             },
                             onSave = { task ->
-                                val shouldSyncTaskToCalendar = uiState.settings?.addTasksToCalendar == true
-                                if (shouldSyncTaskToCalendar && !hasCalendarPermission(context)) {
-                                    pendingTaskCalendarSync = task
-                                    calendarPermissionLauncher.launch(
-                                        arrayOf(
-                                            Manifest.permission.READ_CALENDAR,
-                                            Manifest.permission.WRITE_CALENDAR
+                                if (showPlanEditor) {
+                                    val origin = editingPlan
+                                    val plan = task.toPlanEntityLike(existing = origin)
+                                    val shouldSyncTaskToCalendar = uiState.settings?.addTasksToCalendar == true
+                                    if (shouldSyncTaskToCalendar && !hasCalendarPermission(context)) {
+                                        pendingPlanCalendarSync = plan
+                                        calendarPermissionLauncher.launch(
+                                            arrayOf(
+                                                Manifest.permission.READ_CALENDAR,
+                                                Manifest.permission.WRITE_CALENDAR
+                                            )
                                         )
-                                    )
-                                } else if (shouldSyncTaskToCalendar) {
-                                    appScope.launch {
-                                        val taskWithCalendar = withContext(Dispatchers.IO) {
-                                            val eventId = TaskCalendarSync(context).upsertTaskEvent(task)
-                                            if (eventId != null) task.copy(calendarEventId = eventId) else task
+                                    } else if (shouldSyncTaskToCalendar) {
+                                        appScope.launch {
+                                            val planWithCalendar = withContext(Dispatchers.IO) {
+                                                val eventId = TaskCalendarSync(context).upsertPlanEvent(plan)
+                                                if (eventId != null) plan.copy(calendarEventId = eventId) else plan
+                                            }
+                                            viewModel.savePlan(planWithCalendar)
                                         }
-                                        viewModel.saveTask(taskWithCalendar)
+                                    } else {
+                                        viewModel.savePlan(plan)
                                     }
+                                    showPlanEditor = false
+                                    editingPlanId = null
+                                       prefillSubject = ""
+                                       prefillTeacher = ""
                                 } else {
-                                    viewModel.saveTask(task)
+                                    val shouldSyncTaskToCalendar = uiState.settings?.addTasksToCalendar == true
+                                    if (shouldSyncTaskToCalendar && !hasCalendarPermission(context)) {
+                                        pendingTaskCalendarSync = task
+                                        calendarPermissionLauncher.launch(
+                                            arrayOf(
+                                                Manifest.permission.READ_CALENDAR,
+                                                Manifest.permission.WRITE_CALENDAR
+                                            )
+                                        )
+                                    } else if (shouldSyncTaskToCalendar) {
+                                        appScope.launch {
+                                            val taskWithCalendar = withContext(Dispatchers.IO) {
+                                                val eventId = TaskCalendarSync(context).upsertTaskEvent(task)
+                                                if (eventId != null) task.copy(calendarEventId = eventId) else task
+                                            }
+                                            viewModel.saveTask(taskWithCalendar)
+                                        }
+                                    } else {
+                                        viewModel.saveTask(task)
+                                    }
+                                    showTaskEditor = false
+                                    editingTaskId = null
+                                       prefillSubject = ""
+                                       prefillTeacher = ""
                                 }
-                                showTaskEditor = false
-                                editingTaskId = null
                             },
                             onBack = {
-                                showTaskEditor = false
-                                editingTaskId = null
+                                if (showPlanEditor) {
+                                    showPlanEditor = false
+                                    editingPlanId = null
+                                } else {
+                                    showTaskEditor = false
+                                    editingTaskId = null
+                                }
+                                   prefillSubject = ""
+                                   prefillTeacher = ""
                             }
                         )
                     } else {
@@ -607,31 +768,125 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                             navigateToTabFromAction(AppTab.Tasks)
                                             editingTaskId = null
                                             showTaskEditor = false
+                                            showPlanEditor = false
                                             focusedTaskId = task.id.takeIf { it > 0 }
                                         },
-                                        onExportWithPermission = ::requestCalendarExport
+                                        onOpenPlan = { plan ->
+                                            navigateToTabFromAction(AppTab.Plans)
+                                            editingPlanId = null
+                                            showTaskEditor = false
+                                            showPlanEditor = false
+                                            focusedPlanId = plan.id.takeIf { it > 0 }
+                                        },
+                                        onExportWithPermission = ::requestCalendarExport,
+                                           onAddFromLesson = { subject, teacher, isPlan ->
+                                               prefillSubject = subject
+                                               prefillTeacher = teacher
+                                               if (isPlan) {
+                                                   showPlanEditor = true
+                                                   showTaskEditor = false
+                                                   editingPlanId = null
+                                               } else {
+                                                   showTaskEditor = true
+                                                   showPlanEditor = false
+                                                   editingTaskId = null
+                                               }
+                                           }
                                     )
 
-                                    AppTab.Tasks -> TaskScreen(
+                                    AppTab.Tasks -> {
+                                        val unifyTaskPlanView = uiState.settings?.unifyTaskPlanView ?: false
+                                        if (unifyTaskPlanView) {
+                                            // 統合ビュー：課題・予定を上部タブで切り替え
+                                            UnifiedTaskPlanScreen(
+                                                modifier = Modifier.padding(padding),
+                                                uiState = uiState,
+                                                onOpenTask = { task ->
+                                                    editingTaskId = task.id.takeIf { it > 0 }
+                                                    showTaskEditor = true
+                                                    showPlanEditor = false
+                                                },
+                                                onDeleteTask = { task ->
+                                                    if (task.calendarEventId != null && hasCalendarPermission(context)) {
+                                                        appScope.launch(Dispatchers.IO) {
+                                                            TaskCalendarSync(context).deleteTaskEvent(task.calendarEventId)
+                                                        }
+                                                    }
+                                                    viewModel.deleteTask(task)
+                                                },
+                                                onMarkTaskComplete = viewModel::markTaskAsComplete,
+                                                onMarkTaskIncomplete = viewModel::markTaskAsIncomplete,
+                                                onOpenPlan = { plan ->
+                                                    editingPlanId = plan.id.takeIf { it > 0 }
+                                                    showPlanEditor = true
+                                                    showTaskEditor = false
+                                                },
+                                                onDeletePlan = { plan ->
+                                                    if (plan.calendarEventId != null && hasCalendarPermission(context)) {
+                                                        appScope.launch(Dispatchers.IO) {
+                                                            TaskCalendarSync(context).deletePlanEvent(plan.calendarEventId)
+                                                        }
+                                                    }
+                                                    viewModel.deletePlan(plan)
+                                                },
+                                                onMarkPlanComplete = viewModel::markPlanAsComplete,
+                                                onMarkPlanIncomplete = viewModel::markPlanAsIncomplete
+                                            )
+                                        } else {
+                                            // 従来のビュー：課題のみ
+                                            TaskScreen(
+                                                modifier = Modifier.padding(padding),
+                                                tasks = uiState.incompleteTasks,
+                                                completedTasks = uiState.tasks.filter { it.isCompleted },
+                                                focusTaskId = focusedTaskId,
+                                                onFocusHandled = { focusedTaskId = null },
+                                                onOpenTaskEditor = { task ->
+                                                    editingTaskId = task?.id?.takeIf { it > 0 }
+                                                    showTaskEditor = true
+                                                    showPlanEditor = false
+                                                },
+                                                onDeleteTask = { task ->
+                                                    if (task.calendarEventId != null && hasCalendarPermission(context)) {
+                                                        appScope.launch(Dispatchers.IO) {
+                                                            TaskCalendarSync(context).deleteTaskEvent(task.calendarEventId)
+                                                        }
+                                                    }
+                                                    viewModel.deleteTask(task)
+                                                },
+                                                onMarkComplete = viewModel::markTaskAsComplete,
+                                                onMarkIncomplete = viewModel::markTaskAsIncomplete
+                                            )
+                                        }
+                                    }
+
+                                    AppTab.Plans -> TaskScreen(
                                         modifier = Modifier.padding(padding),
-                                        tasks = uiState.incompleteTasks,
-                                        completedTasks = uiState.tasks.filter { it.isCompleted },
-                                        focusTaskId = focusedTaskId,
-                                        onFocusHandled = { focusedTaskId = null },
+                                        tasks = uiState.incompletePlans.map { it.toTaskEntityLike() },
+                                        completedTasks = uiState.plans.filter { it.isCompleted }.map { it.toTaskEntityLike() },
+                                        focusTaskId = focusedPlanId,
+                                        onFocusHandled = { focusedPlanId = null },
                                         onOpenTaskEditor = { task ->
-                                            editingTaskId = task?.id?.takeIf { it > 0 }
-                                            showTaskEditor = true
+                                            editingPlanId = task?.id?.takeIf { it > 0 }
+                                            showPlanEditor = true
+                                            showTaskEditor = false
                                         },
                                         onDeleteTask = { task ->
-                                            if (task.calendarEventId != null && hasCalendarPermission(context)) {
-                                                appScope.launch(Dispatchers.IO) {
-                                                    TaskCalendarSync(context).deleteTaskEvent(task.calendarEventId)
+                                            uiState.plans.firstOrNull { it.id == task.id }?.let { plan ->
+                                                if (plan.calendarEventId != null && hasCalendarPermission(context)) {
+                                                    appScope.launch(Dispatchers.IO) {
+                                                        TaskCalendarSync(context).deletePlanEvent(plan.calendarEventId)
+                                                    }
                                                 }
+                                                viewModel.deletePlan(plan)
                                             }
-                                            viewModel.deleteTask(task)
                                         },
-                                        onMarkComplete = viewModel::markTaskAsComplete,
-                                        onMarkIncomplete = viewModel::markTaskAsIncomplete
+                                        onMarkComplete = { task ->
+                                            uiState.plans.firstOrNull { it.id == task.id }?.let { viewModel.markPlanAsComplete(it) }
+                                        },
+                                        onMarkIncomplete = { task ->
+                                            uiState.plans.firstOrNull { it.id == task.id }?.let { viewModel.markPlanAsIncomplete(it) }
+                                        },
+                                        isPlan = true
                                     )
 
                                     AppTab.Timetable -> TimetableInputScreen(
@@ -663,7 +918,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                             } else {
                                 stringResource(R.string.app_name)
                             }
-                            val showTaskSyncAction = selectedTab == AppTab.Tasks && uiState.settings?.addTasksToCalendar == true
+                            val showTaskSyncAction = (selectedTab == AppTab.Tasks || selectedTab == AppTab.Plans) && uiState.settings?.addTasksToCalendar == true
 
                             Scaffold(
                                 snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
@@ -703,8 +958,16 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                 bottomBar = {
                                     if (!useDrawerNavigation) {
                                         NavigationBar {
+                                            val unifyTaskPlanView = uiState.settings?.unifyTaskPlanView ?: false
                                             AppTab.entries.forEach { tab ->
+                                                // 統合ビューが有効な場合、Plans タブを非表示
+                                                if (unifyTaskPlanView && tab == AppTab.Plans) return@forEach
+                                                
                                                 val isSelected = selectedTab == tab
+                                                val tabLabel = if (unifyTaskPlanView && tab == AppTab.Tasks)
+                                                    "ToDo"
+                                                else
+                                                    stringResource(tab.labelRes)
                                                 NavigationBarItem(
                                                     selected = isSelected,
                                                     onClick = {
@@ -717,10 +980,10 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                                     icon = {
                                                         Icon(
                                                             imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
-                                                            contentDescription = stringResource(tab.labelRes)
+                                                            contentDescription = tabLabel
                                                         )
                                                     },
-                                                    label = { Text(stringResource(tab.labelRes)) }
+                                                    label = { Text(tabLabel) }
                                                 )
                                             }
                                         }
@@ -739,7 +1002,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                 confirmButton = {
                                     TextButton(onClick = {
                                         showTaskCalendarSyncDialog = false
-                                        syncTasksToCalendarManually()
+                                        syncItemsToCalendarManually(selectedTab)
                                     }) {
                                         Text(stringResource(R.string.btn_ok))
                                     }
@@ -770,8 +1033,15 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
 
                                         AppTab.entries.forEach { tab ->
                                             val isSelected = selectedTab == tab
+                                            val unifyTaskPlanView = uiState.settings?.unifyTaskPlanView ?: false
+                                            // 統合ビューが有効な場合、Plans タブを非表示
+                                            if (unifyTaskPlanView && tab == AppTab.Plans) return@forEach
+                                            val tabLabel = if (unifyTaskPlanView && tab == AppTab.Tasks)
+                                                "ToDo"
+                                            else
+                                                stringResource(tab.labelRes)
                                             NavigationDrawerItem(
-                                                label = { Text(stringResource(tab.labelRes)) },
+                                                label = { Text(tabLabel) },
                                                 selected = isSelected,
                                                 colors = NavigationDrawerItemDefaults.colors(
                                                     selectedContainerColor = selectedTabHighlight
@@ -1627,7 +1897,9 @@ private fun OutputScreen(
     onShiftDate: (Long) -> Unit,
     onPickDate: (LocalDate) -> Unit,
     onOpenTask: (TaskEntity) -> Unit,
-    onExportWithPermission: (ExportRange) -> Unit
+    onOpenPlan: (PlanEntity) -> Unit,
+    onExportWithPermission: (ExportRange) -> Unit,
+    onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -1661,6 +1933,63 @@ private fun OutputScreen(
     }
 
     var showResultDatePicker by rememberSaveable { mutableStateOf(false) }
+    var showCustomExportDialog by rememberSaveable { mutableStateOf(false) }
+    var customExportStartMs by rememberSaveable { mutableStateOf(today.toEpochDay() * 86400_000L) }
+    var customExportEndMs by rememberSaveable { mutableStateOf(today.plusMonths(1).toEpochDay() * 86400_000L) }
+    var customExportPickingStart by rememberSaveable { mutableStateOf(true) }
+
+    if (showCustomExportDialog) {
+        val pickerState = rememberDatePickerState(
+            initialSelectedDateMillis = if (customExportPickingStart) customExportStartMs else customExportEndMs
+        )
+        DatePickerDialog(
+            onDismissRequest = { showCustomExportDialog = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    val selected = pickerState.selectedDateMillis ?: return@TextButton
+                    if (customExportPickingStart) {
+                        customExportStartMs = selected
+                        customExportPickingStart = false
+                        // 終了日のダイアログを続けて開く
+                    } else {
+                        customExportEndMs = selected
+                        showCustomExportDialog = false
+                        val start = java.time.Instant.ofEpochMilli(customExportStartMs)
+                            .atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+                        val end = java.time.Instant.ofEpochMilli(customExportEndMs)
+                            .atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+                        onExportWithPermission(ExportRange.Custom(start, end))
+                    }
+                }) {
+                    Text(if (customExportPickingStart) stringResource(R.string.btn_next) else stringResource(R.string.btn_ok))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    if (customExportPickingStart) {
+                        showCustomExportDialog = false
+                    } else {
+                        customExportPickingStart = true
+                    }
+                }) {
+                    Text(if (customExportPickingStart) stringResource(R.string.btn_cancel) else stringResource(R.string.btn_back))
+                }
+            }
+        ) {
+            DatePicker(
+                state = pickerState,
+                title = {
+                    Text(
+                        if (customExportPickingStart)
+                            stringResource(R.string.label_export_range_start)
+                        else
+                            stringResource(R.string.label_export_range_end),
+                        modifier = Modifier.padding(start = 24.dp, top = 16.dp, end = 24.dp, bottom = 0.dp)
+                    )
+                }
+            )
+        }
+    }
 
     LazyColumn(
         modifier = modifier
@@ -1780,11 +2109,14 @@ private fun OutputScreen(
                     dayType = dayType,
                     resolveLesson = resolveLesson,
                     tasks = state.tasks,
+                    plans = state.plans,
                     onOpenTask = onOpenTask,
+                    onOpenPlan = onOpenPlan,
                     classSlots = classSlots,
                     arrivalMin = arrivalMin,
                     departureMin = departureMin,
                     showCurrentTimeMarker = showCurrentTimeMarker,
+                    onAddFromLesson = onAddFromLesson,
                     modifier = swipeModifier
                 )
             } else {
@@ -1793,6 +2125,7 @@ private fun OutputScreen(
                     dayTypeForDate = dayTypeForDate,
                     resolveLesson = resolveLesson,
                     tasks = state.tasks,
+                    plans = state.plans,
                     classSlots = classSlots,
                     showCurrentTimeMarker = showCurrentTimeMarker,
                     onDayClick = { date ->
@@ -1810,8 +2143,13 @@ private fun OutputScreen(
                     Text(stringResource(R.string.label_calendar_export), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(stringResource(R.string.msg_download_skip), style = MaterialTheme.typography.bodySmall)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { onExportWithPermission(ExportRange.THIS_WEEK) }) { Text(stringResource(R.string.btn_export_this_week)) }
-                        OutlinedButton(onClick = { onExportWithPermission(ExportRange.ALL_TERM) }) { Text(stringResource(R.string.btn_export_all)) }
+                        Button(onClick = { onExportWithPermission(ExportRange.ThisWeek) }) { Text(stringResource(R.string.btn_export_this_week)) }
+                        OutlinedButton(onClick = {
+                            customExportPickingStart = true
+                            customExportStartMs = today.toEpochDay() * 86400_000L
+                            customExportEndMs = today.plusMonths(1).toEpochDay() * 86400_000L
+                            showCustomExportDialog = true
+                        }) { Text(stringResource(R.string.btn_export_custom)) }
                     }
                 }
             }
@@ -1819,26 +2157,104 @@ private fun OutputScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DayScheduleTable(
     date: LocalDate,
     dayType: DayType,
     resolveLesson: (LocalDate, Int) -> ResolvedLesson?,
     tasks: List<TaskEntity>,
+    plans: List<PlanEntity>,
     onOpenTask: (TaskEntity) -> Unit,
+    onOpenPlan: (PlanEntity) -> Unit,
     classSlots: List<ClassSlot> = CLASS_SLOTS,
     arrivalMin: Int? = null,
     departureMin: Int? = null,
     showCurrentTimeMarker: Boolean = false,
+    onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val today = remember { LocalDate.now() }
+    val hapticDaySchedule = LocalHapticFeedback.current
+    var lessonForAddDialog by remember { mutableStateOf<ResolvedLesson?>(null) }
+    val strAddFromLessonTitle = stringResource(R.string.dialog_add_from_lesson_title)
+    val strAddTask = stringResource(R.string.dialog_add_task_from_lesson)
+    val strAddPlan = stringResource(R.string.dialog_add_plan_from_lesson)
+    val strCancelDialog = stringResource(R.string.btn_cancel)
+    if (lessonForAddDialog != null) {
+        val lessonSnap = lessonForAddDialog!!
+        AlertDialog(
+            onDismissRequest = { lessonForAddDialog = null },
+            title = null,
+            text = {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                ) {
+                    Text(
+                        text = lessonSnap.subject,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (lessonSnap.teacher.isNotBlank()) {
+                        Text(
+                            text = lessonSnap.teacher,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = strAddFromLessonTitle,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Button(
+                            onClick = {
+                                lessonForAddDialog = null
+                                onAddFromLesson?.invoke(lessonSnap.subject, lessonSnap.teacher, false)
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text(strAddTask) }
+                        OutlinedButton(
+                            onClick = {
+                                lessonForAddDialog = null
+                                onAddFromLesson?.invoke(lessonSnap.subject, lessonSnap.teacher, true)
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text(strAddPlan) }
+                    }
+                    TextButton(
+                        onClick = { lessonForAddDialog = null },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text(strCancelDialog) }
+                }
+            }
+        )
+    }
     val currentTime = if (showCurrentTimeMarker) rememberCurrentTime() else null
+    val density = LocalDensity.current
+    val textMeasurer = rememberTextMeasurer()
     val dpPerMinute = 1.3f
     val timeColWidth = 52.dp
     val strLunchBreak = stringResource(R.string.label_lunch_break)
     val strNoLesson = stringResource(R.string.label_no_class_short)
     val strHasTask = stringResource(R.string.label_task_exists)
+    val strHasPlan = stringResource(R.string.label_plan_exists)
 
     data class TimeSegment(
         val startMin: Int,
@@ -1852,33 +2268,52 @@ private fun DayScheduleTable(
     fun formatMin(totalMin: Int) = "${totalMin / 60}:${(totalMin % 60).toString().padStart(2, '0')}"
 
     val dateTasks = tasks.filter { it.dueDate == date }
+    val datePlans = plans.filter { it.dueDate == date }
 
     data class DueTick(
         val minuteOfDay: Int,
         val title: String,
         val description: String?,
-        val task: TaskEntity
+        val task: TaskEntity? = null,
+        val plan: PlanEntity? = null,
+        val color: Color
     )
 
-    val outOfSlotDueTicks = dateTasks.mapNotNull { task ->
+    val taskDueTicks = dateTasks.mapNotNull { task ->
         val dueMinuteOfDay = task.dueHour * 60 + task.dueMinute
         val matchedSlots = classSlots.filter { slot ->
             val lesson = resolveLesson(date, slot.index)
             lesson != null && taskMatchesLesson(task, lesson)
         }
         if (matchedSlots.isEmpty()) {
-            // その日に対応授業がない → 提出期限をそのまま刻み目で表示
-            DueTick(dueMinuteOfDay, task.title, task.description?.trim()?.ifBlank { null }, task)
+            DueTick(dueMinuteOfDay, task.title, task.description?.trim()?.ifBlank { null }, task = task, color = MaterialTheme.colorScheme.error)
         } else {
             val overlapsAnyMatchedSlot = matchedSlots.any { slot ->
                 val slotStart = slot.start.hour * 60 + slot.start.minute
                 val slotEnd = slot.end.hour * 60 + slot.end.minute
                 dueMinuteOfDay in slotStart until slotEnd
             }
-            // 授業時間内の提出期限はカードに表示済みなので刻み目は不要
-            if (overlapsAnyMatchedSlot) null else DueTick(dueMinuteOfDay, task.title, task.description?.trim()?.ifBlank { null }, task)
+            if (overlapsAnyMatchedSlot) null else DueTick(dueMinuteOfDay, task.title, task.description?.trim()?.ifBlank { null }, task = task, color = MaterialTheme.colorScheme.error)
         }
     }
+    val planDueTicks = datePlans.mapNotNull { plan ->
+        val dueMinuteOfDay = plan.dueHour * 60 + plan.dueMinute
+        val matchedSlots = classSlots.filter { slot ->
+            val lesson = resolveLesson(date, slot.index)
+            lesson != null && planMatchesLesson(plan, lesson)
+        }
+        if (matchedSlots.isEmpty()) {
+            DueTick(dueMinuteOfDay, plan.title, plan.description?.trim()?.ifBlank { null }, plan = plan, color = MaterialTheme.colorScheme.primary)
+        } else {
+            val overlapsAnyMatchedSlot = matchedSlots.any { slot ->
+                val slotStart = slot.start.hour * 60 + slot.start.minute
+                val slotEnd = slot.end.hour * 60 + slot.end.minute
+                dueMinuteOfDay in slotStart until slotEnd
+            }
+            if (overlapsAnyMatchedSlot) null else DueTick(dueMinuteOfDay, plan.title, plan.description?.trim()?.ifBlank { null }, plan = plan, color = MaterialTheme.colorScheme.primary)
+        }
+    }
+    val outOfSlotDueTicks = (taskDueTicks + planDueTicks).sortedBy { it.minuteOfDay }
 
     val dayStartMin = arrivalMin
         ?: (classSlots.first().start.hour * 60 + classSlots.first().start.minute - 20).coerceAtLeast(0)
@@ -2067,9 +2502,22 @@ private fun DayScheduleTable(
             } else {
                 emptyList()
             }
+            val lessonPlans = if (lesson != null && slot != null) {
+                datePlans.filter { plan ->
+                    planMatchesLesson(plan, lesson) && run {
+                        val dueMinuteOfDay = plan.dueHour * 60 + plan.dueMinute
+                        val slotStart = slot.start.hour * 60 + slot.start.minute
+                        val slotEnd = slot.end.hour * 60 + slot.end.minute
+                        dueMinuteOfDay in slotStart until slotEnd
+                    }
+                }.sortedWith(compareBy<PlanEntity> { it.dueHour }.thenBy { it.dueMinute })
+            } else {
+                emptyList()
+            }
             val hasLessonTask = lessonTasks.isNotEmpty()
+            val hasLessonPlan = lessonPlans.isNotEmpty()
             val primaryTask = lessonTasks.firstOrNull()
-            val secondaryTask = lessonTasks.getOrNull(1)
+            val primaryPlan = lessonPlans.firstOrNull()
 
             Row(modifier = Modifier.fillMaxWidth().height(heightDp)) {
                 // 左: 時刻ラベル + 縦線
@@ -2127,7 +2575,7 @@ private fun DayScheduleTable(
                             )
                         }
                     }
-                    // 提出期限の赤い刻み目（左タイムライン上）
+                    // 提出期限の刻み目（課題: 赤 / 予定: 青）
                     sortedSegTicks.forEachIndexed { index, tick ->
                         val yOffset = adjustedDueOffsets.getOrElse(index) {
                             ((tick.minuteOfDay - seg.startMin).coerceAtLeast(0) * dpPerMinute)
@@ -2139,7 +2587,7 @@ private fun DayScheduleTable(
                             Text(
                                 text = formatMin(tick.minuteOfDay),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.error,
+                                color = tick.color,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.weight(1f)
                             )
@@ -2148,7 +2596,7 @@ private fun DayScheduleTable(
                                     .padding(end = 2.dp)
                                     .width(12.dp)
                                     .height(2.dp)
-                                    .background(MaterialTheme.colorScheme.error)
+                                    .background(tick.color)
                             )
                         }
                     }
@@ -2195,8 +2643,23 @@ private fun DayScheduleTable(
                 ) {
                     if (slot != null && !(lesson == null && segmentTicks.isNotEmpty())) {
                         Card(
-                            onClick = { primaryTask?.let(onOpenTask) },
-                            modifier = Modifier.fillMaxSize().offset(y = 8.dp),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .offset(y = 8.dp)
+                                .combinedClickable(
+                                    onClick = {
+                                        when {
+                                            primaryTask != null -> onOpenTask(primaryTask)
+                                            primaryPlan != null -> onOpenPlan(primaryPlan)
+                                        }
+                                    },
+                                    onLongClick = if (onAddFromLesson != null && lesson != null && lesson.subject.isNotBlank()) {
+                                        {
+                                            hapticDaySchedule.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            lessonForAddDialog = lesson
+                                        }
+                                    } else null
+                                ),
                             colors = CardDefaults.cardColors(
                                 containerColor = if (lesson != null)
                                     MaterialTheme.colorScheme.surfaceContainerLow
@@ -2240,9 +2703,26 @@ private fun DayScheduleTable(
                                                 )
                                             }
                                         }
+                                        if (hasLessonPlan) {
+                                            Surface(
+                                                shape = RoundedCornerShape(50),
+                                                color = MaterialTheme.colorScheme.primaryContainer
+                                            ) {
+                                                Text(
+                                                    text = strHasPlan,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
                                     }
                                     if (lesson != null) {
-                                        Column(horizontalAlignment = Alignment.End) {
+                                        Column(
+                                            horizontalAlignment = Alignment.End,
+                                            modifier = Modifier.padding(start = 12.dp)
+                                        ) {
                                             Text(lesson.teacher, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             if (!lesson.location.isNullOrBlank()) {
                                                 Text(lesson.location, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -2250,47 +2730,155 @@ private fun DayScheduleTable(
                                         }
                                     }
                                 }
-                                Column(
-                                    modifier = Modifier.align(Alignment.BottomStart),
-                                    verticalArrangement = Arrangement.Bottom
+                                BoxWithConstraints(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomStart)
+                                        .fillMaxWidth()
                                 ) {
-                                    Text(
-                                        text = lesson?.subject ?: strNoLesson,
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = if (lesson != null) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (lesson != null) MaterialTheme.colorScheme.onSurface
-                                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.fillMaxWidth(0.5f)
+                                    val hasLessonDetails = lessonTasks.isNotEmpty() || lessonPlans.isNotEmpty()
+                                    val subjectStyle = MaterialTheme.typography.titleLarge.copy(
+                                        fontWeight = if (lesson != null) FontWeight.Bold else FontWeight.Normal
                                     )
-                                }
-                                if (lessonTasks.isNotEmpty()) {
-                                    Column(
-                                        modifier = Modifier.align(Alignment.BottomEnd),
-                                        horizontalAlignment = Alignment.End,
-                                        verticalArrangement = Arrangement.Bottom
-                                    ) {
-                                        lessonTasks.take(2).forEach { task ->
-                                            Text(
-                                                text = task.title,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.error,
-                                                fontWeight = FontWeight.Bold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
+                                    val detailTitleStyle = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    val detailNoteStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp)
+                                    val subjectMinWidth = with(density) {
+                                        textMeasurer.measure(
+                                            text = "あああ",
+                                            style = subjectStyle,
+                                            maxLines = 1
+                                        ).size.width.toDp()
+                                    } + 4.dp
+                                    val lessonDetailsMinWidth = 88.dp
+                                    val contentGap = if (hasLessonDetails) 8.dp else 0.dp
+                                    val availableContentWidth = (maxWidth - contentGap).coerceAtLeast(0.dp)
+
+                                    fun measureWidth(text: String, isNote: Boolean = false): Dp = with(density) {
+                                        textMeasurer.measure(
+                                            text = text,
+                                            style = if (isNote) detailNoteStyle else detailTitleStyle,
+                                            maxLines = if (isNote) 2 else 1
+                                        ).size.width.toDp()
+                                    }
+
+                                    val subjectPreferredWidth = with(density) {
+                                        textMeasurer.measure(
+                                            text = lesson?.subject ?: strNoLesson,
+                                            style = subjectStyle,
+                                            maxLines = 1
+                                        ).size.width.toDp()
+                                    }.coerceAtLeast(subjectMinWidth)
+
+                                    val lessonDetailCandidates = buildList<Dp> {
+                                        lessonTasks.take(2).forEach { add(measureWidth(it.title)) }
+                                        primaryTask?.description?.trim()?.takeIf { it.isNotBlank() }?.let {
+                                            add(measureWidth(it, isNote = true))
                                         }
-                                        val primaryNote = primaryTask?.description?.trim().orEmpty()
-                                        if (primaryNote.isNotBlank()) {
-                                            Text(
-                                                text = primaryNote,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.error,
-                                                maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis,
-                                                fontSize = 10.sp
-                                            )
+                                        lessonPlans.take(2).forEach { add(measureWidth(it.title)) }
+                                        primaryPlan?.description?.trim()?.takeIf { it.isNotBlank() }?.let {
+                                            add(measureWidth(it, isNote = true))
+                                        }
+                                    }
+                                    val lessonDetailsPreferredWidth = lessonDetailCandidates
+                                        .maxOrNull()
+                                        ?.coerceAtLeast(lessonDetailsMinWidth)
+                                        ?: 0.dp
+                                    val resolvedLessonDetailsMinWidth = lessonDetailsMinWidth
+                                        .coerceAtMost((availableContentWidth * 0.4f).coerceAtLeast(72.dp))
+
+                                    val lessonDetailsWidth = if (!hasLessonDetails) {
+                                        0.dp
+                                    } else if (subjectPreferredWidth + lessonDetailsPreferredWidth <= availableContentWidth) {
+                                        lessonDetailsPreferredWidth
+                                    } else if (subjectPreferredWidth + resolvedLessonDetailsMinWidth <= availableContentWidth) {
+                                        (availableContentWidth - subjectPreferredWidth)
+                                            .coerceAtLeast(resolvedLessonDetailsMinWidth)
+                                    } else {
+                                        resolvedLessonDetailsMinWidth
+                                    }
+
+                                    val subjectWidth = if (!hasLessonDetails) {
+                                        maxWidth
+                                    } else {
+                                        (availableContentWidth - lessonDetailsWidth)
+                                            .coerceAtLeast(subjectMinWidth)
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.Bottom
+                                    ) {
+                                        Text(
+                                            text = lesson?.subject ?: strNoLesson,
+                                            style = MaterialTheme.typography.titleLarge,
+                                            fontWeight = if (lesson != null) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (lesson != null) MaterialTheme.colorScheme.onSurface
+                                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier
+                                                .width(subjectWidth)
+                                                .padding(end = contentGap)
+                                        )
+                                        if (hasLessonDetails) {
+                                            Column(
+                                                modifier = Modifier.width(lessonDetailsWidth),
+                                                horizontalAlignment = Alignment.End,
+                                                verticalArrangement = Arrangement.Bottom
+                                            ) {
+                                                lessonTasks.take(2).forEach { task ->
+                                                    Text(
+                                                        text = task.title,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.error,
+                                                        fontWeight = FontWeight.Bold,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                        textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                                        modifier = Modifier.fillMaxWidth()
+                                                    )
+                                                }
+                                                val primaryNote = primaryTask?.description?.trim().orEmpty()
+                                                if (primaryNote.isNotBlank()) {
+                                                    Text(
+                                                        text = primaryNote,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.error,
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                        fontSize = 10.sp,
+                                                        textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                                        modifier = Modifier.fillMaxWidth()
+                                                    )
+                                                }
+                                                lessonPlans.take(2).forEach { plan ->
+                                                    Text(
+                                                        text = plan.title,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        fontWeight = FontWeight.Bold,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                        textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                                        modifier = Modifier.fillMaxWidth()
+                                                    )
+                                                }
+                                                val primaryPlanNote = primaryPlan?.description?.trim().orEmpty()
+                                                if (primaryPlanNote.isNotBlank()) {
+                                                    Text(
+                                                        text = primaryPlanNote,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                        fontSize = 10.sp,
+                                                        textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                                        modifier = Modifier.fillMaxWidth()
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -2318,12 +2906,15 @@ private fun DayScheduleTable(
                             modifier = Modifier
                                 .align(Alignment.TopStart)
                                 .offset(y = yOffset)
-                                .clickable { onOpenTask(tick.task) }
+                                .clickable {
+                                    tick.task?.let(onOpenTask)
+                                    tick.plan?.let(onOpenPlan)
+                                }
                         ) {
                             Text(
                                 text = tick.title,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.error,
+                                color = tick.color,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -2332,7 +2923,7 @@ private fun DayScheduleTable(
                                 Text(
                                     text = tick.description,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.error,
+                                    color = tick.color,
                                     fontSize = 10.sp,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis
@@ -2377,6 +2968,7 @@ private fun WeekScheduleTable(
     dayTypeForDate: (LocalDate) -> DayType,
     resolveLesson: (LocalDate, Int) -> ResolvedLesson?,
     tasks: List<TaskEntity>,
+    plans: List<PlanEntity>,
     classSlots: List<ClassSlot> = CLASS_SLOTS,
     showCurrentTimeMarker: Boolean = false,
     onDayClick: (LocalDate) -> Unit = {},
@@ -2474,6 +3066,9 @@ private fun WeekScheduleTable(
                     val hasTask = lesson != null && tasks.any { task ->
                         task.dueDate == date && taskMatchesLesson(task, lesson)
                     }
+                    val hasPlan = lesson != null && plans.any { plan ->
+                        plan.dueDate == date && planMatchesLesson(plan, lesson)
+                    }
                     val bgColor = if (lesson != null) MaterialTheme.colorScheme.surfaceContainerLow
                                   else MaterialTheme.colorScheme.surfaceContainer
                     val contentColor = if (lesson != null) MaterialTheme.colorScheme.onSurface
@@ -2505,13 +3100,23 @@ private fun WeekScheduleTable(
                                             maxLines = 3,
                                             overflow = TextOverflow.Ellipsis
                                         )
-                                        if (hasTask) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .width(8.dp)
-                                                    .height(8.dp)
-                                                    .background(MaterialTheme.colorScheme.error, RoundedCornerShape(50))
-                                            )
+                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            if (hasTask) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .width(8.dp)
+                                                        .height(8.dp)
+                                                        .background(MaterialTheme.colorScheme.error, RoundedCornerShape(50))
+                                                )
+                                            }
+                                            if (hasPlan) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .width(8.dp)
+                                                        .height(8.dp)
+                                                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(50))
+                                                )
+                                            }
                                         }
                                     }
                                     Column(
@@ -2562,6 +3167,119 @@ private fun taskMatchesLesson(task: TaskEntity, lesson: ResolvedLesson): Boolean
     val lessonSubject = lesson.subject.trim()
     if (taskSubject.isBlank() || lessonSubject.isBlank()) return false
     return taskSubject.equals(lessonSubject, ignoreCase = true)
+}
+
+private fun planMatchesLesson(plan: PlanEntity, lesson: ResolvedLesson): Boolean {
+    val planSubject = plan.subject.trim()
+    val lessonSubject = lesson.subject.trim()
+    if (planSubject.isBlank() || lessonSubject.isBlank()) return false
+    return planSubject.equals(lessonSubject, ignoreCase = true)
+}
+
+private fun PlanEntity.toTaskEntityLike(): TaskEntity = TaskEntity(
+    id = id,
+    lessonId = lessonId,
+    subject = subject,
+    teacher = teacher,
+    title = title,
+    description = description,
+    dueDate = dueDate,
+    dueHour = dueHour,
+    dueMinute = dueMinute,
+    isCompleted = isCompleted,
+    completedDate = completedDate,
+    createdDate = createdDate,
+    priority = priority,
+    useTeacherMatching = useTeacherMatching,
+    calendarEventId = calendarEventId
+)
+
+private fun TaskEntity.toPlanEntityLike(existing: PlanEntity? = null): PlanEntity = PlanEntity(
+    id = existing?.id ?: id,
+    lessonId = lessonId,
+    subject = subject,
+    teacher = teacher,
+    title = title,
+    description = description,
+    dueDate = dueDate,
+    dueHour = dueHour,
+    dueMinute = dueMinute,
+    isCompleted = existing?.isCompleted ?: isCompleted,
+    completedDate = existing?.completedDate ?: completedDate,
+    createdDate = existing?.createdDate ?: createdDate,
+    priority = priority,
+    useTeacherMatching = useTeacherMatching,
+    calendarEventId = existing?.calendarEventId ?: calendarEventId
+)
+
+@Composable
+private fun UnifiedTaskPlanScreen(
+    modifier: Modifier = Modifier,
+    uiState: SchedulerUiState,
+    onOpenTask: (TaskEntity) -> Unit,
+    onDeleteTask: (TaskEntity) -> Unit,
+    onMarkTaskComplete: (TaskEntity) -> Unit,
+    onMarkTaskIncomplete: (TaskEntity) -> Unit,
+    onOpenPlan: (PlanEntity) -> Unit,
+    onDeletePlan: (PlanEntity) -> Unit,
+    onMarkPlanComplete: (PlanEntity) -> Unit,
+    onMarkPlanIncomplete: (PlanEntity) -> Unit
+) {
+    var selectedTabIndex by remember { mutableStateOf(0) }
+    val tabs = listOf(
+        stringResource(R.string.tab_tasks) to 0,
+        stringResource(R.string.tab_plans) to 1
+    )
+
+    Column(modifier = modifier.fillMaxSize()) {
+        TabRow(selectedTabIndex = selectedTabIndex) {
+            tabs.forEach { (label, index) ->
+                Tab(
+                    selected = selectedTabIndex == index,
+                    onClick = { selectedTabIndex = index },
+                    text = { Text(label) }
+                )
+            }
+        }
+
+        when (selectedTabIndex) {
+            0 -> TaskScreen(
+                modifier = Modifier.fillMaxSize(),
+                tasks = uiState.incompleteTasks,
+                completedTasks = uiState.tasks.filter { it.isCompleted },
+                focusTaskId = null,
+                onFocusHandled = {},
+                onOpenTaskEditor = { task: TaskEntity? ->
+                    task?.let { onOpenTask(it) }
+                },
+                onDeleteTask = onDeleteTask,
+                onMarkComplete = onMarkTaskComplete,
+                onMarkIncomplete = onMarkTaskIncomplete
+            )
+            1 -> TaskScreen(
+                modifier = Modifier.fillMaxSize(),
+                tasks = uiState.incompletePlans.map { it.toTaskEntityLike() },
+                completedTasks = uiState.plans.filter { it.isCompleted }.map { it.toTaskEntityLike() },
+                focusTaskId = null,
+                onFocusHandled = {},
+                onOpenTaskEditor = { task: TaskEntity? ->
+                    task?.let { taskLike ->
+                        uiState.plans.firstOrNull { it.id == taskLike.id }?.let { onOpenPlan(it) }
+                    }
+                },
+                onDeleteTask = { task ->
+                    uiState.plans.firstOrNull { it.id == task.id }?.let { onDeletePlan(it) }
+                },
+                onMarkComplete = { task ->
+                    uiState.plans.firstOrNull { it.id == task.id }?.let { onMarkPlanComplete(it) }
+                },
+                onMarkIncomplete = { task ->
+                    uiState.plans.firstOrNull { it.id == task.id }?.let { onMarkPlanIncomplete(it) }
+                },
+                isPlan = true
+            )
+        }
+    }
 }
 
 @Composable

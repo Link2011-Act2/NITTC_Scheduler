@@ -65,6 +65,7 @@ fun SettingsScreen(
     onToggleDrawerNavigation: (Boolean) -> Unit,
     onToggleAddTasksToCalendar: (Boolean) -> Unit,
     onToggleCurrentTimeMarker: (Boolean) -> Unit,
+    onToggleUnifyTaskPlanView: (Boolean) -> Unit,
     onUpdateScheduleSettings: (periodsPerDay: Int, periodDurationMin: Int, breakBetweenPeriodsMin: Int, lunchBreakMin: Int, lunchAfterPeriod: Int, startHour: Int, startMinute: Int, useKosenMode: Boolean, arrivalHour: Int, arrivalMinute: Int, departureHour: Int, departureMinute: Int) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _ -> },
     onExportAllAsJson: suspend () -> String = { "{}" },
     onImportAllFromJson: (String) -> Unit = {}
@@ -73,6 +74,7 @@ fun SettingsScreen(
     val enabledDrawerNavigation = state.settings?.useDrawerNavigation ?: false
     val enabledTaskCalendarSync = state.settings?.addTasksToCalendar ?: false
     val enabledCurrentTimeMarker = state.settings?.showCurrentTimeMarker ?: false
+    val enabledUnifyTaskPlanView = state.settings?.unifyTaskPlanView ?: false
     var expandTimetableSettings by rememberSaveable { mutableStateOf(true) }
     var showLocalAiWarningDialog by remember { mutableStateOf(false) }
     val s = state.settings
@@ -345,31 +347,6 @@ fun SettingsScreen(
                         ) {
                             Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
                                 Text(
-                                    stringResource(R.string.label_use_hamburger_navigation),
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    stringResource(R.string.desc_use_hamburger_navigation),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Switch(
-                                checked = enabledDrawerNavigation,
-                                onCheckedChange = onToggleDrawerNavigation
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
-                                Text(
                                     stringResource(R.string.label_add_tasks_to_calendar),
                                     style = MaterialTheme.typography.bodyLarge,
                                     fontWeight = FontWeight.SemiBold
@@ -408,6 +385,56 @@ fun SettingsScreen(
                             Switch(
                                 checked = enabledCurrentTimeMarker,
                                 onCheckedChange = onToggleCurrentTimeMarker
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                                Text(
+                                    stringResource(R.string.label_use_hamburger_navigation),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    stringResource(R.string.desc_use_hamburger_navigation),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = enabledDrawerNavigation,
+                                onCheckedChange = onToggleDrawerNavigation
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                                Text(
+                                    stringResource(R.string.label_unify_task_plan_view),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    stringResource(R.string.desc_unify_task_plan_view),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = enabledUnifyTaskPlanView,
+                                onCheckedChange = onToggleUnifyTaskPlanView
                             )
                         }
 

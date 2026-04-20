@@ -96,7 +96,11 @@
     <string name="btn_apply_to_period">この期間で反映</string>
     <string name="btn_back_to_original">今年度に戻す</string>
     <string name="btn_export_this_week">今週のみ追加</string>
-    <string name="btn_export_all">全部追加</string>
+    <string name="btn_export_custom">期間を指定して追加</string>
+    <string name="btn_back">戻る</string>
+    <string name="btn_next">次へ</string>
+    <string name="label_export_range_start">開始日を選択</string>
+    <string name="label_export_range_end">終了日を選択</string>
     <string name="btn_paste">貼り付け</string>
 
     <!-- Screen Titles -->
@@ -187,18 +191,23 @@
     <string name="tab_calendar">カレンダー</string>
     <string name="tab_import">インポート</string>
     <string name="tab_tasks">課題</string>
+    <string name="tab_plans">予定</string>
 
     <!-- Task Management -->
     <string name="section_task_basic">基本情報</string>
     <string name="section_task_subject">教科・担当教員</string>
     <string name="section_task_due">期限</string>
     <string name="placeholder_task_title">課題のタイトルを入力</string>
+    <string name="placeholder_plan_title">予定のタイトルを入力</string>
     <string name="placeholder_task_description">説明を入力（オプション）</string>
     <string name="title_add_task">課題を追加</string>
     <string name="title_edit_task">課題を編集</string>
+    <string name="title_add_plan">予定を追加</string>
+    <string name="title_edit_plan">予定を編集</string>
     <string name="label_task_subject">教科</string>
     <string name="label_task_teacher">担当教員</string>
     <string name="label_task_title">課題内容</string>
+    <string name="label_plan_title">予定内容</string>
     <string name="label_task_description">説明（オプション）</string>
     <string name="label_task_due_date">期限</string>
     <string name="label_task_priority">優先度</string>
@@ -213,12 +222,14 @@
     <string name="label_task_priority_low">低</string>
     <string name="label_completed_tasks">完了済み課題</string>
     <string name="label_incomplete_tasks">未完了課題</string>
+    <string name="label_incomplete_plans">未完了予定</string>
     <string name="msg_task_no_lessons">確認できるレッスンがありません</string>
     <string name="msg_task_saved">課題を保存しました</string>
     <string name="msg_task_deleted">課題を削除しました</string>
     <string name="msg_task_completed">課題を完了しました</string>
     <string name="msg_task_incomplete">課題を未完了に戻しました</string>
     <string name="msg_task_no_tasks">課題がありません</string>
+    <string name="msg_plan_no_plans">予定がありません</string>
     <string name="btn_mark_complete">完了</string>
     <string name="btn_mark_incomplete">未完了に</string>
     <string name="btn_edit_task">編集</string>
@@ -226,10 +237,17 @@
     <string name="section_task_today_count">今日が期限 (%d)</string>
     <string name="section_task_upcoming_count">今後の期限 (%d)</string>
     <string name="label_task_due_overdue_days">%d日遅れ</string>
+    <string name="label_task_due_overdue_hours">%d時間遅れ</string>
     <string name="label_task_due_today">今日まで</string>
+    <string name="label_task_due_tomorrow">明日</string>
     <string name="label_task_due_remaining_days">後%d日</string>
     <string name="label_task_exists">課題あり</string>
+    <string name="label_plan_exists">予定あり</string>
+    <string name="dialog_add_from_lesson_title">授業から追加</string>
+    <string name="dialog_add_task_from_lesson">課題を追加</string>
+    <string name="dialog_add_plan_from_lesson">予定を追加</string>
     <string name="dialog_task_delete_title">課題を削除</string>
+    <string name="dialog_plan_delete_title">予定を削除</string>
     <string name="dialog_task_delete_message">「%1$s」を削除しますか？</string>
 
     <!-- Tab Labels (actual app tabs) -->
@@ -256,6 +274,8 @@
     <string name="label_start_date_plain">開始日</string>
     <string name="label_end_date_plain">終了日</string>
     <string name="label_due_time">期限時刻</string>
+    <string name="btn_prev_lesson">前回授業</string>
+    <string name="btn_next_lesson">次回授業</string>
 
     <!-- Schedule Table -->
     <string name="label_lunch_break">昼休み</string>
@@ -263,8 +283,8 @@
     <!-- Settings: Timetable Settings Section -->
     <string name="section_timetable_settings">時間割設定</string>
     <string name="label_koshi_notation">校時表記</string>
-    <string name="mode_kosen">高専モード（1/2校時）</string>
-    <string name="mode_regular">普通校モード（1校時）</string>
+    <string name="mode_kosen">高専（1/2校時）</string>
+    <string name="mode_regular">普通校（1校時）</string>
     <string name="label_periods_per_day">1日の授業コマ数</string>
     <string name="unit_period">コマ</string>
     <string name="label_period_duration">1コマの授業時間</string>
@@ -283,11 +303,13 @@
     <string name="section_navigation_settings">ナビゲーション設定</string>
     <string name="label_use_hamburger_navigation">実験的UIを使用</string>
     <string name="desc_use_hamburger_navigation">下部ナビゲーションバーは非表示になり、左上のハンバーガーメニューから切り替える方式になります</string>
-    <string name="label_add_tasks_to_calendar">課題をカレンダーに追加する</string>
-    <string name="desc_add_tasks_to_calendar">課題の追加・編集時に端末カレンダーへ自動で反映します</string>
+    <string name="label_add_tasks_to_calendar">課題をカレンダーと連携</string>
+    <string name="desc_add_tasks_to_calendar">課題・予定を端末のカレンダーに自動で追加します</string>
     <string name="label_show_current_time_marker">現在時刻マーカーを表示</string>
     <string name="desc_show_current_time_marker">時間割画面に現在時刻の表示を追加します</string>
     <string name="section_experimental">実験的機能 (Experimental)</string>
+    <string name="label_unify_task_plan_view">ToDo タブを有効化</string>
+    <string name="desc_unify_task_plan_view">「課題」「予定」タブを一つのタブに統合します</string>
     <string name="label_local_ai_import">AI画像インポート</string>
     <string name="desc_local_ai_import">スマホ内でローカルAIを動かし、時間割の画像から自動でインポートすることができます。\n⚠️非常に大きな負荷がかかるため、機種によってはアプリがクラッシュする可能性があります</string>
     <string name="section_data_transfer">設定データの移行</string>
@@ -333,6 +355,7 @@
 
     <!-- Task Screen: Completed Tasks -->
     <string name="section_completed_tasks_count">完了済み課題 (%d)</string>
+    <string name="section_completed_plans_count">完了済み予定 (%d)</string>
     <string name="label_completed_date">完了: %s</string>
     <string name="label_due_date">期限</string>
 
@@ -340,17 +363,18 @@
     <string name="desc_teacher_matching">有効な場合: 学科と教師の組み合わせで検索\n無効な場合: 学科のみで検索</string>
     <string name="msg_no_calendar_permission">カレンダー権限がないため出力できませんでした。</string>
     <string name="msg_task_calendar_auto_disabled">カレンダー権限がないため、自動追加はオフのままです。</string>
-    <string name="msg_task_calendar_sync_skipped">カレンダー権限がないため、課題の自動同期は行われませんでした。</string>
-    <string name="cd_sync_tasks_to_calendar">課題をカレンダーに同期</string>
-    <string name="dialog_sync_tasks_to_calendar_title">課題をカレンダーに同期</string>
-    <string name="dialog_sync_tasks_to_calendar_message">現在の課題を端末カレンダーに手動で同期します。続行しますか？</string>
+    <string name="msg_task_calendar_sync_skipped">カレンダー権限がないため、課題・予定の自動同期は行われませんでした。</string>
+    <string name="cd_sync_tasks_to_calendar">カレンダーに同期</string>
+    <string name="dialog_sync_tasks_to_calendar_title">カレンダーに同期</string>
+    <string name="dialog_sync_tasks_to_calendar_message">現在の課題または予定を端末カレンダーに手動で同期します。続行しますか？</string>
     <string name="btn_ok">OK</string>
-    <string name="msg_no_tasks_to_sync">同期する課題がありません。</string>
-    <string name="msg_tasks_synced_to_calendar">%1$d件の課題をカレンダーに同期しました。</string>
+    <string name="msg_no_tasks_to_sync">同期する課題・予定がありません。</string>
+    <string name="msg_tasks_synced_to_calendar">%1$d件の課題・予定をカレンダーに同期しました。</string>
 
     <!-- Missing strings -->
     <string name="settings_title">設定</string>
     <string name="cd_add_task">課題を追加</string>
+    <string name="cd_add_plan">予定を追加</string>
     <string name="cd_open_navigation_menu">ナビゲーションメニューを開く</string>
     <string name="label_no_model_selected">選択なし</string>
     <string name="cd_settings">設定</string>

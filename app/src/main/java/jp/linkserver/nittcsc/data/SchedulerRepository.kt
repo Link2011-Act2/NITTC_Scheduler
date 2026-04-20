@@ -18,7 +18,7 @@ class SchedulerRepository(private val db: AppDatabase) {
     private val dao: SchedulerDao = db.schedulerDao()
 
     companion object {
-        private const val CURRENT_EXPORT_VERSION = 2
+        private const val CURRENT_EXPORT_VERSION = 4
         private const val MIN_SUPPORTED_IMPORT_VERSION = 1
     }
 
@@ -28,6 +28,8 @@ class SchedulerRepository(private val db: AppDatabase) {
     val lessonsFlow: Flow<List<LessonEntity>> = dao.observeLessons()
     val tasksFlow: Flow<List<TaskEntity>> = dao.observeTasks()
     val incompleteTasksFlow: Flow<List<TaskEntity>> = dao.observeIncompleteTasks()
+    val plansFlow: Flow<List<PlanEntity>> = dao.observePlans()
+    val incompletePlansFlow: Flow<List<PlanEntity>> = dao.observeIncompletePlans()
 
     suspend fun initialize(today: LocalDate = LocalDate.now()) {
         if (dao.getSettings() == null) {
@@ -106,6 +108,11 @@ class SchedulerRepository(private val db: AppDatabase) {
     suspend fun toggleCurrentTimeMarker(enabled: Boolean) {
         val current = dao.getSettings() ?: return
         dao.upsertSettings(current.copy(showCurrentTimeMarker = enabled))
+    }
+
+    suspend fun toggleUnifyTaskPlanView(enabled: Boolean) {
+        val current = dao.getSettings() ?: return
+        dao.upsertSettings(current.copy(unifyTaskPlanView = enabled))
     }
 
     suspend fun updateHfToken(token: String?) {
@@ -206,11 +213,17 @@ class SchedulerRepository(private val db: AppDatabase) {
         val lessons = dao.getLessonsOnce().associateBy { it.dayOfWeek to it.slotIndex }
 
         val dateBounds = when (range) {
-            ExportRange.ALL_TERM -> settings.termStart..settings.termEnd
-            ExportRange.THIS_WEEK -> {
-                val weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
-                val weekEnd = today.with(TemporalAdjusters.nextOrSame(DayOfWeek.FRIDAY))
-                maxOf(weekStart, settings.termStart)..minOf(weekEnd, settings.termEnd)
+            is ExportRange.Custom -> range.start..range.end
+            is ExportRange.ThisWeek -> {
+                // 週表示でも過去日は含めない:
+                // 平日: 今日〜今週金曜 / 土日: 次週月曜〜次週金曜
+                val startDate = when (today.dayOfWeek) {
+                    DayOfWeek.SATURDAY, DayOfWeek.SUNDAY -> today.with(TemporalAdjusters.next(DayOfWeek.MONDAY))
+                    else -> today
+                }
+                val weekStart = startDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+                val weekEnd = weekStart.plusDays(4)
+                maxOf(startDate, settings.termStart)..minOf(weekEnd, settings.termEnd)
             }
         }
 
@@ -363,6 +376,55 @@ class SchedulerRepository(private val db: AppDatabase) {
         dao.upsertTask(task.copy(isCompleted = false, completedDate = null))
     }
 
+    // Plan管理メソッド
+
+    suspend fun upsertPlan(plan: PlanEntity) {
+        dao.upsertPlan(plan)
+    }
+
+    suspend fun upsertPlans(plans: List<PlanEntity>) {
+        if (plans.isEmpty()) return
+        dao.upsertPlans(plans)
+    }
+
+    suspend fun getPlanById(id: Long): PlanEntity? {
+        return dao.getPlanById(id)
+    }
+
+    suspend fun getPlansByDate(date: LocalDate): List<PlanEntity> {
+        return dao.getPlansByDate(date)
+    }
+
+    suspend fun getPlansInRange(fromDate: LocalDate, toDate: LocalDate): List<PlanEntity> {
+        return dao.getPlansInRange(fromDate, toDate)
+    }
+
+    suspend fun getIncompletePlansOnce(): List<PlanEntity> {
+        return dao.getIncompletePlansOnce()
+    }
+
+    suspend fun getPlansByLessonId(lessonId: Long): List<PlanEntity> {
+        return dao.getPlansByLessonId(lessonId)
+    }
+
+    suspend fun deletePlan(planId: Long) {
+        dao.deletePlan(planId)
+    }
+
+    suspend fun deletePlansByLessonId(lessonId: Long) {
+        dao.deletePlansByLessonId(lessonId)
+    }
+
+    suspend fun markPlanAsComplete(planId: Long, completedDate: LocalDate = LocalDate.now()) {
+        val plan = dao.getPlanById(planId) ?: return
+        dao.upsertPlan(plan.copy(isCompleted = true, completedDate = completedDate))
+    }
+
+    suspend fun markPlanAsIncomplete(planId: Long) {
+        val plan = dao.getPlanById(planId) ?: return
+        dao.upsertPlan(plan.copy(isCompleted = false, completedDate = null))
+    }
+
     /**
      * targetDateのためにlessonIdで学科と教師を解決するか、
      * 課題のuseTeacherMatchingフラグに基づいて決定
@@ -429,9 +491,121 @@ class SchedulerRepository(private val db: AppDatabase) {
         subject: String,
         teacher: String?,
         useTeacherMatching: Boolean,
-        fromDate: LocalDate = LocalDate.now()
+        fromDate: LocalDate = LocalDate.now(),
+        fromTime: LocalTime = LocalTime.now()
     ): Pair<LocalDate, LocalTime>? {
         val settings = dao.getSettings() ?: return null
+        val strictTeacherMatching = useTeacherMatching && !teacher.isNullOrBlank()
+
+        val slots = generateClassSlots(
+            periodsPerDay = settings.periodsPerDay,
+            periodDurationMin = settings.periodDurationMin,
+            breakBetweenPeriodsMin = settings.breakBetweenPeriodsMin,
+            lunchBreakMin = settings.lunchBreakMin,
+            firstPeriodStartHour = settings.firstPeriodStartHour,
+            firstPeriodStartMinute = settings.firstPeriodStartMinute,
+            useKosenMode = settings.useKosenMode,
+            lunchAfterPeriod = settings.lunchAfterPeriod
+        )
+
+        suspend fun search(requireTeacherMatch: Boolean): Pair<LocalDate, LocalTime>? {
+            for (date in fromDate.toDateRange(settings.termEnd)) {
+                if (date.dayOfWeek.value !in 1..5) continue
+
+                val dayType = dao.getDayType(date)?.dayType ?: DayType.A
+                if (dayType == DayType.HOLIDAY) continue
+
+                for (slot in slots) {
+                    if (date == fromDate && slot.start < fromTime) continue
+                    val slotIndex = slot.index
+                    val lesson = dao.getLesson(date.dayOfWeek.value, slotIndex) ?: continue
+                    val resolved = resolveLesson(dayType, lesson) ?: continue
+
+                    val matches = lessonMatchesSearch(
+                        resolved = resolved,
+                        subject = subject,
+                        teacher = teacher,
+                        requireTeacherMatch = requireTeacherMatch
+                    )
+
+                    if (matches) return date to slot.start
+                }
+            }
+            return null
+        }
+
+        return search(strictTeacherMatching) ?: if (strictTeacherMatching) search(false) else null
+    }
+
+    suspend fun calculatePreviousLessonDateTime(
+        subject: String,
+        teacher: String?,
+        useTeacherMatching: Boolean,
+        fromDate: LocalDate = LocalDate.now(),
+        currentTime: LocalTime = LocalTime.now()
+    ): Pair<LocalDate, LocalTime>? {
+        val settings = dao.getSettings() ?: return null
+        val strictTeacherMatching = useTeacherMatching && !teacher.isNullOrBlank()
+
+        val slots = generateClassSlots(
+            periodsPerDay = settings.periodsPerDay,
+            periodDurationMin = settings.periodDurationMin,
+            breakBetweenPeriodsMin = settings.breakBetweenPeriodsMin,
+            lunchBreakMin = settings.lunchBreakMin,
+            firstPeriodStartHour = settings.firstPeriodStartHour,
+            firstPeriodStartMinute = settings.firstPeriodStartMinute,
+            useKosenMode = settings.useKosenMode,
+            lunchAfterPeriod = settings.lunchAfterPeriod
+        )
+
+        suspend fun search(requireTeacherMatch: Boolean): Pair<LocalDate, LocalTime>? {
+            var date = fromDate
+            while (date >= settings.termStart) {
+                if (date.dayOfWeek.value !in 1..5) {
+                    date = date.minusDays(1)
+                    continue
+                }
+
+                val dayType = dao.getDayType(date)?.dayType ?: DayType.A
+                if (dayType == DayType.HOLIDAY) {
+                    date = date.minusDays(1)
+                    continue
+                }
+
+                for (slot in slots.sortedByDescending { it.index }) {
+                    if (date == fromDate && slot.start >= currentTime) continue
+                    val slotIndex = slot.index
+                    val lesson = dao.getLesson(date.dayOfWeek.value, slotIndex) ?: continue
+                    val resolved = resolveLesson(dayType, lesson) ?: continue
+
+                    val matches = lessonMatchesSearch(
+                        resolved = resolved,
+                        subject = subject,
+                        teacher = teacher,
+                        requireTeacherMatch = requireTeacherMatch
+                    )
+
+                    if (matches) return date to slot.start
+                }
+
+                date = date.minusDays(1)
+            }
+
+            return null
+        }
+
+        return search(strictTeacherMatching) ?: if (strictTeacherMatching) search(false) else null
+    }
+
+    suspend fun calculateNextLessonDateTimeSkipCurrent(
+        subject: String,
+        teacher: String?,
+        useTeacherMatching: Boolean,
+        fromDate: LocalDate = LocalDate.now(),
+        currentTime: LocalTime = LocalTime.now()
+    ): Pair<LocalDate, LocalTime>? {
+        val settings = dao.getSettings() ?: return null
+        val strictTeacherMatching = useTeacherMatching && !teacher.isNullOrBlank()
 
         val slots = generateClassSlots(
             periodsPerDay = settings.periodsPerDay,
@@ -444,34 +618,65 @@ class SchedulerRepository(private val db: AppDatabase) {
             lunchAfterPeriod = settings.lunchAfterPeriod
         )
         
-        for (date in fromDate.toDateRange(settings.termEnd)) {
-            // 平日かどうかチェック
-            if (date.dayOfWeek.value !in 1..5) continue
-            
-            // 休日かどうかチェック
-            val dayType = dao.getDayType(date)?.dayType ?: DayType.A
-            if (dayType == DayType.HOLIDAY) continue
-            
-            // その日のすべてのスロットを検索
-            for (slot in slots) {
-                val slotIndex = slot.index
-                val lesson = dao.getLesson(date.dayOfWeek.value, slotIndex) ?: continue
-                val resolved = resolveLesson(dayType, lesson) ?: continue
-                
-                // useTeacherMatching フラグに基づいてマッチング
-                val matches = if (useTeacherMatching) {
-                    resolved.subject == subject && resolved.teacher == (teacher ?: "")
-                } else {
-                    resolved.subject == subject
-                }
-                
-                if (matches) {
-                    return date to slot.start
+        val startDate = fromDate
+
+        suspend fun searchToday(requireTeacherMatch: Boolean): Pair<LocalDate, LocalTime>? {
+            val dayType = dao.getDayType(startDate)?.dayType ?: DayType.A
+            if (startDate.dayOfWeek.value in 1..5 && dayType != DayType.HOLIDAY) {
+                for (slot in slots) {
+                    if (slot.start <= currentTime) continue
+
+                    val slotIndex = slot.index
+                    val lesson = dao.getLesson(startDate.dayOfWeek.value, slotIndex) ?: continue
+                    val resolved = resolveLesson(dayType, lesson) ?: continue
+
+                    val matches = lessonMatchesSearch(
+                        resolved = resolved,
+                        subject = subject,
+                        teacher = teacher,
+                        requireTeacherMatch = requireTeacherMatch
+                    )
+
+                    if (matches) {
+                        return startDate to slot.start
+                    }
                 }
             }
+            return null
+        }
+
+        searchToday(strictTeacherMatching)?.let { return it }
+        if (strictTeacherMatching) {
+            searchToday(false)?.let { return it }
         }
         
-        return null
+        // 今日に授業がなければ、以降の日を検索
+        return calculateNextLessonDateTime(
+            subject = subject,
+            teacher = teacher,
+            useTeacherMatching = if (strictTeacherMatching) false else useTeacherMatching,
+            fromDate = startDate.plusDays(1),
+            fromTime = LocalTime.MIN
+        )
+    }
+
+    private fun lessonMatchesSearch(
+        resolved: ResolvedLesson,
+        subject: String,
+        teacher: String?,
+        requireTeacherMatch: Boolean
+    ): Boolean {
+        val normalizedResolvedSubject = resolved.subject.trim()
+        val normalizedSubject = subject.trim()
+        if (normalizedResolvedSubject.isBlank() || normalizedSubject.isBlank()) return false
+        if (!normalizedResolvedSubject.equals(normalizedSubject, ignoreCase = true)) return false
+
+        if (!requireTeacherMatch) return true
+
+        val normalizedTeacher = teacher?.trim().orEmpty()
+        if (normalizedTeacher.isBlank()) return true
+
+        return resolved.teacher.trim().equals(normalizedTeacher, ignoreCase = true)
     }
 
     suspend fun exportAllData(): String {
@@ -480,6 +685,7 @@ class SchedulerRepository(private val db: AppDatabase) {
         val longBreaks = dao.getLongBreaksOnce()
         val dayTypes = dao.getDayTypesOnce()
         val tasks = dao.getTasksOnce()
+        val plans = dao.getPlansOnce()
 
         val root = org.json.JSONObject()
         root.put("version", CURRENT_EXPORT_VERSION)
@@ -507,6 +713,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                 s.put("arrivalMinute", settings.arrivalMinute)
                 s.put("departureHour", settings.departureHour)
                 s.put("departureMinute", settings.departureMinute)
+                s.put("unifyTaskPlanView", settings.unifyTaskPlanView)
             })
         }
 
@@ -569,6 +776,27 @@ class SchedulerRepository(private val db: AppDatabase) {
             }
         })
 
+        root.put("plans", org.json.JSONArray().also { arr ->
+            plans.forEach { plan ->
+                arr.put(org.json.JSONObject().also { obj ->
+                    if (plan.lessonId != null) obj.put("lessonId", plan.lessonId)
+                    obj.put("subject", plan.subject)
+                    if (plan.teacher != null) obj.put("teacher", plan.teacher)
+                    obj.put("title", plan.title)
+                    if (plan.description != null) obj.put("description", plan.description)
+                    obj.put("dueDate", plan.dueDate.toString())
+                    obj.put("dueHour", plan.dueHour)
+                    obj.put("dueMinute", plan.dueMinute)
+                    obj.put("isCompleted", plan.isCompleted)
+                    if (plan.completedDate != null) obj.put("completedDate", plan.completedDate.toString())
+                    obj.put("createdDate", plan.createdDate.toString())
+                    obj.put("priority", plan.priority)
+                    obj.put("useTeacherMatching", plan.useTeacherMatching)
+                    if (plan.calendarEventId != null) obj.put("calendarEventId", plan.calendarEventId)
+                })
+            }
+        })
+
         return root.toString(2)
     }
 
@@ -610,7 +838,8 @@ class SchedulerRepository(private val db: AppDatabase) {
                 arrivalHour = s.optInt("arrivalHour", -1),
                 arrivalMinute = s.optInt("arrivalMinute", -1),
                 departureHour = s.optInt("departureHour", -1),
-                departureMinute = s.optInt("departureMinute", -1)
+                departureMinute = s.optInt("departureMinute", -1),
+                unifyTaskPlanView = s.optBoolean("unifyTaskPlanView", false)
             )
         }
 
@@ -692,6 +921,32 @@ class SchedulerRepository(private val db: AppDatabase) {
             }
         }
 
+        val planEntities = mutableListOf<PlanEntity>()
+        normalizedRoot.optJSONArray("plans")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                try {
+                    planEntities += PlanEntity(
+                        id = 0,
+                        lessonId = if (obj.has("lessonId") && !obj.isNull("lessonId")) obj.getLong("lessonId") else null,
+                        subject = obj.optString("subject", ""),
+                        teacher = if (obj.has("teacher") && !obj.isNull("teacher")) obj.getString("teacher") else null,
+                        title = obj.optString("title", ""),
+                        description = if (obj.has("description") && !obj.isNull("description")) obj.getString("description") else null,
+                        dueDate = LocalDate.parse(obj.getString("dueDate")),
+                        dueHour = obj.optInt("dueHour", 23),
+                        dueMinute = obj.optInt("dueMinute", 59),
+                        isCompleted = obj.optBoolean("isCompleted", false),
+                        completedDate = if (obj.has("completedDate") && !obj.isNull("completedDate")) LocalDate.parse(obj.getString("completedDate")) else null,
+                        createdDate = LocalDate.parse(obj.getString("createdDate")),
+                        priority = obj.optInt("priority", 0),
+                        useTeacherMatching = obj.optBoolean("useTeacherMatching", false),
+                        calendarEventId = if (obj.has("calendarEventId") && !obj.isNull("calendarEventId")) obj.getLong("calendarEventId") else null
+                    )
+                } catch (_: Exception) { }
+            }
+        }
+
         db.withTransaction {
             settingsEntity?.let { dao.upsertSettings(it) }
 
@@ -711,6 +966,9 @@ class SchedulerRepository(private val db: AppDatabase) {
 
             dao.deleteAllTasks()
             if (taskEntities.isNotEmpty()) dao.upsertTasks(taskEntities)
+
+            dao.deleteAllPlans()
+            if (planEntities.isNotEmpty()) dao.upsertPlans(planEntities)
 
             syncDayTypes()
         }
@@ -736,6 +994,9 @@ class SchedulerRepository(private val db: AppDatabase) {
             }
             if (!s.has("showCurrentTimeMarker")) {
                 s.put("showCurrentTimeMarker", false)
+            }
+            if (!s.has("unifyTaskPlanView")) {
+                s.put("unifyTaskPlanView", false)
             }
         }
 
@@ -770,6 +1031,10 @@ class SchedulerRepository(private val db: AppDatabase) {
                     obj.put("useTeacherMatching", false)
                 }
             }
+        }
+
+        if (!root.has("plans")) {
+            root.put("plans", org.json.JSONArray())
         }
     }
 }

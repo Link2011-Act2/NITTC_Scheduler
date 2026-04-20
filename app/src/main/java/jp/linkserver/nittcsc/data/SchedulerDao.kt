@@ -108,4 +108,43 @@ interface SchedulerDao {
 
     @Query("DELETE FROM tasks")
     suspend fun deleteAllTasks()
+
+    @Query("SELECT * FROM plans ORDER BY dueDate, dueHour, dueMinute, priority DESC")
+    fun observePlans(): Flow<List<PlanEntity>>
+
+    @Query("SELECT * FROM plans ORDER BY dueDate, dueHour, dueMinute, priority DESC")
+    suspend fun getPlansOnce(): List<PlanEntity>
+
+    @Query("SELECT * FROM plans WHERE dueDate = :date ORDER BY dueHour, dueMinute, priority DESC")
+    suspend fun getPlansByDate(date: LocalDate): List<PlanEntity>
+
+    @Query("SELECT * FROM plans WHERE dueDate >= :fromDate AND dueDate <= :toDate ORDER BY dueDate, dueHour, dueMinute, priority DESC")
+    suspend fun getPlansInRange(fromDate: LocalDate, toDate: LocalDate): List<PlanEntity>
+
+    @Query("SELECT * FROM plans WHERE isCompleted = 0 ORDER BY dueDate, dueHour, dueMinute, priority DESC")
+    fun observeIncompletePlans(): Flow<List<PlanEntity>>
+
+    @Query("SELECT * FROM plans WHERE isCompleted = 0 ORDER BY dueDate, dueHour, dueMinute, priority DESC")
+    suspend fun getIncompletePlansOnce(): List<PlanEntity>
+
+    @Query("SELECT * FROM plans WHERE lessonId = :lessonId ORDER BY dueDate, dueHour, dueMinute, priority DESC")
+    suspend fun getPlansByLessonId(lessonId: Long): List<PlanEntity>
+
+    @Query("SELECT * FROM plans WHERE id = :id LIMIT 1")
+    suspend fun getPlanById(id: Long): PlanEntity?
+
+    @Upsert
+    suspend fun upsertPlan(plan: PlanEntity)
+
+    @Upsert
+    suspend fun upsertPlans(plans: List<PlanEntity>)
+
+    @Query("DELETE FROM plans WHERE id = :id")
+    suspend fun deletePlan(id: Long)
+
+    @Query("DELETE FROM plans WHERE lessonId = :lessonId")
+    suspend fun deletePlansByLessonId(lessonId: Long)
+
+    @Query("DELETE FROM plans")
+    suspend fun deleteAllPlans()
 }

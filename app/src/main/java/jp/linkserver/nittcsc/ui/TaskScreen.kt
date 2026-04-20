@@ -75,6 +75,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import jp.linkserver.nittcsc.data.TaskEntity
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
@@ -88,7 +89,8 @@ fun TaskScreen(
     onOpenTaskEditor: (TaskEntity?) -> Unit,
     onDeleteTask: (TaskEntity) -> Unit,
     onMarkComplete: (TaskEntity) -> Unit,
-    onMarkIncomplete: (TaskEntity) -> Unit
+    onMarkIncomplete: (TaskEntity) -> Unit,
+    isPlan: Boolean = false
 ) {
     var deletingTask by remember { mutableStateOf<TaskEntity?>(null) }
     var expandCompleted by remember { mutableStateOf(false) }
@@ -162,7 +164,7 @@ fun TaskScreen(
             if (tasks.isNotEmpty()) {
                 item {
                     Text(
-                        text = stringResource(R.string.label_incomplete_tasks),
+                        text = stringResource(if (isPlan) R.string.label_incomplete_plans else R.string.label_incomplete_tasks),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(bottom = 8.dp)
@@ -221,7 +223,8 @@ fun TaskScreen(
                     CompletedTasksHeader(
                         isExpanded = expandCompleted,
                         onToggle = { expandCompleted = !expandCompleted },
-                        count = completedTasks.size
+                        count = completedTasks.size,
+                        isPlan = isPlan
                     )
                 }
 
@@ -249,7 +252,7 @@ fun TaskScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = stringResource(R.string.msg_task_no_tasks),
+                            text = stringResource(if (isPlan) R.string.msg_plan_no_plans else R.string.msg_task_no_tasks),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -264,14 +267,14 @@ fun TaskScreen(
                 .align(Alignment.BottomEnd)
                 .padding(16.dp)
         ) {
-            Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.cd_add_task))
+            Icon(Icons.Filled.Add, contentDescription = stringResource(if (isPlan) R.string.cd_add_plan else R.string.cd_add_task))
         }
     }
 
     if (deletingTask != null) {
         AlertDialog(
             onDismissRequest = { deletingTask = null },
-            title = { Text(stringResource(R.string.dialog_task_delete_title)) },
+            title = { Text(stringResource(if (isPlan) R.string.dialog_plan_delete_title else R.string.dialog_task_delete_title)) },
             text = {
                 Text(
                     stringResource(
@@ -320,6 +323,10 @@ private fun TaskCard(
 ) {
     val dateFormatter = DateTimeFormatter.ofPattern("yyyy/MM/dd")
     val today = LocalDate.now()
+    val currentTime = LocalTime.now()
+    val dueTime = LocalTime.of(task.dueHour, task.dueMinute)
+    val isOverdue = task.dueDate.isBefore(today) || 
+                    (task.dueDate == today && currentTime.isAfter(dueTime))
 
     val dueStatusText = if (task.completedDate != null) {
         stringResource(R.string.label_completed_date, task.completedDate.format(dateFormatter))
@@ -329,26 +336,40 @@ private fun TaskCard(
                 val days = ChronoUnit.DAYS.between(task.dueDate, today)
                 stringResource(R.string.label_task_due_overdue_days, days)
             }
+            task.dueDate == today && currentTime.isAfter(dueTime) -> {
+                // 今日で時刻が過ぎている場合は時間単位で表示
+                val hours = ChronoUnit.HOURS.between(dueTime, currentTime)
+                stringResource(R.string.label_task_due_overdue_hours, hours)
+            }
             task.dueDate == today -> stringResource(R.string.label_task_due_today)
             else -> {
                 val days = ChronoUnit.DAYS.between(today, task.dueDate)
-                stringResource(R.string.label_task_due_remaining_days, days)
+                if (days == 1L) stringResource(R.string.label_task_due_tomorrow)
+                else stringResource(R.string.label_task_due_remaining_days, days)
             }
         }
     }
 
     val dueStatusContainer = when {
         task.completedDate != null -> MaterialTheme.colorScheme.surfaceContainerHighest
-        task.dueDate.isBefore(today) -> MaterialTheme.colorScheme.errorContainer
-        task.dueDate == today -> MaterialTheme.colorScheme.primaryContainer
-        else -> MaterialTheme.colorScheme.secondaryContainer
+        isOverdue -> MaterialTheme.colorScheme.errorContainer
+        task.dueDate == today -> MaterialTheme.colorScheme.errorContainer
+        else -> {
+            val days = ChronoUnit.DAYS.between(today, task.dueDate)
+            if (days == 1L) MaterialTheme.colorScheme.errorContainer
+            else MaterialTheme.colorScheme.secondaryContainer
+        }
     }
 
     val dueStatusContent = when {
         task.completedDate != null -> MaterialTheme.colorScheme.onSurfaceVariant
-        task.dueDate.isBefore(today) -> MaterialTheme.colorScheme.onErrorContainer
-        task.dueDate == today -> MaterialTheme.colorScheme.onPrimaryContainer
-        else -> MaterialTheme.colorScheme.onSecondaryContainer
+        isOverdue -> MaterialTheme.colorScheme.onErrorContainer
+        task.dueDate == today -> MaterialTheme.colorScheme.onErrorContainer
+        else -> {
+            val days = ChronoUnit.DAYS.between(today, task.dueDate)
+            if (days == 1L) MaterialTheme.colorScheme.onErrorContainer
+            else MaterialTheme.colorScheme.onSecondaryContainer
+        }
     }
 
     val priorityText = when (task.priority) {
@@ -578,16 +599,18 @@ private fun TaskCard(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Surface(
-                            shape = RoundedCornerShape(999.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerHighest
-                        ) {
-                            Text(
-                                text = task.subject,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                        if (task.subject.isNotBlank()) {
+                            Surface(
+                                shape = RoundedCornerShape(999.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerHighest
+                            ) {
+                                Text(
+                                    text = task.subject,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
                         if (task.teacher?.isNotBlank() == true) {
                             Surface(
@@ -624,7 +647,8 @@ private fun TaskCard(
 private fun CompletedTasksHeader(
     isExpanded: Boolean,
     onToggle: () -> Unit,
-    count: Int
+    count: Int,
+    isPlan: Boolean = false
 ) {
     Row(
         modifier = Modifier
@@ -635,7 +659,7 @@ private fun CompletedTasksHeader(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = stringResource(R.string.section_completed_tasks_count, count),
+            text = stringResource(if (isPlan) R.string.section_completed_plans_count else R.string.section_completed_tasks_count, count),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold
         )

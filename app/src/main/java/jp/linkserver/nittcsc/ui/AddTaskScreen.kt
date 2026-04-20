@@ -45,6 +45,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -58,6 +59,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.TaskEntity
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -70,22 +72,27 @@ fun AddTaskScreen(
     subjectTeacherCandidates: Map<String, List<String>> = emptyMap(),
     defaultDueHour: Int = 8,
     defaultDueMinute: Int = 40,
-    onResolveNextLessonDateTime: suspend (subject: String, teacher: String?) -> Pair<LocalDate, LocalTime>? = { _, _ -> null },
+    isPlan: Boolean = false,
+    onResolveNextLessonDateTime: suspend (subject: String, teacher: String?, fromDate: LocalDate, fromTime: LocalTime) -> Pair<LocalDate, LocalTime>? = { _, _, _, _ -> null },
+    onResolvePreviousLessonDateTime: suspend (subject: String, teacher: String?, fromDate: LocalDate, fromTime: LocalTime) -> Pair<LocalDate, LocalTime>? = { _, _, _, _ -> null },
+    onResolveNextLessonDateTimeSkipCurrent: suspend (subject: String, teacher: String?, fromDate: LocalDate, fromTime: LocalTime) -> Pair<LocalDate, LocalTime>? = { _, _, _, _ -> null },
     onSave: (TaskEntity) -> Unit,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val dateFormatter = DateTimeFormatter.ofPattern("yyyy/MM/dd")
+    val coroutineScope = rememberCoroutineScope()
 
     var title by remember { mutableStateOf(task?.title ?: "") }
     var description by remember { mutableStateOf(task?.description ?: "") }
     var subject by remember { mutableStateOf(task?.subject ?: "") }
     var teacher by remember { mutableStateOf(task?.teacher ?: "") }
-    var subjectEditedByUser by remember { mutableStateOf(false) }
+    // 新規タスクで教科名が事前設定されている場合は自動検索を即座にトリガーする
+    var subjectEditedByUser by remember { mutableStateOf((task?.id ?: 0L) == 0L && task?.subject?.isNotBlank() == true) }
     var dueDate by remember { mutableStateOf(task?.dueDate ?: LocalDate.now()) }
-    var dueHour by remember { mutableStateOf(task?.dueHour ?: defaultDueHour) }
-    var dueMinute by remember { mutableStateOf(task?.dueMinute ?: defaultDueMinute) }
+    var dueHour by remember { mutableStateOf(if ((task?.id ?: 0L) == 0L) defaultDueHour else (task?.dueHour ?: defaultDueHour)) }
+    var dueMinute by remember { mutableStateOf(if ((task?.id ?: 0L) == 0L) defaultDueMinute else (task?.dueMinute ?: defaultDueMinute)) }
     var priority by remember { mutableStateOf(task?.priority ?: 0) }
     var showSubjectSuggestions by remember { mutableStateOf(false) }
     var isAutoResolvingDate by remember { mutableStateOf(false) }
@@ -125,7 +132,9 @@ fun AddTaskScreen(
         try {
             val nextDateTime = onResolveNextLessonDateTime(
                 subjectValue,
-                teacher.trim().takeIf { it.isNotBlank() }
+                teacher.trim().takeIf { it.isNotBlank() },
+                LocalDate.now(),
+                LocalTime.now()
             )
             if (nextDateTime != null) {
                 dueDate = nextDateTime.first
@@ -146,7 +155,7 @@ fun AddTaskScreen(
         }
     }
 
-    val canSave = title.isNotBlank() && subject.isNotBlank()
+    val canSave = title.isNotBlank() && (isPlan || subject.isNotBlank())
 
     val fieldColors = TextFieldDefaults.colors(
         focusedContainerColor = Color.Transparent,
@@ -183,8 +192,8 @@ fun AddTaskScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = if (task != null) stringResource(R.string.title_edit_task)
-                               else stringResource(R.string.title_add_task)
+                        text = if (task != null) stringResource(if (isPlan) R.string.title_edit_plan else R.string.title_edit_task)
+                               else stringResource(if (isPlan) R.string.title_add_plan else R.string.title_add_task)
                     )
                 },
                 navigationIcon = {
@@ -230,14 +239,14 @@ fun AddTaskScreen(
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
-                        stringResource(R.string.label_task_title),
+                        stringResource(if (isPlan) R.string.label_plan_title else R.string.label_task_title),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     TextField(
                         value = title,
                         onValueChange = { title = it },
-                        placeholder = { Text(stringResource(R.string.placeholder_task_title)) },
+                        placeholder = { Text(stringResource(if (isPlan) R.string.placeholder_plan_title else R.string.placeholder_task_title)) },
                         textStyle = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
@@ -469,6 +478,71 @@ fun AddTaskScreen(
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.primary
                         )
+                    }
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    // Navigation buttons
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                if (subject.isNotBlank()) {
+                                    isAutoResolvingDate = true
+                                    coroutineScope.launch {
+                                        try {
+                                            val prevDateTime = onResolvePreviousLessonDateTime(
+                                                subject.trim(),
+                                                teacher.trim().takeIf { it.isNotBlank() },
+                                                dueDate,
+                                                LocalTime.of(dueHour, dueMinute)
+                                            )
+                                            if (prevDateTime != null) {
+                                                dueDate = prevDateTime.first
+                                                dueHour = prevDateTime.second.hour
+                                                dueMinute = prevDateTime.second.minute
+                                            }
+                                        } finally {
+                                            isAutoResolvingDate = false
+                                        }
+                                    }
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            enabled = subject.isNotBlank()
+                        ) {
+                            Text(stringResource(R.string.btn_prev_lesson))
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                if (subject.isNotBlank()) {
+                                    isAutoResolvingDate = true
+                                    coroutineScope.launch {
+                                        try {
+                                            val nextDateTime = onResolveNextLessonDateTimeSkipCurrent(
+                                                subject.trim(),
+                                                teacher.trim().takeIf { it.isNotBlank() },
+                                                dueDate,
+                                                LocalTime.of(dueHour, dueMinute)
+                                            )
+                                            if (nextDateTime != null) {
+                                                dueDate = nextDateTime.first
+                                                dueHour = nextDateTime.second.hour
+                                                dueMinute = nextDateTime.second.minute
+                                            }
+                                        } finally {
+                                            isAutoResolvingDate = false
+                                        }
+                                    }
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            enabled = subject.isNotBlank()
+                        ) {
+                            Text(stringResource(R.string.btn_next_lesson))
+                        }
                     }
                 }
             }

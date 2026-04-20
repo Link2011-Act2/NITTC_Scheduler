@@ -37,7 +37,8 @@ data class SettingsEntity(
     val arrivalHour: Int = -1,
     val arrivalMinute: Int = -1,
     val departureHour: Int = -1,
-    val departureMinute: Int = -1
+    val departureMinute: Int = -1,
+    val unifyTaskPlanView: Boolean = false
 )
 
 @Entity(tableName = "day_types")
@@ -111,6 +112,28 @@ data class TaskEntity(
     val completedDate: LocalDate? = null,
     val createdDate: LocalDate,
     val priority: Int = 0, // 0=通常, 1=重要, -1=低
+    val useTeacherMatching: Boolean = false,
+    val calendarEventId: Long? = null
+)
+
+@Entity(
+    tableName = "plans",
+    indices = [Index(value = ["dueDate"])]
+)
+data class PlanEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val lessonId: Long? = null,
+    val subject: String,
+    val teacher: String? = null,
+    val title: String,
+    val description: String? = null,
+    val dueDate: LocalDate,
+    val dueHour: Int = 23,
+    val dueMinute: Int = 59,
+    val isCompleted: Boolean = false,
+    val completedDate: LocalDate? = null,
+    val createdDate: LocalDate,
+    val priority: Int = 0,
     val useTeacherMatching: Boolean = false,
     val calendarEventId: Long? = null
 )

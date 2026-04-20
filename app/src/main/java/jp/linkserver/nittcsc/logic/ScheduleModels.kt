@@ -52,9 +52,9 @@ data class GeneratedLesson(
     val teacher: String
 )
 
-enum class ExportRange {
-    THIS_WEEK,
-    ALL_TERM
+sealed class ExportRange {
+    object ThisWeek : ExportRange()
+    data class Custom(val start: LocalDate, val end: LocalDate) : ExportRange()
 }
 
 data class ExportResult(

@@ -12,6 +12,7 @@ import jp.linkserver.nittcsc.data.LongBreakEntity
 import jp.linkserver.nittcsc.data.ResolvedLesson
 import jp.linkserver.nittcsc.data.SchedulerRepository
 import jp.linkserver.nittcsc.data.SettingsEntity
+import jp.linkserver.nittcsc.data.PlanEntity
 import jp.linkserver.nittcsc.data.TaskEntity
 import jp.linkserver.nittcsc.logic.ExportRange
 import jp.linkserver.nittcsc.logic.GeneratedLesson
@@ -34,7 +35,9 @@ private data class CoreDataState(
     val longBreaks: List<LongBreakEntity>,
     val lessons: Map<Pair<Int, Int>, LessonEntity>,
     val tasks: List<TaskEntity>,
-    val incompleteTasks: List<TaskEntity>
+    val incompleteTasks: List<TaskEntity>,
+    val plans: List<PlanEntity>,
+    val incompletePlans: List<PlanEntity>
 )
 
 data class SchedulerUiState(
@@ -44,6 +47,8 @@ data class SchedulerUiState(
     val lessons: Map<Pair<Int, Int>, LessonEntity> = emptyMap(),
     val tasks: List<TaskEntity> = emptyList(),
     val incompleteTasks: List<TaskEntity> = emptyList(),
+    val plans: List<PlanEntity> = emptyList(),
+    val incompletePlans: List<PlanEntity> = emptyList(),
     val selectedDayOfWeek: Int = DayOfWeek.MONDAY.value,
     val selectedResultDate: LocalDate = LocalDate.now(),
     val initialized: Boolean = false
@@ -62,24 +67,34 @@ class SchedulerViewModel(
 
     private val coreDataFlow: kotlinx.coroutines.flow.Flow<CoreDataState> = combine(
         combine(
-            repository.settingsFlow,
-            repository.dayTypesFlow,
-            repository.longBreaksFlow
-        ) { settings: SettingsEntity?, dayTypes: List<DayTypeEntity>, longBreaks: List<LongBreakEntity> ->
-            Triple(settings, dayTypes, longBreaks)
+            combine(
+                repository.settingsFlow,
+                repository.dayTypesFlow,
+                repository.longBreaksFlow
+            ) { settings: SettingsEntity?, dayTypes: List<DayTypeEntity>, longBreaks: List<LongBreakEntity> ->
+                Triple(settings, dayTypes, longBreaks)
+            },
+            repository.lessonsFlow,
+            repository.tasksFlow,
+            repository.incompleteTasksFlow
+        ) { triple: Triple<SettingsEntity?, List<DayTypeEntity>, List<LongBreakEntity>>, lessons: List<LessonEntity>, tasks: List<TaskEntity>, incompleteTasks: List<TaskEntity> ->
+            Pair(triple, Triple(lessons, tasks, incompleteTasks))
         },
-        repository.lessonsFlow,
-        repository.tasksFlow,
-        repository.incompleteTasksFlow
-    ) { triple: Triple<SettingsEntity?, List<DayTypeEntity>, List<LongBreakEntity>>, lessons: List<LessonEntity>, tasks: List<TaskEntity>, incompleteTasks: List<TaskEntity> ->
+        repository.plansFlow,
+        repository.incompletePlansFlow
+    ) { base, plans: List<PlanEntity>, incompletePlans: List<PlanEntity> ->
+        val (triple, taskPart) = base
         val (settings, dayTypes, longBreaks) = triple
+        val (lessons, tasks, incompleteTasks) = taskPart
         CoreDataState(
             settings = settings,
             dayTypeMap = dayTypes.associate { it.date to it.dayType },
             longBreaks = longBreaks,
             lessons = lessons.associateBy { it.dayOfWeek to it.slotIndex },
             tasks = tasks,
-            incompleteTasks = incompleteTasks
+            incompleteTasks = incompleteTasks,
+            plans = plans,
+            incompletePlans = incompletePlans
         )
     }
 
@@ -96,6 +111,8 @@ class SchedulerViewModel(
             lessons = core.lessons,
             tasks = core.tasks,
             incompleteTasks = core.incompleteTasks,
+            plans = core.plans,
+            incompletePlans = core.incompletePlans,
             selectedDayOfWeek = dayOfWeek,
             selectedResultDate = resultDate,
             initialized = isInitialized
@@ -178,6 +195,12 @@ class SchedulerViewModel(
     fun toggleCurrentTimeMarker(enabled: Boolean) {
         viewModelScope.launch {
             repository.toggleCurrentTimeMarker(enabled)
+        }
+    }
+
+    fun toggleUnifyTaskPlanView(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.toggleUnifyTaskPlanView(enabled)
         }
     }
 
@@ -346,6 +369,48 @@ class SchedulerViewModel(
         return repository.getTasksInRange(fromDate, toDate)
     }
 
+    fun savePlan(plan: PlanEntity) {
+        viewModelScope.launch {
+            repository.upsertPlan(plan)
+            _snackbarMessages.emit("予定を保存しました。")
+        }
+    }
+
+    fun savePlansSilently(plans: List<PlanEntity>) {
+        viewModelScope.launch {
+            repository.upsertPlans(plans)
+        }
+    }
+
+    fun deletePlan(plan: PlanEntity) {
+        viewModelScope.launch {
+            repository.deletePlan(plan.id)
+            _snackbarMessages.emit("予定を削除しました。")
+        }
+    }
+
+    fun markPlanAsComplete(plan: PlanEntity) {
+        viewModelScope.launch {
+            repository.markPlanAsComplete(plan.id)
+            _snackbarMessages.emit("予定を完了しました。")
+        }
+    }
+
+    fun markPlanAsIncomplete(plan: PlanEntity) {
+        viewModelScope.launch {
+            repository.markPlanAsIncomplete(plan.id)
+            _snackbarMessages.emit("予定を未完了に戻しました。")
+        }
+    }
+
+    suspend fun getPlansForDate(date: LocalDate): List<PlanEntity> {
+        return repository.getPlansByDate(date)
+    }
+
+    suspend fun getPlansInRange(fromDate: LocalDate, toDate: LocalDate): List<PlanEntity> {
+        return repository.getPlansInRange(fromDate, toDate)
+    }
+
     suspend fun exportAllData(): String = repository.exportAllData()
 
     fun importAllData(json: String) {
@@ -374,9 +439,30 @@ class SchedulerViewModel(
         subject: String,
         teacher: String?,
         useTeacherMatching: Boolean,
-        fromDate: LocalDate = LocalDate.now()
+        fromDate: LocalDate = LocalDate.now(),
+        fromTime: LocalTime = LocalTime.now()
     ): Pair<LocalDate, LocalTime>? {
-        return repository.calculateNextLessonDateTime(subject, teacher, useTeacherMatching, fromDate)
+        return repository.calculateNextLessonDateTime(subject, teacher, useTeacherMatching, fromDate, fromTime)
+    }
+
+    suspend fun calculatePreviousLessonDateTime(
+        subject: String,
+        teacher: String?,
+        useTeacherMatching: Boolean,
+        fromDate: LocalDate = LocalDate.now(),
+        currentTime: LocalTime = LocalTime.now()
+    ): Pair<LocalDate, LocalTime>? {
+        return repository.calculatePreviousLessonDateTime(subject, teacher, useTeacherMatching, fromDate, currentTime)
+    }
+
+    suspend fun calculateNextLessonDateTimeSkipCurrent(
+        subject: String,
+        teacher: String?,
+        useTeacherMatching: Boolean,
+        fromDate: LocalDate = LocalDate.now(),
+        currentTime: LocalTime = LocalTime.now()
+    ): Pair<LocalDate, LocalTime>? {
+        return repository.calculateNextLessonDateTimeSkipCurrent(subject, teacher, useTeacherMatching, fromDate, currentTime)
     }
 
     private fun defaultDayType(date: LocalDate): DayType {
