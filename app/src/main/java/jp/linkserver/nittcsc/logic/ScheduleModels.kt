@@ -30,6 +30,10 @@ fun generateClassSlots(
     val lunchAfter = lunchAfterPeriod.coerceIn(0, periodsPerDay)
     val slots = mutableListOf<ClassSlot>()
     var currentMin = firstPeriodStartHour * 60 + firstPeriodStartMinute
+    fun safeLocalTime(totalMin: Int): LocalTime {
+        val clampedMin = totalMin.coerceIn(0, 23 * 60 + 59)
+        return LocalTime.of(clampedMin / 60, clampedMin % 60)
+    }
     for (i in 0 until periodsPerDay) {
         val startH = currentMin / 60
         val startM = currentMin % 60
@@ -37,7 +41,14 @@ fun generateClassSlots(
         val endH = currentMin / 60
         val endM = currentMin % 60
         val label = if (useKosenMode) "${i * 2 + 1}/${i * 2 + 2}校時" else "${i + 1}校時"
-        slots.add(ClassSlot(i, label, LocalTime.of(startH, startM), LocalTime.of(endH, endM)))
+        slots.add(
+            ClassSlot(
+                i,
+                label,
+                safeLocalTime(startH * 60 + startM),
+                safeLocalTime(endH * 60 + endM)
+            )
+        )
         if (i < periodsPerDay - 1) {
             currentMin += if (i == lunchAfter - 1) lunchBreakMin else breakBetweenPeriodsMin
         }

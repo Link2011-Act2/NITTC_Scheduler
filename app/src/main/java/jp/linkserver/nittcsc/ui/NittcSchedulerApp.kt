@@ -2383,7 +2383,33 @@ private fun DayScheduleTable(
                 if (useCompressedCoords) spanDps.take(i + 1).sum()
                 else ((tick.minuteOfDay - seg.startMin).coerceAtLeast(0) * dpPerMinute)
             }
-            // 下校時刻がセグメント途中にある場合の生オフセットを計算
+            // 登校/下校時刻がセグメント途中にある場合の生オフセットを計算
+            val rawArrivalMarkOffsetDp: Float? = if (
+                seg.slotIndex == null && seg.breakLabel == null &&
+                dayStartMin > seg.startMin && dayStartMin < segmentEndMin
+            ) {
+                if (useCompressedCoords) {
+                    var cumDp = 0f
+                    var result = 0f
+                    for (j in 1 until keyMinutes.size) {
+                        val spanStart = keyMinutes[j - 1]
+                        val spanEnd = keyMinutes[j]
+                        if (dayStartMin <= spanEnd) {
+                            val posInSpan = (dayStartMin - spanStart).coerceAtLeast(0)
+                            val spanMin = spanEnd - spanStart
+                            result = cumDp + if (spanMin > compressedCapMin)
+                                compressedCapDp * posInSpan.toFloat() / spanMin.toFloat()
+                            else
+                                posInSpan * dpPerMinute
+                            break
+                        }
+                        cumDp += spanDps[j - 1]
+                    }
+                    result
+                } else {
+                    (dayStartMin - seg.startMin).toFloat() * dpPerMinute
+                }
+            } else null
             val rawDepartureMarkOffsetDp: Float? = if (
                 seg.slotIndex == null && seg.breakLabel == null &&
                 defaultTermMin > seg.startMin && defaultTermMin < segmentEndMin
@@ -2438,7 +2464,7 @@ private fun DayScheduleTable(
 
             // すべての刻み目（開始ラベル/課題/下校時刻）に10dpの最小間隔を適用
             data class TimelineMark(
-                val type: Int, // 0=start, 1=due, 2=departure
+                val type: Int, // 0=start, 1=due, 2=arrival, 3=departure
                 val dueIndex: Int?,
                 val rawOffset: Float
             )
@@ -2450,11 +2476,15 @@ private fun DayScheduleTable(
             rawDueOffsets.forEachIndexed { index, offset ->
                 marks += TimelineMark(type = 1, dueIndex = index, rawOffset = offset)
             }
+            if (rawArrivalMarkOffsetDp != null) {
+                marks += TimelineMark(type = 2, dueIndex = null, rawOffset = rawArrivalMarkOffsetDp)
+            }
             if (rawDepartureMarkOffsetDp != null) {
-                marks += TimelineMark(type = 2, dueIndex = null, rawOffset = rawDepartureMarkOffsetDp)
+                marks += TimelineMark(type = 3, dueIndex = null, rawOffset = rawDepartureMarkOffsetDp)
             }
 
             val adjustedDueOffsets = rawDueOffsets.toMutableList()
+            var arrivalMarkOffsetDp: Float? = rawArrivalMarkOffsetDp
             var departureMarkOffsetDp: Float? = rawDepartureMarkOffsetDp
             val sortedMarks = marks.withIndex().sortedWith(
                 compareBy<IndexedValue<TimelineMark>> { it.value.rawOffset }.thenBy { it.index }
@@ -2468,7 +2498,8 @@ private fun DayScheduleTable(
                         val idx = mark.dueIndex ?: return@forEach
                         adjustedDueOffsets[idx] = adjusted
                     }
-                    2 -> departureMarkOffsetDp = adjusted
+                    2 -> arrivalMarkOffsetDp = adjusted
+                    3 -> departureMarkOffsetDp = adjusted
                 }
                 prevAdjustedOffset = adjusted
             }
@@ -2562,6 +2593,27 @@ private fun DayScheduleTable(
                         ) {
                             Text(
                                 text = formatMin(seg.startMin),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .padding(end = 2.dp)
+                                    .width(12.dp)
+                                    .height(1.5.dp)
+                                    .background(lineColor)
+                            )
+                        }
+                    }
+                    // 登校時刻マーク（セグメント途中の場合）
+                    if (arrivalMarkOffsetDp != null) {
+                        Row(
+                            modifier = Modifier.align(Alignment.TopStart).fillMaxWidth().offset(y = arrivalMarkOffsetDp.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = formatMin(dayStartMin),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.weight(1f)

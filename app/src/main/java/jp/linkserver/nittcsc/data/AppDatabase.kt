@@ -26,6 +26,22 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
+        private fun hasColumn(
+            db: androidx.sqlite.db.SupportSQLiteDatabase,
+            tableName: String,
+            columnName: String
+        ): Boolean {
+            db.query("PRAGMA table_info($tableName)").use { cursor ->
+                val nameIndex = cursor.getColumnIndex("name")
+                while (cursor.moveToNext()) {
+                    if (nameIndex >= 0 && cursor.getString(nameIndex) == columnName) {
+                        return true
+                    }
+                }
+            }
+            return false
+        }
+
         val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE settings ADD COLUMN enableLocalAi INTEGER NOT NULL DEFAULT 0")
@@ -175,7 +191,9 @@ abstract class AppDatabase : RoomDatabase() {
 
         val MIGRATION_14_15 = object : androidx.room.migration.Migration(14, 15) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE plans ADD COLUMN calendarEventId INTEGER")
+                if (!hasColumn(db, "plans", "calendarEventId")) {
+                    db.execSQL("ALTER TABLE plans ADD COLUMN calendarEventId INTEGER")
+                }
             }
         }
 
