@@ -14,6 +14,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import kotlinx.coroutines.CancellationException
 
 class ModelDownloadWorker(
     context: Context,
@@ -27,7 +28,12 @@ class ModelDownloadWorker(
         return try {
             val modelUrl = inputData.getString("model_url") ?: return Result.failure()
             val fileName = inputData.getString("file_name") ?: return Result.failure()
+            val modelId = inputData.getString("model_id")
+            val modelName = inputData.getString("model_name")
+            val assetIndex = inputData.getInt("asset_index", 0)
+            val assetCount = inputData.getInt("asset_count", 1).coerceAtLeast(1)
             val authToken = inputData.getString("auth_token")
+            val progressDisplayMode = DownloadNotificationSettings.getProgressDisplayMode(applicationContext)
 
             createNotificationChannel()
             
@@ -40,60 +46,96 @@ class ModelDownloadWorker(
             }
             
             var lastProgress = 0
-            try {
-                modelManager.downloadModel(modelUrl, fileName, authToken).collect { state ->
-                    when (state) {
-                        is DownloadState.Downloading -> {
-                            val progress = (state.progress * 100).toInt()
-                            if (progress != lastProgress) {
-                                val notification = createProgressNotification(
-                                    fileName,
-                                    progress,
-                                    state.speedMbps
-                                )
-                                notificationManager.notify(DOWNLOAD_NOTIFICATION_ID, notification)
-                                try {
-                                    setForeground(getForegroundInfo(notification))
-                                } catch (_: Exception) { /* foreground update failed, notification still posted */ }
-                                val progressData = Data.Builder()
-                                    .putInt("progress", progress)
-                                    .putFloat("speed_mbps", state.speedMbps)
-                                    .build()
-                                setProgress(progressData)
-                                lastProgress = progress
-                            }
-                        }
-                        is DownloadState.Success -> {
-                            val successNotification = createSuccessNotification(fileName)
-                            notificationManager.notify(DOWNLOAD_NOTIFICATION_ID, successNotification)
-                        }
-                        is DownloadState.Error -> {
-                            val errorNotification = createErrorNotification(
+            var failureMessage: String? = null
+            modelManager.downloadModel(modelUrl, fileName, authToken).collect { state ->
+                when (state) {
+                    is DownloadState.Downloading -> {
+                        val progress = (state.progress * 100).toInt()
+                        if (progress != lastProgress) {
+                            val notification = createProgressNotification(
                                 fileName,
-                                state.exception.message ?: "Unknown error"
+                                progress,
+                                state.speedMbps,
+                                modelId,
+                                modelName,
+                                assetIndex,
+                                assetCount,
+                                progressDisplayMode
                             )
-                            notificationManager.notify(DOWNLOAD_NOTIFICATION_ID, errorNotification)
+                            notificationManager.notify(DOWNLOAD_NOTIFICATION_ID, notification)
+                            try {
+                                setForeground(getForegroundInfo(notification))
+                            } catch (_: Exception) { /* foreground update failed, notification still posted */ }
+                            val progressData = Data.Builder()
+                                .putInt("progress", progress)
+                                .putFloat("speed_mbps", state.speedMbps)
+                                .build()
+                            setProgress(progressData)
+                            lastProgress = progress
                         }
-                        else -> {}
                     }
+                    is DownloadState.Success -> {
+                        val successNotification = createSuccessNotification(
+                            fileName = fileName,
+                            modelName = modelName,
+                            assetCount = assetCount,
+                            progressDisplayMode = progressDisplayMode
+                        )
+                        notificationManager.notify(DOWNLOAD_NOTIFICATION_ID, successNotification)
+                    }
+                    is DownloadState.Error -> {
+                        failureMessage = state.exception.message ?: "Unknown error"
+                        val errorNotification = createErrorNotification(
+                            fileName = fileName,
+                            errorMessage = failureMessage,
+                            modelName = modelName,
+                            assetCount = assetCount,
+                            progressDisplayMode = progressDisplayMode
+                        )
+                        notificationManager.notify(DOWNLOAD_NOTIFICATION_ID, errorNotification)
+                    }
+                    else -> {}
                 }
-            } catch (e: Exception) {
-                return Result.retry()
             }
 
-            Result.success()
+            if (failureMessage != null) {
+                Result.failure(
+                    Data.Builder()
+                        .putString("error", failureMessage)
+                        .build()
+                )
+            } else {
+                Result.success()
+            }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             val errorNotification = createErrorNotification(
                 "Model Download",
                 e.message ?: "Unknown error occurred"
             )
             notificationManager.notify(DOWNLOAD_NOTIFICATION_ID, errorNotification)
-            Result.retry()
+            Result.failure(
+                Data.Builder()
+                    .putString("error", e.message ?: "Unknown error occurred")
+                    .build()
+            )
         }
     }
 
     override suspend fun getForegroundInfo(): ForegroundInfo {
-        return getForegroundInfo(createProgressNotification("ダウンロード中...", 0, 0f))
+        return getForegroundInfo(
+            createProgressNotification(
+                fileName = "ダウンロード中...",
+                progress = 0,
+                speedMbps = 0f,
+                modelId = null,
+                modelName = null,
+                assetIndex = 0,
+                assetCount = 1,
+                progressDisplayMode = DownloadProgressDisplayMode.PER_FILE
+            )
+        )
     }
 
     private fun getForegroundInfo(notification: android.app.Notification): ForegroundInfo {
@@ -114,7 +156,7 @@ class ModelDownloadWorker(
         val channel = NotificationChannel(
             CHANNEL_ID,
             channelName,
-            NotificationManager.IMPORTANCE_LOW
+            NotificationManager.IMPORTANCE_DEFAULT
         ).apply {
             description = channelDesc
         }
@@ -124,21 +166,50 @@ class ModelDownloadWorker(
     private fun createProgressNotification(
         fileName: String,
         progress: Int,
-        speedMbps: Float
+        speedMbps: Float,
+        modelId: String?,
+        modelName: String?,
+        assetIndex: Int,
+        assetCount: Int,
+        progressDisplayMode: DownloadProgressDisplayMode
     ): android.app.Notification {
         val cancelIntent = Intent(applicationContext, DownloadCancelReceiver::class.java).apply {
             action = "jp.linkserver.nittcsc.CANCEL_DOWNLOAD"
             data = android.net.Uri.parse("download://$fileName")
+            putExtra("file_name", fileName)
+            putExtra("model_id", modelId)
         }
         val cancelPendingIntent = PendingIntent.getBroadcast(
             applicationContext, 0, cancelIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val titleTemplate = applicationContext.getString(jp.linkserver.nittcsc.R.string.notif_download_title)
         val speedFormat = applicationContext.getString(jp.linkserver.nittcsc.R.string.format_speed_mbps)
-        val titleText = titleTemplate.replace("%s", fileName)
         val speedText = String.format(speedFormat, speedMbps)
-        val contentText = "${progress}% - $speedText"
+        val (displayTitle, displayProgress, contentText) = when (progressDisplayMode) {
+            DownloadProgressDisplayMode.OVERALL -> {
+                val overallProgress = (((assetIndex + progress / 100f) / assetCount) * 100f).toInt()
+                    .coerceIn(0, 100)
+                val titleText = applicationContext.getString(
+                    jp.linkserver.nittcsc.R.string.notif_download_title,
+                    modelName ?: fileName
+                )
+                val contentText = applicationContext.getString(
+                    jp.linkserver.nittcsc.R.string.notif_download_overall_text,
+                    overallProgress,
+                    assetIndex + 1,
+                    assetCount,
+                    speedText
+                )
+                Triple(titleText, overallProgress, contentText)
+            }
+            DownloadProgressDisplayMode.PER_FILE -> {
+                val titleText = applicationContext.getString(
+                    jp.linkserver.nittcsc.R.string.notif_download_title,
+                    fileName
+                )
+                Triple(titleText, progress, "${progress}% - $speedText")
+            }
+        }
 
         if (Build.VERSION.SDK_INT >= 36) {
             // Android 16+: Notification.ProgressStyle で Live Updates として認識
@@ -151,12 +222,12 @@ class ModelDownloadWorker(
             ).build()
 
             return Notification.Builder(applicationContext, CHANNEL_ID)
-                .setContentTitle(titleText)
+                .setContentTitle(displayTitle)
                 .setContentText(contentText)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setStyle(
                     Notification.ProgressStyle()
-                        .setProgress(progress)
+                        .setProgress(displayProgress)
                         .setStyledByProgress(true)
                 )
                 .addAction(cancelAction)
@@ -164,17 +235,17 @@ class ModelDownloadWorker(
                 .build()
         } else {
             // Android 15以前: NotificationCompat + テキストプログレスバー
-            val progressBar = "▓".repeat((progress / 5).coerceAtMost(20)) +
-                    "▒".repeat((20 - (progress / 5)).coerceAtLeast(0))
+            val progressBar = "▓".repeat((displayProgress / 5).coerceAtMost(20)) +
+                    "▒".repeat((20 - (displayProgress / 5)).coerceAtLeast(0))
 
             return NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-                .setContentTitle(titleText)
+                .setContentTitle(displayTitle)
                 .setContentText(contentText)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
-                .setProgress(100, progress, false)
+                .setProgress(100, displayProgress, false)
                 .setStyle(
                     NotificationCompat.BigTextStyle()
-                        .bigText("$progressBar ${progress}%\n$contentText")
+                        .bigText("$progressBar ${displayProgress}%\n$contentText")
                 )
                 .addAction(
                     android.R.drawable.ic_menu_close_clear_cancel,
@@ -186,10 +257,21 @@ class ModelDownloadWorker(
         }
     }
 
-    private fun createSuccessNotification(fileName: String): android.app.Notification {
+    private fun createSuccessNotification(
+        fileName: String,
+        modelName: String?,
+        assetCount: Int,
+        progressDisplayMode: DownloadProgressDisplayMode
+    ): android.app.Notification {
         val titleText = applicationContext.getString(jp.linkserver.nittcsc.R.string.notif_download_complete_title)
-        val textTemplate = applicationContext.getString(jp.linkserver.nittcsc.R.string.notif_download_complete_text)
-        val contentText = textTemplate.replace("%s", fileName)
+        val contentText = applicationContext.getString(
+            jp.linkserver.nittcsc.R.string.notif_download_complete_text,
+            if (progressDisplayMode == DownloadProgressDisplayMode.OVERALL && assetCount > 1) {
+                modelName ?: fileName
+            } else {
+                fileName
+            }
+        )
         
         return NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setContentTitle(titleText)
@@ -202,11 +284,21 @@ class ModelDownloadWorker(
 
     private fun createErrorNotification(
         fileName: String,
-        errorMessage: String
+        errorMessage: String,
+        modelName: String? = null,
+        assetCount: Int = 1,
+        progressDisplayMode: DownloadProgressDisplayMode = DownloadProgressDisplayMode.PER_FILE
     ): android.app.Notification {
         val titleText = applicationContext.getString(jp.linkserver.nittcsc.R.string.notif_download_failed_title)
-        val textTemplate = applicationContext.getString(jp.linkserver.nittcsc.R.string.notif_download_failed_text)
-        val contentText = textTemplate.replace("%s", fileName).replace("%s", errorMessage)
+        val contentText = applicationContext.getString(
+            jp.linkserver.nittcsc.R.string.notif_download_failed_text,
+            if (progressDisplayMode == DownloadProgressDisplayMode.OVERALL && assetCount > 1) {
+                modelName ?: fileName
+            } else {
+                fileName
+            },
+            errorMessage
+        )
         
         return NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setContentTitle(titleText)
@@ -218,7 +310,7 @@ class ModelDownloadWorker(
     }
 
     companion object {
-        const val CHANNEL_ID = "model_download_channel"
+        const val CHANNEL_ID = "model_download_channel_default"
         const val DOWNLOAD_NOTIFICATION_ID = 2001
     }
 }

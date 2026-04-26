@@ -31,9 +31,10 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
+import androidx.glance.unit.ColorProvider
 import jp.linkserver.nittcsc.MainActivity
-import jp.linkserver.nittcsc.data.DayType
 import java.time.DayOfWeek
+import androidx.compose.ui.graphics.Color as ComposeColor
 
 class TimetableHugeWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -73,7 +74,8 @@ private fun Content(data: WidgetData) {
                     Spacer(modifier = GlanceModifier.width(2.dp))
                 }
                 val isToday = date == data.today
-                val dayType = data.dayTypeMap[date] ?: WidgetDataHelper.defaultDayType(date)
+                val dayTypeEntity = data.dayTypeEntities[date]
+                val dayType = dayTypeEntity?.dayType ?: data.dayTypeMap[date] ?: WidgetDataHelper.defaultDayType(date)
                 val dow = date.dayOfWeek.value
 
                 Column(
@@ -103,7 +105,7 @@ private fun Content(data: WidgetData) {
                         )
                     }
                     Text(
-                        text = dayTypeLabel(dayType),
+                        text = WidgetDataHelper.dayTypeDisplayText(dayType, dayTypeEntity?.overrideLessonDayOfWeek),
                         style = TextStyle(
                             color = GlanceTheme.colors.onBackground,
                             fontSize = 8.sp,
@@ -168,7 +170,13 @@ private fun Content(data: WidgetData) {
                     if (index > 0) {
                         Spacer(modifier = GlanceModifier.width(2.dp))
                     }
-                    val lesson = WidgetDataHelper.resolveLesson(date, slot.index, data.lessons, data.dayTypeMap)
+                    val lesson = WidgetDataHelper.resolveLesson(
+                        date,
+                        slot.index,
+                        data.lessons,
+                        data.dayTypeEntities,
+                        data.dayTypeMap
+                    )
                     val hasTasks = WidgetDataHelper.hasTasksForDate(data, date, lesson)
                     val cellBg = if (lesson != null) GlanceTheme.colors.surfaceVariant else GlanceTheme.colors.background
 
@@ -210,7 +218,7 @@ private fun Content(data: WidgetData) {
                                     Text(
                                         text = "●",
                                         style = TextStyle(
-                                            color = GlanceTheme.colors.error,
+                                            color = ColorProvider(ComposeColor(0xFFBA1A1A)),
                                             fontSize = 7.sp
                                         )
                                     )
@@ -245,12 +253,6 @@ private fun Content(data: WidgetData) {
             }
         }
     }
-}
-
-private fun dayTypeLabel(dayType: DayType): String = when (dayType) {
-    DayType.A -> "A"
-    DayType.B -> "B"
-    DayType.HOLIDAY -> "休"
 }
 
 private fun formatHm(hour: Int, minute: Int): String {

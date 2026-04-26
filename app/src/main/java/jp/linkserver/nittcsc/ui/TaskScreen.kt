@@ -79,6 +79,9 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
+private val LegacyTaskBadgeContainer = Color(0xFF93000A)
+private val LegacyTaskBadgeOnContainer = Color(0xFFFFDAD6)
+
 @Composable
 fun TaskScreen(
     modifier: Modifier = Modifier,
@@ -352,22 +355,22 @@ private fun TaskCard(
 
     val dueStatusContainer = when {
         task.completedDate != null -> MaterialTheme.colorScheme.surfaceContainerHighest
-        isOverdue -> MaterialTheme.colorScheme.errorContainer
-        task.dueDate == today -> MaterialTheme.colorScheme.errorContainer
+        isOverdue -> LegacyTaskBadgeContainer
+        task.dueDate == today -> LegacyTaskBadgeContainer
         else -> {
             val days = ChronoUnit.DAYS.between(today, task.dueDate)
-            if (days == 1L) MaterialTheme.colorScheme.errorContainer
+            if (days == 1L) LegacyTaskBadgeContainer
             else MaterialTheme.colorScheme.secondaryContainer
         }
     }
 
     val dueStatusContent = when {
         task.completedDate != null -> MaterialTheme.colorScheme.onSurfaceVariant
-        isOverdue -> MaterialTheme.colorScheme.onErrorContainer
-        task.dueDate == today -> MaterialTheme.colorScheme.onErrorContainer
+        isOverdue -> LegacyTaskBadgeOnContainer
+        task.dueDate == today -> LegacyTaskBadgeOnContainer
         else -> {
             val days = ChronoUnit.DAYS.between(today, task.dueDate)
-            if (days == 1L) MaterialTheme.colorScheme.onErrorContainer
+            if (days == 1L) LegacyTaskBadgeOnContainer
             else MaterialTheme.colorScheme.onSecondaryContainer
         }
     }
@@ -379,13 +382,13 @@ private fun TaskCard(
     }
 
     val priorityContainer = when (task.priority) {
-        1 -> MaterialTheme.colorScheme.errorContainer
+        1 -> LegacyTaskBadgeContainer
         -1 -> MaterialTheme.colorScheme.tertiaryContainer
         else -> MaterialTheme.colorScheme.surfaceContainerHighest
     }
 
     val priorityContent = when (task.priority) {
-        1 -> MaterialTheme.colorScheme.onErrorContainer
+        1 -> LegacyTaskBadgeOnContainer
         -1 -> MaterialTheme.colorScheme.onTertiaryContainer
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }

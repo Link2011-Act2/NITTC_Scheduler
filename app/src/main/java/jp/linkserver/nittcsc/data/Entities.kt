@@ -44,7 +44,9 @@ data class SettingsEntity(
 @Entity(tableName = "day_types")
 data class DayTypeEntity(
     @PrimaryKey val date: LocalDate,
-    val dayType: DayType
+    val dayType: DayType,
+    val overrideLessonDayOfWeek: Int? = null,
+    val overrideLessonDayType: DayType? = null
 )
 
 @Entity(tableName = "long_breaks")

@@ -3,6 +3,7 @@ package jp.linkserver.nittcsc.widget
 import android.content.Context
 import jp.linkserver.nittcsc.data.AppDatabase
 import jp.linkserver.nittcsc.data.DayType
+import jp.linkserver.nittcsc.data.DayTypeEntity
 import jp.linkserver.nittcsc.data.LessonEntity
 import jp.linkserver.nittcsc.data.LessonMode
 import jp.linkserver.nittcsc.data.ResolvedLesson
@@ -21,6 +22,7 @@ data class WidgetData(
     val settings: SettingsEntity?,
     val classSlots: List<ClassSlot>,
     val dayType: DayType,
+    val dayTypeEntities: Map<LocalDate, DayTypeEntity>,
     val dayTypeMap: Map<LocalDate, DayType>,
     val lessons: Map<Pair<Int, Int>, LessonEntity>,
     val incompleteTasks: List<TaskEntity>
@@ -35,6 +37,7 @@ object WidgetDataHelper {
 
         val settings = dao.getSettings()
         val dayTypes = dao.getDayTypesOnce()
+        val dayTypeEntities = dayTypes.associateBy { it.date }
         val dayTypeMap = dayTypes.associate { it.date to it.dayType }
         val lessons = dao.getLessonsOnce().associate { (it.dayOfWeek to it.slotIndex) to it }
         val incompleteTasks = dao.getIncompleteTasksOnce()
@@ -57,6 +60,7 @@ object WidgetDataHelper {
             settings = settings,
             classSlots = classSlots,
             dayType = dayType,
+            dayTypeEntities = dayTypeEntities,
             dayTypeMap = dayTypeMap,
             lessons = lessons,
             incompleteTasks = incompleteTasks
@@ -72,17 +76,23 @@ object WidgetDataHelper {
         date: LocalDate,
         slotIndex: Int,
         lessons: Map<Pair<Int, Int>, LessonEntity>,
+        dayTypeEntities: Map<LocalDate, DayTypeEntity>,
         dayTypeMap: Map<LocalDate, DayType>
     ): ResolvedLesson? {
         if (date.dayOfWeek.value !in 1..5) return null
-        val dayType = dayTypeMap[date] ?: defaultDayType(date)
+        val dayTypeEntity = dayTypeEntities[date]
+        val dayType = dayTypeEntity?.dayType ?: dayTypeMap[date] ?: defaultDayType(date)
         if (dayType == DayType.HOLIDAY) return null
-        val lesson = lessons[date.dayOfWeek.value to slotIndex] ?: return null
+
+        val lessonDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek ?: date.dayOfWeek.value
+        val lessonDayType = dayTypeEntity?.overrideLessonDayType ?: dayType
+        val lesson = lessons[lessonDayOfWeek to slotIndex] ?: return null
+
         return when (lesson.mode) {
             LessonMode.WEEKLY -> if (lesson.weeklySubject.isBlank()) null
             else ResolvedLesson(lesson.weeklySubject, lesson.weeklyTeacher, lesson.weeklyLocation)
 
-            LessonMode.ALTERNATING -> when (dayType) {
+            LessonMode.ALTERNATING -> when (lessonDayType) {
                 DayType.A -> if (lesson.aSubject.isBlank()) null
                 else ResolvedLesson(lesson.aSubject, lesson.aTeacher, lesson.aLocation)
                 DayType.B -> if (lesson.bSubject.isBlank()) null
@@ -96,7 +106,7 @@ object WidgetDataHelper {
     fun findNextLesson(data: WidgetData): Triple<ClassSlot, ResolvedLesson, List<TaskEntity>>? {
         val now = LocalTime.now()
         for (slot in data.classSlots) {
-            val lesson = resolveLesson(data.today, slot.index, data.lessons, data.dayTypeMap)
+            val lesson = resolveLesson(data.today, slot.index, data.lessons, data.dayTypeEntities, data.dayTypeMap)
                 ?: continue
             if (slot.end.isAfter(now)) {
                 val tasks = tasksForSlot(data, lesson, slot)
@@ -146,5 +156,18 @@ object WidgetDataHelper {
 
     fun dayLabel(dayOfWeek: Int): String = when (dayOfWeek) {
         1 -> "月"; 2 -> "火"; 3 -> "水"; 4 -> "木"; 5 -> "金"; else -> ""
+    }
+
+    fun dayTypeLabel(dayType: DayType): String = when (dayType) {
+        DayType.A -> "A"
+        DayType.B -> "B"
+        DayType.HOLIDAY -> "休"
+    }
+
+    fun dayTypeDisplayText(dayType: DayType, overrideLessonDayOfWeek: Int?): String {
+        val base = dayTypeLabel(dayType)
+        if (overrideLessonDayOfWeek == null || dayType == DayType.HOLIDAY) return base
+        val dow = dayLabel(overrideLessonDayOfWeek)
+        return if (dow.isBlank()) base else "$base($dow)"
     }
 }

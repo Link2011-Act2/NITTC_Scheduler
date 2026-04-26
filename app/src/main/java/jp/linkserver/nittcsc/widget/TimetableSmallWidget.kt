@@ -31,8 +31,10 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
+import androidx.glance.unit.ColorProvider
 import jp.linkserver.nittcsc.MainActivity
 import jp.linkserver.nittcsc.data.DayType
+import androidx.compose.ui.graphics.Color as ComposeColor
 
 class TimetableSmallWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -77,11 +79,11 @@ private fun Content(data: WidgetData) {
                 maxLines = 1
             )
 
-            val dayTypeText = when (data.dayType) {
-                DayType.A -> "A 週"
-                DayType.B -> "B 週"
-                DayType.HOLIDAY -> "休"
-            }
+            val todayEntity = data.dayTypeEntities[data.today]
+            val dayTypeText = WidgetDataHelper.dayTypeDisplayText(
+                dayType = data.dayType,
+                overrideLessonDayOfWeek = todayEntity?.overrideLessonDayOfWeek
+            )
             Text(
                 text = dayTypeText,
                 style = TextStyle(
@@ -141,7 +143,11 @@ private fun Content(data: WidgetData) {
 
             slots.forEach { slot ->
                 val lesson = WidgetDataHelper.resolveLesson(
-                    data.today, slot.index, data.lessons, data.dayTypeMap
+                    data.today,
+                    slot.index,
+                    data.lessons,
+                    data.dayTypeEntities,
+                    data.dayTypeMap
                 )
                 val hasTasks = WidgetDataHelper.hasTasksForLesson(data, lesson)
 
@@ -175,7 +181,7 @@ private fun Content(data: WidgetData) {
                         Text(
                             text = "●",
                             style = TextStyle(
-                                color = GlanceTheme.colors.error,
+                                color = ColorProvider(ComposeColor(0xFFBA1A1A)),
                                 fontSize = dotSize
                             )
                         )

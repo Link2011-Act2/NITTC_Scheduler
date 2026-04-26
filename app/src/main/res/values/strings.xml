@@ -43,7 +43,8 @@
     <string name="notif_download_complete_title">ダウンロード完了</string>
     <string name="notif_download_complete_text">%s をダウンロードしました</string>
     <string name="notif_download_failed_title">ダウンロード失敗</string>
-    <string name="notif_download_failed_text">%s のダウンロードに失敗しました: %s</string>
+    <string name="notif_download_failed_text">%1$s のダウンロードに失敗しました: %2$s</string>
+    <string name="notif_download_overall_text">%1$d%% | %2$d/%3$d ファイル | %4$s</string>
 
     <!-- UI Text -->
     <string name="label_json_correction_model">JSON校正用モデル</string>
@@ -97,6 +98,7 @@
     <string name="btn_back_to_original">今年度に戻す</string>
     <string name="btn_export_this_week">今週のみ追加</string>
     <string name="btn_export_custom">期間を指定して追加</string>
+    <string name="btn_clear_override">例外を解除</string>
     <string name="btn_back">戻る</string>
     <string name="btn_next">次へ</string>
     <string name="label_export_range_start">開始日を選択</string>
@@ -151,6 +153,9 @@
     <string name="label_period_settings">期間設定</string>
     <string name="label_calendar_export">端末カレンダーへ出力</string>
     <string name="label_loading">読み込み中...</string>
+    <string name="label_override_weekday">参照する曜日</string>
+    <string name="label_override_day_type">A/B</string>
+    <string name="label_override_preview">適用後:</string>
 
     <!-- Date/Time Related -->
     <string name="label_start_date">開始日: %s</string>
@@ -246,6 +251,7 @@
     <string name="dialog_add_from_lesson_title">授業から追加</string>
     <string name="dialog_add_task_from_lesson">課題を追加</string>
     <string name="dialog_add_plan_from_lesson">予定を追加</string>
+    <string name="dialog_lesson_override_title">例外時間割を設定</string>
     <string name="dialog_task_delete_title">課題を削除</string>
     <string name="dialog_plan_delete_title">予定を削除</string>
     <string name="dialog_task_delete_message">「%1$s」を削除しますか？</string>
@@ -378,7 +384,14 @@
     <string name="cd_open_navigation_menu">ナビゲーションメニューを開く</string>
     <string name="label_no_model_selected">選択なし</string>
     <string name="cd_settings">設定</string>
+    <string name="dialog_title_download_progress_settings">設定</string>
+    <string name="label_download_progress_mode">通知での進捗表示</string>
+    <string name="option_download_progress_per_file">ファイルごと</string>
+    <string name="option_download_progress_overall">モデル全体</string>
+    <string name="desc_download_progress_per_file">現在ダウンロード中のファイルの進捗を表示します</string>
+    <string name="desc_download_progress_overall">モデル全ファイルの進捗を表示します</string>
     <string name="legend_ab_toggle">タップで切替: A → B → 休日</string>
+    <string name="legend_ab_override_long_press">長押しで例外時間割</string>
 
     <!-- About Screen -->
     <string name="about_screen_title">このアプリについて</string>

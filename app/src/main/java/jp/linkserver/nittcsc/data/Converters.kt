@@ -17,6 +17,12 @@ class Converters {
     fun toDayType(value: String): DayType = DayType.valueOf(value)
 
     @TypeConverter
+    fun fromNullableDayType(value: DayType?): String? = value?.name
+
+    @TypeConverter
+    fun toNullableDayType(value: String?): DayType? = value?.let(DayType::valueOf)
+
+    @TypeConverter
     fun fromLessonMode(value: LessonMode): String = value.name
 
     @TypeConverter

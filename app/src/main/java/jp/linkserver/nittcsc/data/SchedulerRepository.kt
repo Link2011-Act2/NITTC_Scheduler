@@ -18,7 +18,7 @@ class SchedulerRepository(private val db: AppDatabase) {
     private val dao: SchedulerDao = db.schedulerDao()
 
     companion object {
-        private const val CURRENT_EXPORT_VERSION = 4
+        private const val CURRENT_EXPORT_VERSION = 5
         private const val MIN_SUPPORTED_IMPORT_VERSION = 1
     }
 
@@ -121,26 +121,69 @@ class SchedulerRepository(private val db: AppDatabase) {
     }
 
     suspend fun toggleDayType(date: LocalDate) {
-        val current = dao.getDayType(date)?.dayType ?: DayType.A
+        val existing = dao.getDayType(date)
+        val current = existing?.dayType ?: DayType.A
         val next = when (current) {
             DayType.A -> DayType.B
             DayType.B -> DayType.HOLIDAY
             DayType.HOLIDAY -> DayType.A
         }
-        dao.upsertDayType(DayTypeEntity(date = date, dayType = next))
+        dao.upsertDayType(
+            DayTypeEntity(
+                date = date,
+                dayType = next,
+                overrideLessonDayOfWeek = existing?.overrideLessonDayOfWeek,
+                overrideLessonDayType = existing?.overrideLessonDayType
+            )
+        )
     }
 
     suspend fun upsertDayType(date: LocalDate, dayType: DayType) {
-        dao.upsertDayType(DayTypeEntity(date = date, dayType = dayType))
+        val existing = dao.getDayType(date)
+        dao.upsertDayType(
+            DayTypeEntity(
+                date = date,
+                dayType = dayType,
+                overrideLessonDayOfWeek = existing?.overrideLessonDayOfWeek,
+                overrideLessonDayType = existing?.overrideLessonDayType
+            )
+        )
     }
 
     suspend fun upsertDayTypes(dates: List<LocalDate>, dayType: DayType) {
+        val existing = dao.getDayTypesOnce().associateBy { it.date }
         val entities = dates.distinct().map { date ->
-            DayTypeEntity(date = date, dayType = dayType)
+            DayTypeEntity(
+                date = date,
+                dayType = dayType,
+                overrideLessonDayOfWeek = existing[date]?.overrideLessonDayOfWeek,
+                overrideLessonDayType = existing[date]?.overrideLessonDayType
+            )
         }
         if (entities.isNotEmpty()) {
             dao.upsertDayTypes(entities)
         }
+    }
+
+    suspend fun upsertLessonOverride(date: LocalDate, dayOfWeek: Int, dayType: DayType) {
+        dao.upsertDayType(
+            DayTypeEntity(
+                date = date,
+                dayType = dayType,
+                overrideLessonDayOfWeek = dayOfWeek,
+                overrideLessonDayType = dayType
+            )
+        )
+    }
+
+    suspend fun clearLessonOverride(date: LocalDate) {
+        val existing = dao.getDayType(date) ?: return
+        dao.upsertDayType(
+            existing.copy(
+                overrideLessonDayOfWeek = null,
+                overrideLessonDayType = null
+            )
+        )
     }
 
     suspend fun upsertLongBreak(id: Long?, name: String, startDate: LocalDate, endDate: LocalDate) {
@@ -192,13 +235,18 @@ class SchedulerRepository(private val db: AppDatabase) {
         val rebuilt = mutableListOf<DayTypeEntity>()
         for (date in settings.termStart.toDateRange(settings.termEnd)) {
             val autoHoliday = isAutoHoliday(date, breakRanges)
-            val manual = existing[date]?.dayType
+            val manual = existing[date]
             val resolved = when {
                 autoHoliday -> DayType.HOLIDAY
-                manual != null -> manual
+                manual != null -> manual.dayType
                 else -> DayType.A
             }
-            rebuilt += DayTypeEntity(date = date, dayType = resolved)
+            rebuilt += DayTypeEntity(
+                date = date,
+                dayType = resolved,
+                overrideLessonDayOfWeek = if (autoHoliday) null else manual?.overrideLessonDayOfWeek,
+                overrideLessonDayType = if (autoHoliday) null else manual?.overrideLessonDayType
+            )
         }
 
         dao.upsertDayTypes(rebuilt)
@@ -209,7 +257,7 @@ class SchedulerRepository(private val db: AppDatabase) {
         syncDayTypes()
 
         val settings = dao.getSettings() ?: return emptyList()
-        val dayTypeMap = dao.getDayTypesOnce().associate { it.date to it.dayType }
+        val dayTypeMap = dao.getDayTypesOnce().associateBy { it.date }
         val lessons = dao.getLessonsOnce().associateBy { it.dayOfWeek to it.slotIndex }
 
         val dateBounds = when (range) {
@@ -233,10 +281,12 @@ class SchedulerRepository(private val db: AppDatabase) {
             for (date in dateBounds.start.toDateRange(dateBounds.endInclusive)) {
                 if (date.dayOfWeek == DayOfWeek.SATURDAY || date.dayOfWeek == DayOfWeek.SUNDAY) continue
 
-                val dayType = dayTypeMap[date] ?: DayType.A
+                val dayTypeEntity = dayTypeMap[date]
+                val dayType = dayTypeEntity?.dayType ?: DayType.A
                 if (dayType == DayType.HOLIDAY) continue
 
-                val dayKey = date.dayOfWeek.value
+                val dayKey = dayTypeEntity?.overrideLessonDayOfWeek ?: date.dayOfWeek.value
+                val lessonDayType = dayTypeEntity?.overrideLessonDayType ?: dayType
                 val slots = generateClassSlots(
                     settings.periodsPerDay, settings.periodDurationMin, settings.breakBetweenPeriodsMin,
                     settings.lunchBreakMin, settings.firstPeriodStartHour, settings.firstPeriodStartMinute,
@@ -244,7 +294,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                 )
                 for (slot in slots) {
                     val lesson = lessons[dayKey to slot.index] ?: continue
-                    val resolved = resolveLesson(dayType, lesson) ?: continue
+                    val resolved = resolveLesson(lessonDayType, lesson) ?: continue
                     if (resolved.subject.isBlank()) continue
 
                     add(
@@ -751,6 +801,8 @@ class SchedulerRepository(private val db: AppDatabase) {
                 arr.put(org.json.JSONObject().also { obj ->
                     obj.put("date", dt.date.toString())
                     obj.put("dayType", dt.dayType.name)
+                    if (dt.overrideLessonDayOfWeek != null) obj.put("overrideLessonDayOfWeek", dt.overrideLessonDayOfWeek)
+                    if (dt.overrideLessonDayType != null) obj.put("overrideLessonDayType", dt.overrideLessonDayType.name)
                 })
             }
         })
@@ -889,7 +941,11 @@ class SchedulerRepository(private val db: AppDatabase) {
                 try {
                     dayTypeEntities += DayTypeEntity(
                         date = LocalDate.parse(obj.getString("date")),
-                        dayType = DayType.valueOf(obj.getString("dayType"))
+                        dayType = DayType.valueOf(obj.getString("dayType")),
+                        overrideLessonDayOfWeek = obj.optInt("overrideLessonDayOfWeek", -1).takeIf { it in 1..5 },
+                        overrideLessonDayType = obj.optString("overrideLessonDayType", "")
+                            .takeIf { it.isNotBlank() }
+                            ?.let { DayType.valueOf(it) }
                     )
                 } catch (_: Exception) { }
             }

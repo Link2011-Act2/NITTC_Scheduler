@@ -31,6 +31,7 @@ import java.time.LocalTime
 
 private data class CoreDataState(
     val settings: SettingsEntity?,
+    val dayTypeEntities: Map<LocalDate, DayTypeEntity>,
     val dayTypeMap: Map<LocalDate, DayType>,
     val longBreaks: List<LongBreakEntity>,
     val lessons: Map<Pair<Int, Int>, LessonEntity>,
@@ -42,6 +43,7 @@ private data class CoreDataState(
 
 data class SchedulerUiState(
     val settings: SettingsEntity? = null,
+    val dayTypeEntities: Map<LocalDate, DayTypeEntity> = emptyMap(),
     val dayTypeMap: Map<LocalDate, DayType> = emptyMap(),
     val longBreaks: List<LongBreakEntity> = emptyList(),
     val lessons: Map<Pair<Int, Int>, LessonEntity> = emptyMap(),
@@ -88,6 +90,7 @@ class SchedulerViewModel(
         val (lessons, tasks, incompleteTasks) = taskPart
         CoreDataState(
             settings = settings,
+            dayTypeEntities = dayTypes.associateBy { it.date },
             dayTypeMap = dayTypes.associate { it.date to it.dayType },
             longBreaks = longBreaks,
             lessons = lessons.associateBy { it.dayOfWeek to it.slotIndex },
@@ -106,6 +109,7 @@ class SchedulerViewModel(
     ) { core, dayOfWeek, resultDate, isInitialized ->
         SchedulerUiState(
             settings = core.settings,
+            dayTypeEntities = core.dayTypeEntities,
             dayTypeMap = core.dayTypeMap,
             longBreaks = core.longBreaks,
             lessons = core.lessons,
@@ -157,6 +161,18 @@ class SchedulerViewModel(
     fun saveDayTypes(dates: List<LocalDate>, dayType: DayType) {
         viewModelScope.launch {
             repository.upsertDayTypes(dates, dayType)
+        }
+    }
+
+    fun saveLessonOverride(date: LocalDate, dayOfWeek: Int, dayType: DayType) {
+        viewModelScope.launch {
+            repository.upsertLessonOverride(date, dayOfWeek, dayType)
+        }
+    }
+
+    fun clearLessonOverride(date: LocalDate) {
+        viewModelScope.launch {
+            repository.clearLessonOverride(date)
         }
     }
 
@@ -296,14 +312,18 @@ class SchedulerViewModel(
         date: LocalDate,
         slotIndex: Int,
         lessons: Map<Pair<Int, Int>, LessonEntity>,
-        dayTypeMap: Map<LocalDate, DayType>
+        dayTypeMap: Map<LocalDate, DayType>,
+        dayTypeEntities: Map<LocalDate, DayTypeEntity> = emptyMap()
     ): ResolvedLesson? {
         if (date.dayOfWeek.value !in 1..5) return null
 
-        val dayType = dayTypeMap[date] ?: defaultDayType(date)
+        val dayTypeEntity = dayTypeEntities[date]
+        val dayType = dayTypeEntity?.dayType ?: dayTypeMap[date] ?: defaultDayType(date)
         if (dayType == DayType.HOLIDAY) return null
 
-        val lesson = lessons[date.dayOfWeek.value to slotIndex] ?: return null
+        val lessonDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek ?: date.dayOfWeek.value
+        val lessonDayType = dayTypeEntity?.overrideLessonDayType ?: dayType
+        val lesson = lessons[lessonDayOfWeek to slotIndex] ?: return null
 
         return when (lesson.mode) {
             LessonMode.WEEKLY -> {
@@ -312,7 +332,7 @@ class SchedulerViewModel(
             }
 
             LessonMode.ALTERNATING -> {
-                when (dayType) {
+                when (lessonDayType) {
                     DayType.A -> if (lesson.aSubject.isBlank()) null else ResolvedLesson(lesson.aSubject, lesson.aTeacher, lesson.aLocation)
                     DayType.B -> if (lesson.bSubject.isBlank()) null else ResolvedLesson(lesson.bSubject, lesson.bTeacher, lesson.bLocation)
                     DayType.HOLIDAY -> null

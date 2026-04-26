@@ -57,6 +57,30 @@ data class ModelAsset(
 
 private fun VlmModelInfo.primaryFileName(): String = assets.first().fileName
 
+private fun ModelAsset.expectedSizeBytes(): Long? {
+    val match = Regex("""^\s*([0-9]+(?:\.[0-9]+)?)\s*(KB|MB|GB)\s*$""", RegexOption.IGNORE_CASE)
+        .matchEntire(sizeLabel)
+        ?: return null
+    val value = match.groupValues[1].toDoubleOrNull() ?: return null
+    val multiplier = when (match.groupValues[2].uppercase()) {
+        "KB" -> 1_000L
+        "MB" -> 1_000_000L
+        "GB" -> 1_000_000_000L
+        else -> return null
+    }
+    return (value * multiplier).toLong()
+}
+
+private fun ModelAsset.isDownloaded(filesByName: Map<String, File>): Boolean {
+    val file = filesByName[fileName] ?: return false
+    if (!file.isFile || file.length() <= 0L) return false
+    val expectedSize = expectedSizeBytes() ?: return true
+    return file.length() >= (expectedSize * 0.99).toLong()
+}
+
+private fun VlmModelInfo.isFullyDownloaded(filesByName: Map<String, File>): Boolean =
+    assets.all { it.isDownloaded(filesByName) }
+
 val MODEL_FAMILIES = mapOf(
     "SmolVLM2" to listOf(
         VlmModelInfo(
@@ -234,14 +258,23 @@ val MODEL_FAMILIES = mapOf(
 class VlmDownloadViewModel(application: Application) : AndroidViewModel(application) {
     val downloadStates = mutableStateMapOf<String, DownloadState>()
     private val workManager = WorkManager.getInstance(application)
+    private val manager = ModelDownloadManager(application)
     private val observeJobs = mutableMapOf<String, Job>()
     var hfToken by mutableStateOf("")
 
     fun startDownload(model: VlmModelInfo, token: String?) {
         if (downloadStates[model.id] is DownloadState.Downloading) return
         val manager = ModelDownloadManager(getApplication())
-        val requests = model.assets.map { asset ->
-            manager.buildDownloadRequest(asset.downloadUrl, asset.fileName, token, model.id)
+        val requests = model.assets.mapIndexed { index, asset ->
+            manager.buildDownloadRequest(
+                modelUrl = asset.downloadUrl,
+                fileName = asset.fileName,
+                authToken = token,
+                modelId = model.id,
+                modelName = model.name,
+                assetIndex = index,
+                assetCount = model.assets.size
+            )
         }
         if (requests.isEmpty()) return
 
@@ -304,8 +337,10 @@ class VlmDownloadViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun cancelDownload(modelId: String) {
+    fun cancelDownload(model: VlmModelInfo) {
+        val modelId = model.id
         workManager.cancelUniqueWork("model_dl_$modelId")
+        manager.deleteModels(model.assets.map { it.fileName })
         observeJobs[modelId]?.cancel()
         observeJobs.remove(modelId)
         downloadStates[modelId] = DownloadState.Idle
@@ -334,13 +369,13 @@ fun VlmImportScreen(
     val downloadManager = remember { ModelDownloadManager(context) }
     val coroutineScope = rememberCoroutineScope()
 
-    var downloadedModels by remember { mutableStateOf(downloadManager.getDownloadedModels().map { it.name }) }
+    var downloadedModelFiles by remember { mutableStateOf(downloadManager.getDownloadedModels()) }
 
     // ダウンロード完了時にファイル一覧を更新
     val downloadStatesSnapshot = downloadViewModel.downloadStates.values.count { it is DownloadState.Success }
     LaunchedEffect(downloadStatesSnapshot) {
         if (downloadStatesSnapshot > 0) {
-            downloadedModels = downloadManager.getDownloadedModels().map { it.name }
+            downloadedModelFiles = downloadManager.getDownloadedModels()
         }
     }
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
@@ -366,12 +401,26 @@ fun VlmImportScreen(
     var showModelMenu by remember { mutableStateOf(false) }
     var jsonCorrectionModelFile by remember { mutableStateOf<File?>(null) }
     var disableJsonCorrection by remember { mutableStateOf(false) }
+    var showDownloadSettingsDialog by remember { mutableStateOf(false) }
+    var downloadProgressDisplayMode by remember {
+        mutableStateOf(DownloadNotificationSettings.getProgressDisplayMode(context))
+    }
 
     val allModels = MODEL_FAMILIES.values.flatten()
+    val downloadedFilesByName = downloadedModelFiles.associateBy { it.name }
     val allKnownFileNames = allModels.flatMap { model -> model.assets.map { it.fileName } }.toSet()
     val knownPrimaryFileNames = allModels.map { it.primaryFileName() }.toSet()
-    val recognizedModels = downloadedModels.filter { it in knownPrimaryFileNames }
-    val unknownModels = downloadedModels.filter { it !in allKnownFileNames }
+    val fullyDownloadedModels = allModels.filter { it.isFullyDownloaded(downloadedFilesByName) }
+    val recognizedModels = fullyDownloadedModels.map { it.primaryFileName() }.filter { it in knownPrimaryFileNames }
+    val incompleteKnownFiles = downloadedModelFiles
+        .filter { it.name in allKnownFileNames }
+        .map { it.name }
+        .filterNot { fileName -> fullyDownloadedModels.any { model -> model.assets.any { it.fileName == fileName } } }
+    val unknownModels = downloadedModelFiles
+        .map { it.name }
+        .filter { it !in allKnownFileNames }
+        .plus(incompleteKnownFiles)
+        .distinct()
 
     // アプリ再起動後も進行中ダウンロードを監視再接続
     LaunchedEffect(Unit) {
@@ -562,6 +611,11 @@ fun VlmImportScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_back))
                     }
+                },
+                actions = {
+                    IconButton(onClick = { showDownloadSettingsDialog = true }) {
+                        Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.cd_settings))
+                    }
                 }
             )
         }
@@ -570,7 +624,7 @@ fun VlmImportScreen(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            if (downloadedModels.isNotEmpty()) {
+            if (downloadedModelFiles.isNotEmpty()) {
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -840,7 +894,7 @@ fun VlmImportScreen(
                 }
                 if (expandedFamilies[family] == true) {
                     items(models) { model ->
-                        val isDownloaded = model.assets.all { downloadedModels.contains(it.fileName) }
+                        val isDownloaded = model.isFullyDownloaded(downloadedFilesByName)
                         val downloadState = downloadViewModel.downloadStates[model.id] ?: DownloadState.Idle
                         
                         Card(
@@ -870,14 +924,20 @@ fun VlmImportScreen(
                                         )
                                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                             Text(stringResource(R.string.label_download_progress_info, (downloadState.progress * 100).toInt(), downloadState.speedMbps), style = MaterialTheme.typography.bodySmall)
-                                            TextButton(onClick = { downloadViewModel.cancelDownload(model.id) }) { 
+                                            TextButton(onClick = {
+                                                downloadViewModel.cancelDownload(model)
+                                                downloadedModelFiles = downloadManager.getDownloadedModels()
+                                            }) { 
                                                 Text(stringResource(R.string.btn_cancel), color = MaterialTheme.colorScheme.error) 
                                             }
                                         }
                                     }
                                     is DownloadState.Error -> {
                                         Text(stringResource(R.string.label_download_error, downloadState.exception.localizedMessage ?: ""), color = MaterialTheme.colorScheme.error)
-                                        Button(onClick = { downloadViewModel.cancelDownload(model.id) }) { Text(stringResource(R.string.btn_reset)) }
+                                        Button(onClick = {
+                                            downloadViewModel.cancelDownload(model)
+                                            downloadedModelFiles = downloadManager.getDownloadedModels()
+                                        }) { Text(stringResource(R.string.btn_reset)) }
                                     }
                                     else -> {
                                         if (isDownloaded) {
@@ -918,7 +978,7 @@ fun VlmImportScreen(
                                     Text(fileName, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                                     IconButton(onClick = {
                                         downloadManager.deleteModel(fileName)
-                                        downloadedModels = downloadManager.getDownloadedModels().map { it.name }
+                                        downloadedModelFiles = downloadManager.getDownloadedModels()
                                         if (activeModelFile?.name == fileName) activeModelFile = null
                                     }) {
                                         Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.btn_delete), tint = MaterialTheme.colorScheme.error)
@@ -1160,7 +1220,7 @@ fun VlmImportScreen(
                             model.assets.forEach { asset ->
                                 downloadManager.deleteModel(asset.fileName)
                             }
-                            downloadedModels = downloadManager.getDownloadedModels().map { it.name }
+                            downloadedModelFiles = downloadManager.getDownloadedModels()
                             if (activeModelFile?.name == model.primaryFileName()) activeModelFile = null
                         }
                         modelToDelete = null
@@ -1171,6 +1231,75 @@ fun VlmImportScreen(
                 }
             )
         }
+
+        if (showDownloadSettingsDialog) {
+            AlertDialog(
+                onDismissRequest = { showDownloadSettingsDialog = false },
+                title = { Text(stringResource(R.string.dialog_title_download_progress_settings)) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            stringResource(R.string.label_download_progress_mode),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        listOf(
+                            DownloadProgressDisplayMode.PER_FILE to Pair(
+                                stringResource(R.string.option_download_progress_per_file),
+                                stringResource(R.string.desc_download_progress_per_file)
+                            ),
+                            DownloadProgressDisplayMode.OVERALL to Pair(
+                                stringResource(R.string.option_download_progress_overall),
+                                stringResource(R.string.desc_download_progress_overall)
+                            )
+                        ).forEach { (mode, textPair) ->
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (downloadProgressDisplayMode == mode) {
+                                    MaterialTheme.colorScheme.secondaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceContainerLow
+                                },
+                                onClick = {
+                                    downloadProgressDisplayMode = mode
+                                    DownloadNotificationSettings.setProgressDisplayMode(context, mode)
+                                }
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    RadioButton(
+                                        selected = downloadProgressDisplayMode == mode,
+                                        onClick = {
+                                            downloadProgressDisplayMode = mode
+                                            DownloadNotificationSettings.setProgressDisplayMode(context, mode)
+                                        }
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(textPair.first, fontWeight = FontWeight.Bold)
+                                        Text(
+                                            textPair.second,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showDownloadSettingsDialog = false }) {
+                        Text(stringResource(R.string.btn_ok))
+                    }
+                }
+            )
+        }
     }
 }
-

@@ -45,6 +45,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.outlined.Assignment
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.AutoFixHigh
@@ -65,6 +66,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -87,7 +90,6 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -135,6 +137,7 @@ import androidx.core.content.ContextCompat
 import jp.linkserver.nittcsc.calendar.CalendarExporter
 import jp.linkserver.nittcsc.calendar.TaskCalendarSync
 import jp.linkserver.nittcsc.data.DayType
+import jp.linkserver.nittcsc.data.DayTypeEntity
 import jp.linkserver.nittcsc.data.LessonDraft
 import jp.linkserver.nittcsc.data.LessonEntity
 import jp.linkserver.nittcsc.data.LessonMode
@@ -200,6 +203,10 @@ private data class DayTypeVisual(
     val container: Color,
     val content: Color
 )
+
+private val LegacyTaskBadgeRed = Color(0xFFBA1A1A)
+private val LegacyTaskBadgeContainer = Color(0xFF93000A)
+private val LegacyTaskBadgeOnContainer = Color(0xFFFFDAD6)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -754,16 +761,20 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                         modifier = Modifier.padding(padding),
                                         state = uiState,
                                         dayTypeForDate = { date -> viewModel.dayTypeForDate(date, uiState.dayTypeMap) },
+                                        dayTypeEntityForDate = { date -> uiState.dayTypeEntities[date] },
                                         resolveLesson = { date, slot ->
                                             viewModel.resolveLessonForDate(
                                                 date = date,
                                                 slotIndex = slot,
                                                 lessons = uiState.lessons,
-                                                dayTypeMap = uiState.dayTypeMap
+                                                dayTypeMap = uiState.dayTypeMap,
+                                                dayTypeEntities = uiState.dayTypeEntities
                                             )
                                         },
                                         onShiftDate = viewModel::shiftResultDate,
                                         onPickDate = viewModel::setResultDate,
+                                        onSaveLessonOverride = viewModel::saveLessonOverride,
+                                        onClearLessonOverride = viewModel::clearLessonOverride,
                                         onOpenTask = { task ->
                                             navigateToTabFromAction(AppTab.Tasks)
                                             editingTaskId = null
@@ -901,11 +912,14 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                         modifier = Modifier.padding(padding),
                                         state = uiState,
                                         onSaveDayTypes = viewModel::saveDayTypes,
+                                        onSaveLessonOverride = viewModel::saveLessonOverride,
+                                        onClearLessonOverride = viewModel::clearLessonOverride,
                                         onResetFiscalYear = viewModel::resetFiscalYear,
                                         onUpdateTerm = viewModel::updateTerm,
                                         onSaveBreak = viewModel::saveLongBreak,
                                         onDeleteBreak = viewModel::deleteLongBreak,
-                                        dayTypeForDate = { date -> viewModel.dayTypeForDate(date, uiState.dayTypeMap) }
+                                        dayTypeForDate = { date -> viewModel.dayTypeForDate(date, uiState.dayTypeMap) },
+                                        dayTypeEntityForDate = { date -> uiState.dayTypeEntities[date] }
                                     )
                                 }
                             }
@@ -1412,11 +1426,14 @@ private fun AbTableScreen(
     modifier: Modifier,
     state: SchedulerUiState,
     onSaveDayTypes: (List<LocalDate>, DayType) -> Unit,
+    onSaveLessonOverride: (LocalDate, Int, DayType) -> Unit,
+    onClearLessonOverride: (LocalDate) -> Unit,
     onResetFiscalYear: () -> Unit,
     onUpdateTerm: (LocalDate, LocalDate) -> Unit,
     onSaveBreak: (Long?, String, LocalDate, LocalDate) -> Unit,
     onDeleteBreak: (LongBreakEntity) -> Unit,
-    dayTypeForDate: (LocalDate) -> DayType
+    dayTypeForDate: (LocalDate) -> DayType,
+    dayTypeEntityForDate: (LocalDate) -> DayTypeEntity?
 ) {
     val settings = state.settings
     if (settings == null) {
@@ -1447,6 +1464,7 @@ private fun AbTableScreen(
     var dragStartDate by remember(displayedWeeks) { mutableStateOf<LocalDate?>(null) }
     var dragCurrentDate by remember(displayedWeeks) { mutableStateOf<LocalDate?>(null) }
     var dragTargetDayType by remember(displayedWeeks) { mutableStateOf<DayType?>(null) }
+    var overrideEditingDate by remember(displayedWeeks) { mutableStateOf<LocalDate?>(null) }
 
     val displayDates = remember(displayedWeeks, settings.termStart, settings.termEnd) {
         displayedWeeks.flatMap { it.row.days }.filter { it in settings.termStart..settings.termEnd }
@@ -1577,7 +1595,12 @@ private fun AbTableScreen(
                 settingsStart = settings.termStart,
                 settingsEnd = settings.termEnd,
                 dayTypeForDate = dayTypeForDate,
+                dayTypeEntityForDate = dayTypeEntityForDate,
                 onSaveDayTypes = onSaveDayTypes,
+                onOpenLessonOverride = { date ->
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    overrideEditingDate = date
+                },
                 isPast = displayWeek.isPast,
                 previewDates = previewDates,
                 previewDayType = dragTargetDayType,
@@ -1611,6 +1634,30 @@ private fun AbTableScreen(
                 if (name.isNotBlank()) {
                     showBreakDialog = false
                 }
+            }
+        )
+    }
+
+    overrideEditingDate?.let { date ->
+        val dayTypeEntity = dayTypeEntityForDate(date)
+        LessonOverrideDialog(
+            date = date,
+            currentDayType = dayTypeForDate(date),
+            currentOverrideDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek,
+            currentOverrideDayType = dayTypeEntity?.overrideLessonDayType,
+            showDayTypeSelector = false,
+            onDismiss = { overrideEditingDate = null },
+            onApply = { dayOfWeek, dayType ->
+                onSaveLessonOverride(date, dayOfWeek, dayType)
+                overrideEditingDate = null
+            },
+            onClear = if (dayTypeEntity?.overrideLessonDayOfWeek != null && dayTypeEntity.overrideLessonDayType != null) {
+                {
+                    onClearLessonOverride(date)
+                    overrideEditingDate = null
+                }
+            } else {
+                null
             }
         )
     }
@@ -1658,7 +1705,21 @@ private fun DatePickRow(
 private fun DayTypeLegend() {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(stringResource(R.string.legend_ab_toggle), style = MaterialTheme.typography.titleSmall)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.legend_ab_toggle),
+                    style = MaterialTheme.typography.titleSmall
+                )
+                Text(
+                    text = stringResource(R.string.legend_ab_override_long_press),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DayChip(stringResource(R.string.daytype_a), dayTypeVisual(DayType.A))
                 DayChip(stringResource(R.string.daytype_b), dayTypeVisual(DayType.B))
@@ -1719,13 +1780,16 @@ private fun WeekHeader() {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun WeekRow(
     row: WeekRow,
     settingsStart: LocalDate,
     settingsEnd: LocalDate,
     dayTypeForDate: (LocalDate) -> DayType,
+    dayTypeEntityForDate: (LocalDate) -> DayTypeEntity?,
     onSaveDayTypes: (List<LocalDate>, DayType) -> Unit,
+    onOpenLessonOverride: (LocalDate) -> Unit,
     isPast: Boolean = false,
     previewDates: Set<LocalDate> = emptySet(),
     previewDayType: DayType? = null,
@@ -1791,11 +1855,19 @@ private fun WeekRow(
                             }
                         )
                         .background(visual.container, RoundedCornerShape(10.dp))
-                        .clickable { onSaveDayTypes(listOf(date), nextDayType(dayTypeForDate(date))) }
+                        .combinedClickable(
+                            onClick = { onSaveDayTypes(listOf(date), nextDayType(dayTypeForDate(date))) },
+                            onLongClick = { onOpenLessonOverride(date) }
+                        )
                         .padding(vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(stringResource(dayTypeRes(shownDayType)), color = visual.content, fontWeight = FontWeight.Bold)
+                    val label = if (previewActive) {
+                        stringResource(dayTypeRes(shownDayType))
+                    } else {
+                        dayTypeDisplayText(shownDayType, dayTypeEntityForDate(date)?.overrideLessonDayOfWeek)
+                    }
+                    Text(label, color = visual.content, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1893,9 +1965,12 @@ private fun OutputScreen(
     modifier: Modifier,
     state: SchedulerUiState,
     dayTypeForDate: (LocalDate) -> DayType,
+    dayTypeEntityForDate: (LocalDate) -> DayTypeEntity?,
     resolveLesson: (LocalDate, Int) -> ResolvedLesson?,
     onShiftDate: (Long) -> Unit,
     onPickDate: (LocalDate) -> Unit,
+    onSaveLessonOverride: (LocalDate, Int, DayType) -> Unit,
+    onClearLessonOverride: (LocalDate) -> Unit,
     onOpenTask: (TaskEntity) -> Unit,
     onOpenPlan: (PlanEntity) -> Unit,
     onExportWithPermission: (ExportRange) -> Unit,
@@ -2040,6 +2115,7 @@ private fun OutputScreen(
                     Spacer(Modifier.weight(1f))
                     IconButton(onClick = { onShiftDate(-shiftUnit) }) { Text("<") }
                     if (displayMode == OutputDisplayMode.DAY) {
+                        val selectedDayTypeEntity = dayTypeEntityForDate(selectedDate)
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier.combinedClickable(
@@ -2051,7 +2127,10 @@ private fun OutputScreen(
                             )
                         ) {
                             Text(selectedDate.format(dateFormatter), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text("${stringResource(dayOfWeekRes(selectedDate.dayOfWeek))} / ${stringResource(dayTypeRes(dayType))}", style = MaterialTheme.typography.labelSmall)
+                            Text(
+                                "${stringResource(dayOfWeekRes(selectedDate.dayOfWeek))} / ${dayTypeDisplayText(dayType, selectedDayTypeEntity?.overrideLessonDayOfWeek)}",
+                                style = MaterialTheme.typography.labelSmall
+                            )
                         }
                     } else {
                         val shortFmt = remember { java.time.format.DateTimeFormatter.ofPattern("MM/dd") }
@@ -2123,11 +2202,14 @@ private fun OutputScreen(
                 WeekScheduleTable(
                     dates = weekDates,
                     dayTypeForDate = dayTypeForDate,
+                    dayTypeEntityForDate = dayTypeEntityForDate,
                     resolveLesson = resolveLesson,
                     tasks = state.tasks,
                     plans = state.plans,
                     classSlots = classSlots,
                     showCurrentTimeMarker = showCurrentTimeMarker,
+                    onSaveLessonOverride = onSaveLessonOverride,
+                    onClearLessonOverride = onClearLessonOverride,
                     onDayClick = { date ->
                         onPickDate(date)
                         displayMode = OutputDisplayMode.DAY
@@ -2250,6 +2332,7 @@ private fun DayScheduleTable(
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
     val dpPerMinute = 1.3f
+    val timelineMarkerCenterOffsetDp = 8f
     val timeColWidth = 52.dp
     val strLunchBreak = stringResource(R.string.label_lunch_break)
     val strNoLesson = stringResource(R.string.label_no_class_short)
@@ -2673,17 +2756,17 @@ private fun DayScheduleTable(
                             )
                         }
                     }
-                        if (currentTimeMarkOffsetDp != null) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .offset(y = currentTimeMarkOffsetDp.dp)
-                                    .padding(end = 1.dp)
-                                    .width(16.dp)
-                                    .height(2.5.dp)
-                                    .background(MaterialTheme.colorScheme.error, RoundedCornerShape(50))
-                            )
-                        }
+                    if (currentTimeMarkOffsetDp != null) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .offset(y = (currentTimeMarkOffsetDp + timelineMarkerCenterOffsetDp).dp)
+                                .padding(end = 1.dp)
+                                .width(16.dp)
+                                .height(2.5.dp)
+                                .background(MaterialTheme.colorScheme.error, RoundedCornerShape(50))
+                        )
+                    }
                 }
 
                 // 右: コンテンツ
@@ -2744,13 +2827,13 @@ private fun DayScheduleTable(
                                         if (hasLessonTask) {
                                             Surface(
                                                 shape = RoundedCornerShape(50),
-                                                color = MaterialTheme.colorScheme.errorContainer
+                                                color = LegacyTaskBadgeContainer
                                             ) {
                                                 Text(
                                                     text = strHasTask,
                                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                                                     style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                                    color = LegacyTaskBadgeOnContainer,
                                                     fontWeight = FontWeight.Bold
                                                 )
                                             }
@@ -3014,23 +3097,29 @@ private fun DayScheduleTable(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun WeekScheduleTable(
     dates: List<LocalDate>,
     dayTypeForDate: (LocalDate) -> DayType,
+    dayTypeEntityForDate: (LocalDate) -> DayTypeEntity?,
     resolveLesson: (LocalDate, Int) -> ResolvedLesson?,
     tasks: List<TaskEntity>,
     plans: List<PlanEntity>,
     classSlots: List<ClassSlot> = CLASS_SLOTS,
     showCurrentTimeMarker: Boolean = false,
+    onSaveLessonOverride: (LocalDate, Int, DayType) -> Unit,
+    onClearLessonOverride: (LocalDate) -> Unit,
     onDayClick: (LocalDate) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val today = remember { LocalDate.now() }
     val currentTime = if (showCurrentTimeMarker) rememberCurrentTime() else null
+    val haptic = LocalHapticFeedback.current
     val slotLabelWidth = 44.dp
     val cellHeight = 140.dp
     val currentMinuteOfDay = currentTime?.let { it.hour * 60 + it.minute }
+    var overrideEditingDate by remember(dates) { mutableStateOf<LocalDate?>(null) }
 
     Column(
         modifier = modifier.fillMaxWidth()
@@ -3040,9 +3129,19 @@ private fun WeekScheduleTable(
             Spacer(modifier = Modifier.width(slotLabelWidth))
             dates.forEach { date ->
                 val dayType = dayTypeForDate(date)
+                val dayTypeEntity = dayTypeEntityForDate(date)
                 val isToday = date == today
                 Column(
-                    modifier = Modifier.weight(1f).padding(horizontal = 1.dp, vertical = 4.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 1.dp, vertical = 4.dp)
+                        .combinedClickable(
+                            onClick = { onDayClick(date) },
+                            onLongClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                overrideEditingDate = date
+                            }
+                        ),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     val circleModifier = if (isToday)
@@ -3062,7 +3161,7 @@ private fun WeekScheduleTable(
                         )
                     }
                     Text(
-                        text = stringResource(dayTypeRes(dayType)),
+                        text = dayTypeDisplayText(dayType, dayTypeEntity?.overrideLessonDayOfWeek),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -3158,7 +3257,7 @@ private fun WeekScheduleTable(
                                                     modifier = Modifier
                                                         .width(8.dp)
                                                         .height(8.dp)
-                                                        .background(MaterialTheme.colorScheme.error, RoundedCornerShape(50))
+                                                        .background(LegacyTaskBadgeRed, RoundedCornerShape(50))
                                                 )
                                             }
                                             if (hasPlan) {
@@ -3212,6 +3311,197 @@ private fun WeekScheduleTable(
             }
         }
     }
+
+    overrideEditingDate?.let { date ->
+        val dayTypeEntity = dayTypeEntityForDate(date)
+        LessonOverrideDialog(
+            date = date,
+            currentDayType = dayTypeForDate(date),
+            currentOverrideDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek,
+            currentOverrideDayType = dayTypeEntity?.overrideLessonDayType,
+            onDismiss = { overrideEditingDate = null },
+            onApply = { dayOfWeek, dayTypeValue ->
+                onSaveLessonOverride(date, dayOfWeek, dayTypeValue)
+                overrideEditingDate = null
+            },
+            onClear = if (dayTypeEntity?.overrideLessonDayOfWeek != null && dayTypeEntity.overrideLessonDayType != null) {
+                {
+                    onClearLessonOverride(date)
+                    overrideEditingDate = null
+                }
+            } else {
+                null
+            }
+        )
+    }
+}
+
+@Composable
+private fun LessonOverrideDialog(
+    date: LocalDate,
+    currentDayType: DayType,
+    currentOverrideDayOfWeek: Int?,
+    currentOverrideDayType: DayType?,
+    showDayTypeSelector: Boolean = true,
+    onDismiss: () -> Unit,
+    onApply: (Int, DayType) -> Unit,
+    onClear: (() -> Unit)?
+) {
+    val effectiveShowDayTypeSelector = showDayTypeSelector || currentDayType == DayType.HOLIDAY
+    var selectedDayOfWeek by remember(date, currentOverrideDayOfWeek) {
+        mutableStateOf(currentOverrideDayOfWeek ?: date.dayOfWeek.value.coerceIn(1, 5))
+    }
+    var selectedDayType by remember(date, currentDayType, currentOverrideDayType) {
+        mutableStateOf(
+            (currentOverrideDayType ?: currentDayType).takeIf { it != DayType.HOLIDAY } ?: DayType.A
+        )
+    }
+    var dayOfWeekExpanded by remember { mutableStateOf(false) }
+    var dayTypeExpanded by remember { mutableStateOf(false) }
+
+    val weekdayOptions = remember {
+        listOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY)
+    }
+    val appliedDayType = if (effectiveShowDayTypeSelector) selectedDayType else currentDayType
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.dialog_lesson_override_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = date.format(dateFormatter),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "${stringResource(dayOfWeekRes(date.dayOfWeek))} / ${stringResource(dayTypeRes(currentDayType))}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(stringResource(R.string.label_override_weekday), style = MaterialTheme.typography.titleSmall)
+                        OutlinedButton(
+                            onClick = { dayOfWeekExpanded = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(stringResource(dayOfWeekRes(DayOfWeek.of(selectedDayOfWeek))))
+                                Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
+                            }
+                        }
+                    }
+                    DropdownMenu(
+                        expanded = dayOfWeekExpanded,
+                        onDismissRequest = { dayOfWeekExpanded = false }
+                    ) {
+                        weekdayOptions.forEach { dayOfWeek ->
+                            DropdownMenuItem(
+                                text = { Text(stringResource(dayOfWeekRes(dayOfWeek))) },
+                                onClick = {
+                                    selectedDayOfWeek = dayOfWeek.value
+                                    dayOfWeekExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                if (effectiveShowDayTypeSelector) {
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(stringResource(R.string.label_override_day_type), style = MaterialTheme.typography.titleSmall)
+                            OutlinedButton(
+                                onClick = { dayTypeExpanded = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(stringResource(dayTypeRes(selectedDayType)))
+                                    Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
+                                }
+                            }
+                        }
+                        DropdownMenu(
+                            expanded = dayTypeExpanded,
+                            onDismissRequest = { dayTypeExpanded = false }
+                        ) {
+                            listOf(DayType.A, DayType.B).forEach { dayType ->
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(dayTypeRes(dayType))) },
+                                    onClick = {
+                                        selectedDayType = dayType
+                                        dayTypeExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "${stringResource(R.string.label_override_preview)} ${dayTypeDisplayText(appliedDayType, selectedDayOfWeek)}",
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onApply(selectedDayOfWeek, appliedDayType) }) {
+                Text(stringResource(R.string.btn_save))
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (onClear != null) {
+                    TextButton(onClick = onClear) {
+                        Text(stringResource(R.string.btn_clear_override))
+                    }
+                }
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.btn_cancel))
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun dayTypeDisplayText(dayType: DayType, overrideLessonDayOfWeek: Int?): String {
+    val baseLabel = stringResource(dayTypeRes(dayType))
+    if (overrideLessonDayOfWeek == null || dayType == DayType.HOLIDAY) {
+        return baseLabel
+    }
+    return "$baseLabel(${stringResource(dayOfWeekRes(DayOfWeek.of(overrideLessonDayOfWeek)))})"
 }
 
 private fun taskMatchesLesson(task: TaskEntity, lesson: ResolvedLesson): Boolean {
