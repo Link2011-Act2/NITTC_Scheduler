@@ -259,8 +259,8 @@ android {
         applicationId = "jp.linkserver.nittcsc"
         minSdk = 26
         targetSdk = 36
-        versionCode = 8
-        versionName = "0.9.5-Beta" // (1.2.0-IntDev相当)
+        versionCode = 9
+        versionName = "0.9.6-Beta" // (1.2.1-IntDev相当)
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

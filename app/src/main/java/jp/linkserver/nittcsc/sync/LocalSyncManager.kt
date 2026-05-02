@@ -454,10 +454,6 @@ class LocalSyncManager(
                 ?: SyncResult(false, "相手端末 (${device.deviceName}) に接続できませんでした。IPアドレスが変わっている可能性があります。")
         }
 
-        // DB の host を最新 IP で更新
-        dao.upsertSyncRegisteredDevice(device.copy(host = refreshed.first, port = refreshed.second, lastSeenAt = System.currentTimeMillis()))
-        appendLog("IP更新: ${device.host} → ${refreshed.first}:${refreshed.second}")
-
         val refreshedTarget = DiscoveredSyncDevice(
             deviceId = device.deviceId,
             userNickname = device.userNickname,
@@ -685,6 +681,12 @@ class LocalSyncManager(
         }.getOrElse { e ->
             appendLog("snapshot取得エラー ${device.host}:${device.port} - ${e.message}")
             return SyncResult(false, "同期先に接続できませんでした: ${e.message ?: "接続エラー"}")
+        }
+
+        val remoteDeviceId = remoteResponse.optString("deviceId")
+        if (remoteDeviceId.isNotBlank() && remoteDeviceId != device.deviceId) {
+            appendLog("snapshot応答のdeviceId不一致: expected=${device.deviceId} actual=$remoteDeviceId host=$targetHost:$targetPort")
+            return SyncResult(false, "別の端末が応答しました。対象端末を確認して再試行してください。")
         }
 
         if (targetHost != device.host || targetPort != device.port) {
@@ -982,7 +984,13 @@ class LocalSyncManager(
                 if (auth.authValue == null) {
                     JSONObject().put("ok", false).put("message", auth.failureMessage ?: authFailureMessage(request))
                 } else {
-                    JSONObject().put("ok", true).put("payload", repository.exportSyncPayload())
+                    val profile = ensureProfile()
+                    JSONObject()
+                        .put("ok", true)
+                        .put("deviceId", profile.deviceId)
+                        .put("userNickname", profile.userNickname)
+                        .put("deviceName", profile.deviceName)
+                        .put("payload", repository.exportSyncPayload())
                 }
             }
 
