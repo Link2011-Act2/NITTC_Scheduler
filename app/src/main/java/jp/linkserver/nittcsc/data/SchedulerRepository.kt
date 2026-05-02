@@ -20,6 +20,7 @@ class SchedulerRepository(private val db: AppDatabase) {
     companion object {
         private const val CURRENT_EXPORT_VERSION = 5
         private const val MIN_SUPPORTED_IMPORT_VERSION = 1
+        private const val MAX_FUTURE_META_DRIFT_MS = 5 * 60 * 1000L
         const val DATASET_TASKS = "tasks"
         const val DATASET_PLANS = "plans"
         const val DATASET_SCHEDULE_SETTINGS = "scheduleSettings"
@@ -59,22 +60,26 @@ class SchedulerRepository(private val db: AppDatabase) {
     }
 
     suspend fun resetToCurrentFiscalYear(today: LocalDate = LocalDate.now()) {
-        val settings = defaultSettings(today)
-        dao.upsertSettings(settings)
-        syncDayTypes()
-        touchSyncDatasetMeta(DATASET_SCHEDULE_SETTINGS, DATASET_DAY_TYPES)
+        db.withTransaction {
+            val settings = defaultSettings(today)
+            dao.upsertSettings(settings)
+            syncDayTypes()
+            touchSyncDatasetMeta(DATASET_SCHEDULE_SETTINGS, DATASET_DAY_TYPES)
+        }
     }
 
     suspend fun updateTerm(startDate: LocalDate, endDate: LocalDate) {
-        val current = dao.getSettings() ?: defaultSettings(LocalDate.now())
-        dao.upsertSettings(
-            current.copy(
-                termStart = minOf(startDate, endDate),
-                termEnd = maxOf(startDate, endDate)
+        db.withTransaction {
+            val current = dao.getSettings() ?: defaultSettings(LocalDate.now())
+            dao.upsertSettings(
+                current.copy(
+                    termStart = minOf(startDate, endDate),
+                    termEnd = maxOf(startDate, endDate)
+                )
             )
-        )
-        syncDayTypes()
-        touchSyncDatasetMeta(DATASET_SCHEDULE_SETTINGS, DATASET_DAY_TYPES)
+            syncDayTypes()
+            touchSyncDatasetMeta(DATASET_SCHEDULE_SETTINGS, DATASET_DAY_TYPES)
+        }
     }
 
     suspend fun updateScheduleSettings(
@@ -91,25 +96,27 @@ class SchedulerRepository(private val db: AppDatabase) {
         departureHour: Int,
         departureMinute: Int
     ) {
-        val current = dao.getSettings() ?: return
-        dao.upsertSettings(
-            current.copy(
-                periodsPerDay = periodsPerDay,
-                periodDurationMin = periodDurationMin,
-                breakBetweenPeriodsMin = breakBetweenPeriodsMin,
-                lunchBreakMin = lunchBreakMin,
-                lunchAfterPeriod = lunchAfterPeriod,
-                firstPeriodStartHour = firstPeriodStartHour,
-                firstPeriodStartMinute = firstPeriodStartMinute,
-                useKosenMode = useKosenMode,
-                arrivalHour = arrivalHour,
-                arrivalMinute = arrivalMinute,
-                departureHour = departureHour,
-                departureMinute = departureMinute
+        db.withTransaction {
+            val current = dao.getSettings() ?: return@withTransaction
+            dao.upsertSettings(
+                current.copy(
+                    periodsPerDay = periodsPerDay,
+                    periodDurationMin = periodDurationMin,
+                    breakBetweenPeriodsMin = breakBetweenPeriodsMin,
+                    lunchBreakMin = lunchBreakMin,
+                    lunchAfterPeriod = lunchAfterPeriod,
+                    firstPeriodStartHour = firstPeriodStartHour,
+                    firstPeriodStartMinute = firstPeriodStartMinute,
+                    useKosenMode = useKosenMode,
+                    arrivalHour = arrivalHour,
+                    arrivalMinute = arrivalMinute,
+                    departureHour = departureHour,
+                    departureMinute = departureMinute
+                )
             )
-        )
-        ensureLessonRows()
-        touchSyncDatasetMeta(DATASET_SCHEDULE_SETTINGS, DATASET_LESSONS)
+            ensureLessonRows()
+            touchSyncDatasetMeta(DATASET_SCHEDULE_SETTINGS, DATASET_LESSONS)
+        }
     }
 
     suspend fun toggleLocalAi(enabled: Boolean) {
@@ -148,126 +155,144 @@ class SchedulerRepository(private val db: AppDatabase) {
     }
 
     suspend fun toggleDayType(date: LocalDate) {
-        val existing = dao.getDayType(date)
-        val current = existing?.dayType ?: DayType.A
-        val next = when (current) {
-            DayType.A -> DayType.B
-            DayType.B -> DayType.HOLIDAY
-            DayType.HOLIDAY -> DayType.A
-        }
-        dao.upsertDayType(
-            DayTypeEntity(
-                date = date,
-                dayType = next,
-                overrideLessonDayOfWeek = existing?.overrideLessonDayOfWeek,
-                overrideLessonDayType = existing?.overrideLessonDayType
+        db.withTransaction {
+            val existing = dao.getDayType(date)
+            val current = existing?.dayType ?: DayType.A
+            val next = when (current) {
+                DayType.A -> DayType.B
+                DayType.B -> DayType.HOLIDAY
+                DayType.HOLIDAY -> DayType.A
+            }
+            dao.upsertDayType(
+                DayTypeEntity(
+                    date = date,
+                    dayType = next,
+                    overrideLessonDayOfWeek = existing?.overrideLessonDayOfWeek,
+                    overrideLessonDayType = existing?.overrideLessonDayType
+                )
             )
-        )
-        touchSyncDatasetMeta(DATASET_DAY_TYPES)
-    }
-
-    suspend fun upsertDayType(date: LocalDate, dayType: DayType) {
-        val existing = dao.getDayType(date)
-        dao.upsertDayType(
-            DayTypeEntity(
-                date = date,
-                dayType = dayType,
-                overrideLessonDayOfWeek = existing?.overrideLessonDayOfWeek,
-                overrideLessonDayType = existing?.overrideLessonDayType
-            )
-        )
-        touchSyncDatasetMeta(DATASET_DAY_TYPES)
-    }
-
-    suspend fun upsertDayTypes(dates: List<LocalDate>, dayType: DayType) {
-        val existing = dao.getDayTypesOnce().associateBy { it.date }
-        val entities = dates.distinct().map { date ->
-            DayTypeEntity(
-                date = date,
-                dayType = dayType,
-                overrideLessonDayOfWeek = existing[date]?.overrideLessonDayOfWeek,
-                overrideLessonDayType = existing[date]?.overrideLessonDayType
-            )
-        }
-        if (entities.isNotEmpty()) {
-            dao.upsertDayTypes(entities)
             touchSyncDatasetMeta(DATASET_DAY_TYPES)
         }
     }
 
-    suspend fun upsertLessonOverride(date: LocalDate, dayOfWeek: Int, dayType: DayType) {
-        dao.upsertDayType(
-            DayTypeEntity(
-                date = date,
-                dayType = dayType,
-                overrideLessonDayOfWeek = dayOfWeek,
-                overrideLessonDayType = dayType
+    suspend fun upsertDayType(date: LocalDate, dayType: DayType) {
+        db.withTransaction {
+            val existing = dao.getDayType(date)
+            dao.upsertDayType(
+                DayTypeEntity(
+                    date = date,
+                    dayType = dayType,
+                    overrideLessonDayOfWeek = existing?.overrideLessonDayOfWeek,
+                    overrideLessonDayType = existing?.overrideLessonDayType
+                )
             )
-        )
-        touchSyncDatasetMeta(DATASET_DAY_TYPES)
+            touchSyncDatasetMeta(DATASET_DAY_TYPES)
+        }
+    }
+
+    suspend fun upsertDayTypes(dates: List<LocalDate>, dayType: DayType) {
+        db.withTransaction {
+            val existing = dao.getDayTypesOnce().associateBy { it.date }
+            val entities = dates.distinct().map { date ->
+                DayTypeEntity(
+                    date = date,
+                    dayType = dayType,
+                    overrideLessonDayOfWeek = existing[date]?.overrideLessonDayOfWeek,
+                    overrideLessonDayType = existing[date]?.overrideLessonDayType
+                )
+            }
+            if (entities.isNotEmpty()) {
+                dao.upsertDayTypes(entities)
+                touchSyncDatasetMeta(DATASET_DAY_TYPES)
+            }
+        }
+    }
+
+    suspend fun upsertLessonOverride(date: LocalDate, dayOfWeek: Int, dayType: DayType) {
+        db.withTransaction {
+            dao.upsertDayType(
+                DayTypeEntity(
+                    date = date,
+                    dayType = dayType,
+                    overrideLessonDayOfWeek = dayOfWeek,
+                    overrideLessonDayType = dayType
+                )
+            )
+            touchSyncDatasetMeta(DATASET_DAY_TYPES)
+        }
     }
 
     suspend fun clearLessonOverride(date: LocalDate) {
-        val existing = dao.getDayType(date) ?: return
-        dao.upsertDayType(
-            existing.copy(
-                overrideLessonDayOfWeek = null,
-                overrideLessonDayType = null
+        db.withTransaction {
+            val existing = dao.getDayType(date) ?: return@withTransaction
+            dao.upsertDayType(
+                existing.copy(
+                    overrideLessonDayOfWeek = null,
+                    overrideLessonDayType = null
+                )
             )
-        )
-        touchSyncDatasetMeta(DATASET_DAY_TYPES)
+            touchSyncDatasetMeta(DATASET_DAY_TYPES)
+        }
     }
 
     suspend fun setLessonCancelled(date: LocalDate, slotIndex: Int, cancelled: Boolean) {
-        if (cancelled) {
-            dao.upsertCancelledLesson(CancelledLessonEntity(date = date, slotIndex = slotIndex))
-        } else {
-            dao.deleteCancelledLesson(date, slotIndex)
+        db.withTransaction {
+            if (cancelled) {
+                dao.upsertCancelledLesson(CancelledLessonEntity(date = date, slotIndex = slotIndex))
+            } else {
+                dao.deleteCancelledLesson(date, slotIndex)
+            }
+            touchSyncDatasetMeta(DATASET_CANCELLED_LESSONS)
         }
-        touchSyncDatasetMeta(DATASET_CANCELLED_LESSONS)
     }
 
     suspend fun upsertLongBreak(id: Long?, name: String, startDate: LocalDate, endDate: LocalDate) {
-        val correctedStart = minOf(startDate, endDate)
-        val correctedEnd = maxOf(startDate, endDate)
-        dao.upsertLongBreak(
-            LongBreakEntity(
-                id = id ?: 0,
-                name = name,
-                startDate = correctedStart,
-                endDate = correctedEnd
+        db.withTransaction {
+            val correctedStart = minOf(startDate, endDate)
+            val correctedEnd = maxOf(startDate, endDate)
+            dao.upsertLongBreak(
+                LongBreakEntity(
+                    id = id ?: 0,
+                    name = name,
+                    startDate = correctedStart,
+                    endDate = correctedEnd
+                )
             )
-        )
-        syncDayTypes()
-        touchSyncDatasetMeta(DATASET_LONG_BREAKS, DATASET_DAY_TYPES)
+            syncDayTypes()
+            touchSyncDatasetMeta(DATASET_LONG_BREAKS, DATASET_DAY_TYPES)
+        }
     }
 
     suspend fun deleteLongBreak(longBreak: LongBreakEntity) {
-        dao.deleteLongBreak(longBreak)
-        syncDayTypes()
-        touchSyncDatasetMeta(DATASET_LONG_BREAKS, DATASET_DAY_TYPES)
+        db.withTransaction {
+            dao.deleteLongBreak(longBreak)
+            syncDayTypes()
+            touchSyncDatasetMeta(DATASET_LONG_BREAKS, DATASET_DAY_TYPES)
+        }
     }
 
     suspend fun upsertLesson(dayOfWeek: Int, slotIndex: Int, draft: LessonDraft) {
-        val existing = dao.getLesson(dayOfWeek, slotIndex)
-        dao.upsertLesson(
-            LessonEntity(
-                id = existing?.id ?: 0,
-                dayOfWeek = dayOfWeek,
-                slotIndex = slotIndex,
-                mode = draft.mode,
-                weeklySubject = draft.weeklySubject.trim(),
-                weeklyTeacher = draft.weeklyTeacher.trim(),
-                weeklyLocation = draft.weeklyLocation.trim().takeIf { it.isNotEmpty() },
-                aSubject = draft.aSubject.trim(),
-                aTeacher = draft.aTeacher.trim(),
-                aLocation = draft.aLocation.trim().takeIf { it.isNotEmpty() },
-                bSubject = draft.bSubject.trim(),
-                bTeacher = draft.bTeacher.trim(),
-                bLocation = draft.bLocation.trim().takeIf { it.isNotEmpty() }
+        db.withTransaction {
+            val existing = dao.getLesson(dayOfWeek, slotIndex)
+            dao.upsertLesson(
+                LessonEntity(
+                    id = existing?.id ?: 0,
+                    dayOfWeek = dayOfWeek,
+                    slotIndex = slotIndex,
+                    mode = draft.mode,
+                    weeklySubject = draft.weeklySubject.trim(),
+                    weeklyTeacher = draft.weeklyTeacher.trim(),
+                    weeklyLocation = draft.weeklyLocation.trim().takeIf { it.isNotEmpty() },
+                    aSubject = draft.aSubject.trim(),
+                    aTeacher = draft.aTeacher.trim(),
+                    aLocation = draft.aLocation.trim().takeIf { it.isNotEmpty() },
+                    bSubject = draft.bSubject.trim(),
+                    bTeacher = draft.bTeacher.trim(),
+                    bLocation = draft.bLocation.trim().takeIf { it.isNotEmpty() }
+                )
             )
-        )
-        touchSyncDatasetMeta(DATASET_LESSONS)
+            touchSyncDatasetMeta(DATASET_LESSONS)
+        }
     }
 
     suspend fun syncDayTypes() {
@@ -421,14 +446,20 @@ class SchedulerRepository(private val db: AppDatabase) {
         return weekend || longBreak || JapaneseHolidayCalculator.isHoliday(date)
     }
 
+    private fun clampFutureMetaTimestamp(value: Long, now: Long): Long {
+        return value.coerceAtMost(now + MAX_FUTURE_META_DRIFT_MS)
+    }
+
     private suspend fun touchSyncDatasetMeta(vararg datasetKeys: String) {
         if (datasetKeys.isEmpty()) return
         val now = System.currentTimeMillis()
+        val existingByKey = dao.getAllSyncDatasetMeta().associateBy { it.datasetKey }
         dao.upsertSyncDatasetMetaList(
             datasetKeys.distinct().map { key ->
+                val previous = existingByKey[key]?.lastUpdatedAt ?: 0L
                 SyncDatasetMetaEntity(
                     datasetKey = key,
-                    lastUpdatedAt = now,
+                    lastUpdatedAt = clampFutureMetaTimestamp(maxOf(now, previous + 1L), now),
                     lastUpdatedByDeviceId = ""
                 )
             }
@@ -438,14 +469,19 @@ class SchedulerRepository(private val db: AppDatabase) {
     // Task管理メソッド
 
     suspend fun upsertTask(task: TaskEntity) {
-        dao.upsertTask(task)
-        touchSyncDatasetMeta(DATASET_TASKS)
+        db.withTransaction {
+            dao.upsertTask(task.copy(updatedAt = System.currentTimeMillis()))
+            touchSyncDatasetMeta(DATASET_TASKS)
+        }
     }
 
     suspend fun upsertTasks(tasks: List<TaskEntity>) {
         if (tasks.isEmpty()) return
-        dao.upsertTasks(tasks)
-        touchSyncDatasetMeta(DATASET_TASKS)
+        db.withTransaction {
+            val now = System.currentTimeMillis()
+            dao.upsertTasks(tasks.map { it.copy(updatedAt = now) })
+            touchSyncDatasetMeta(DATASET_TASKS)
+        }
     }
 
     suspend fun getTaskById(id: Long): TaskEntity? {
@@ -469,38 +505,51 @@ class SchedulerRepository(private val db: AppDatabase) {
     }
 
     suspend fun deleteTask(taskId: Long) {
-        dao.deleteTask(taskId)
-        touchSyncDatasetMeta(DATASET_TASKS)
+        db.withTransaction {
+            dao.deleteTask(taskId)
+            touchSyncDatasetMeta(DATASET_TASKS)
+        }
     }
 
     suspend fun deleteTasksByLessonId(lessonId: Long) {
-        dao.deleteTasksByLessonId(lessonId)
-        touchSyncDatasetMeta(DATASET_TASKS)
+        db.withTransaction {
+            dao.deleteTasksByLessonId(lessonId)
+            touchSyncDatasetMeta(DATASET_TASKS)
+        }
     }
 
     suspend fun markTaskAsComplete(taskId: Long, completedDate: LocalDate = LocalDate.now()) {
-        val task = dao.getTaskById(taskId) ?: return
-        dao.upsertTask(task.copy(isCompleted = true, completedDate = completedDate))
-        touchSyncDatasetMeta(DATASET_TASKS)
+        db.withTransaction {
+            val task = dao.getTaskById(taskId) ?: return@withTransaction
+            dao.upsertTask(task.copy(isCompleted = true, completedDate = completedDate, updatedAt = System.currentTimeMillis()))
+            touchSyncDatasetMeta(DATASET_TASKS)
+        }
     }
 
     suspend fun markTaskAsIncomplete(taskId: Long) {
-        val task = dao.getTaskById(taskId) ?: return
-        dao.upsertTask(task.copy(isCompleted = false, completedDate = null))
-        touchSyncDatasetMeta(DATASET_TASKS)
+        db.withTransaction {
+            val task = dao.getTaskById(taskId) ?: return@withTransaction
+            dao.upsertTask(task.copy(isCompleted = false, completedDate = null, updatedAt = System.currentTimeMillis()))
+            touchSyncDatasetMeta(DATASET_TASKS)
+        }
     }
 
     // Plan管理メソッド
 
     suspend fun upsertPlan(plan: PlanEntity) {
-        dao.upsertPlan(plan)
-        touchSyncDatasetMeta(DATASET_PLANS)
+        db.withTransaction {
+            dao.upsertPlan(plan.copy(updatedAt = System.currentTimeMillis()))
+            touchSyncDatasetMeta(DATASET_PLANS)
+        }
     }
 
     suspend fun upsertPlans(plans: List<PlanEntity>) {
         if (plans.isEmpty()) return
-        dao.upsertPlans(plans)
-        touchSyncDatasetMeta(DATASET_PLANS)
+        db.withTransaction {
+            val now = System.currentTimeMillis()
+            dao.upsertPlans(plans.map { it.copy(updatedAt = now) })
+            touchSyncDatasetMeta(DATASET_PLANS)
+        }
     }
 
     suspend fun getPlanById(id: Long): PlanEntity? {
@@ -524,25 +573,33 @@ class SchedulerRepository(private val db: AppDatabase) {
     }
 
     suspend fun deletePlan(planId: Long) {
-        dao.deletePlan(planId)
-        touchSyncDatasetMeta(DATASET_PLANS)
+        db.withTransaction {
+            dao.deletePlan(planId)
+            touchSyncDatasetMeta(DATASET_PLANS)
+        }
     }
 
     suspend fun deletePlansByLessonId(lessonId: Long) {
-        dao.deletePlansByLessonId(lessonId)
-        touchSyncDatasetMeta(DATASET_PLANS)
+        db.withTransaction {
+            dao.deletePlansByLessonId(lessonId)
+            touchSyncDatasetMeta(DATASET_PLANS)
+        }
     }
 
     suspend fun markPlanAsComplete(planId: Long, completedDate: LocalDate = LocalDate.now()) {
-        val plan = dao.getPlanById(planId) ?: return
-        dao.upsertPlan(plan.copy(isCompleted = true, completedDate = completedDate))
-        touchSyncDatasetMeta(DATASET_PLANS)
+        db.withTransaction {
+            val plan = dao.getPlanById(planId) ?: return@withTransaction
+            dao.upsertPlan(plan.copy(isCompleted = true, completedDate = completedDate, updatedAt = System.currentTimeMillis()))
+            touchSyncDatasetMeta(DATASET_PLANS)
+        }
     }
 
     suspend fun markPlanAsIncomplete(planId: Long) {
-        val plan = dao.getPlanById(planId) ?: return
-        dao.upsertPlan(plan.copy(isCompleted = false, completedDate = null))
-        touchSyncDatasetMeta(DATASET_PLANS)
+        db.withTransaction {
+            val plan = dao.getPlanById(planId) ?: return@withTransaction
+            dao.upsertPlan(plan.copy(isCompleted = false, completedDate = null, updatedAt = System.currentTimeMillis()))
+            touchSyncDatasetMeta(DATASET_PLANS)
+        }
     }
 
     /**
@@ -1177,6 +1234,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                     isCompleted = obj.optBoolean("isCompleted", false),
                     completedDate = completedDate,
                     createdDate = createdDate,
+                    updatedAt = System.currentTimeMillis(),
                     priority = obj.optInt("priority", 0),
                     useTeacherMatching = obj.optBoolean("useTeacherMatching", false)
                 ))
@@ -1203,6 +1261,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                     isCompleted = obj.optBoolean("isCompleted", false),
                     completedDate = completedDate,
                     createdDate = createdDate,
+                    updatedAt = System.currentTimeMillis(),
                     priority = obj.optInt("priority", 0),
                     useTeacherMatching = obj.optBoolean("useTeacherMatching", false)
                 ))
@@ -1231,9 +1290,10 @@ class SchedulerRepository(private val db: AppDatabase) {
             dao.upsertSyncDatasetMetaList(
                 touchedDatasets.map { key ->
                     val entry = metadata.optJSONObject(key)
+                    val incomingUpdatedAt = entry?.optLong("updatedAt", now) ?: now
                     SyncDatasetMetaEntity(
                         datasetKey = key,
-                        lastUpdatedAt = entry?.optLong("updatedAt", now) ?: now,
+                        lastUpdatedAt = clampFutureMetaTimestamp(incomingUpdatedAt, now),
                         lastUpdatedByDeviceId = entry?.optString("updatedByDeviceId", "") ?: ""
                     )
                 }

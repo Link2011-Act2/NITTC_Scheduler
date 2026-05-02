@@ -124,6 +124,7 @@ data class TaskEntity(
     val isCompleted: Boolean = false,
     val completedDate: LocalDate? = null,
     val createdDate: LocalDate,
+    val updatedAt: Long = 0L,
     val priority: Int = 0, // 0=通常, 1=重要, -1=低
     val useTeacherMatching: Boolean = false,
     val calendarEventId: Long? = null
@@ -146,6 +147,7 @@ data class PlanEntity(
     val isCompleted: Boolean = false,
     val completedDate: LocalDate? = null,
     val createdDate: LocalDate,
+    val updatedAt: Long = 0L,
     val priority: Int = 0,
     val useTeacherMatching: Boolean = false,
     val calendarEventId: Long? = null

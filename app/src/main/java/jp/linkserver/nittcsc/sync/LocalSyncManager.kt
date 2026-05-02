@@ -113,7 +113,9 @@ data class SyncDiagnostics(
     val localAddresses: List<String> = emptyList(),
     val listeningPort: Int = 0,
     val serverRunning: Boolean = false,
-    val recentLogs: List<String> = emptyList()
+    val recentLogs: List<String> = emptyList(),
+    val isSearchingForIp: Boolean = false,
+    val searchingForDeviceId: String = ""
 )
 
 class LocalSyncManager(
@@ -409,10 +411,10 @@ class LocalSyncManager(
     }
 
     suspend fun preparePasswordSync(device: DiscoveredSyncDevice, password: String): SyncResult = withContext(Dispatchers.IO) {
-        prepareSync(device, authMode = "password", authValue = hashPassword(password))
+        prepareSync(device, authMode = "password", authValue = hashPassword(password), interactive = true)
     }
 
-    suspend fun prepareTrustedSync(deviceId: String): SyncResult = withContext(Dispatchers.IO) {
+    suspend fun prepareTrustedSync(deviceId: String, interactive: Boolean = true): SyncResult = withContext(Dispatchers.IO) {
         val device = dao.getSyncRegisteredDevice(deviceId)
             ?: return@withContext SyncResult(false, "登録済みデバイスが見つかりません。")
 
@@ -430,7 +432,8 @@ class LocalSyncManager(
             prepareSync(
                 savedTarget,
                 authMode = "trust",
-                authValue = device.trustToken
+                authValue = device.trustToken,
+                interactive = interactive
             )
         }.getOrElse {
             appendLog("保存済みIP接続エラー(${device.host}:${device.port}): ${it.message ?: "不明なエラー"}")
@@ -443,11 +446,13 @@ class LocalSyncManager(
             appendLog("保存済みIPで同期準備失敗(${device.host}:${device.port}): ${primaryResult.message}")
         }
         appendLog("保存済みIP接続失敗(${device.host}:${device.port})。IP再検索中...")
+        _diagnostics.value = _diagnostics.value.copy(isSearchingForIp = true, searchingForDeviceId = deviceId)
         val refreshed = refreshHostByDeviceId(deviceId, device.port)
             ?: run {
                 appendLog("deviceId一致で未検出。端末名/ユーザー名ヒントで再探索します...")
                 refreshHostByIdentityHint(device)
             }
+        _diagnostics.value = _diagnostics.value.copy(isSearchingForIp = false, searchingForDeviceId = "")
         if (refreshed == null) {
             appendLog("IP再検索失敗。デバイス: ${device.deviceName}")
             return@withContext primaryResult
@@ -465,7 +470,8 @@ class LocalSyncManager(
         val retryResult = prepareSync(
             refreshedTarget,
             authMode = "trust",
-            authValue = device.trustToken
+            authValue = device.trustToken,
+            interactive = interactive
         )
         if (!retryResult.ok && primaryResult != null && primaryResult.message.isNotBlank()) {
             return@withContext SyncResult(false, "${retryResult.message}（保存済みIP時: ${primaryResult.message}）")
@@ -603,19 +609,41 @@ class LocalSyncManager(
         val remotePayload = JSONObject(session.remotePayload)
         val merged = buildMergedPayload(localPayload, remotePayload, session.target, resolutions)
         repository.applySyncPayload(merged)
-        val expectedFingerprint = dao.getSyncRegisteredDevice(session.target.deviceId)
+        val storedDevice = dao.getSyncRegisteredDevice(session.target.deviceId)
+        val expectedFingerprint = storedDevice
             ?.serverCertFingerprint?.takeIf { it.isNotBlank() }
+        var targetHost = session.target.host
+        var targetPort = session.target.port
+        val applyPayload = JSONObject().also {
+            it.put("type", "apply")
+            putAuth(it, session.authMode, session.authValue)
+            it.put("payload", merged)
+        }
         val applyResponse = runCatching {
             sendRequest(
-                session.target.host,
-                session.target.port,
-                JSONObject().also {
-                    it.put("type", "apply")
-                    putAuth(it, session.authMode, session.authValue)
-                    it.put("payload", merged)
-                },
+                targetHost,
+                targetPort,
+                applyPayload,
                 expectedFingerprint
             )
+        }.recoverCatching { firstError ->
+            appendLog("apply送信失敗(${targetHost}:${targetPort})。deviceIdで再探索します: ${firstError.message}")
+            _diagnostics.value = _diagnostics.value.copy(
+                isSearchingForIp = true,
+                searchingForDeviceId = session.target.deviceId
+            )
+            val refreshed = refreshHostByDeviceId(session.target.deviceId, session.target.port)
+                ?: storedDevice?.let {
+                    appendLog("apply: deviceId一致で未検出。端末名/ユーザー名ヒントで再探索します...")
+                    refreshHostByIdentityHint(it)
+                }
+                ?: throw firstError
+            targetHost = refreshed.first
+            targetPort = refreshed.second
+            appendLog("apply再試行先 ${session.target.host}:${session.target.port} -> $targetHost:$targetPort")
+            sendRequest(targetHost, targetPort, applyPayload, expectedFingerprint)
+        }.also {
+            _diagnostics.value = _diagnostics.value.copy(isSearchingForIp = false, searchingForDeviceId = "")
         }.getOrElse { e ->
             appendLog("apply送信エラー ${session.target.host}:${session.target.port} - ${e.message}")
             return@withContext SyncResult(false, "相手端末への反映に失敗しました: ${e.message ?: "接続エラー"}")
@@ -623,7 +651,8 @@ class LocalSyncManager(
         if (!applyResponse.optBoolean("ok", false)) {
             return@withContext SyncResult(false, applyResponse.optString("message", "リモート端末への反映に失敗しました。"))
         }
-        updateRegisteredDeviceAfterSync(session.target, merged)
+        val actualTarget = session.target.copy(host = targetHost, port = targetPort)
+        updateRegisteredDeviceAfterSync(actualTarget, merged)
         SyncResult(true, "同期が完了しました。")
     }
 
@@ -635,7 +664,7 @@ class LocalSyncManager(
 
         var synced = 0
         devices.forEach { device ->
-            val result = prepareTrustedSync(device.deviceId)
+            val result = prepareTrustedSync(device.deviceId, interactive = false)
             if (!result.ok || result.session == null) return@forEach
             if (result.conflicts.isNotEmpty()) return@forEach
             val applied = applyPreparedSync(result.session, emptyMap())
@@ -644,7 +673,7 @@ class LocalSyncManager(
         SyncResult(true, if (synced > 0) "$synced 台と自動同期しました。" else "")
     }
 
-    private suspend fun prepareSync(device: DiscoveredSyncDevice, authMode: String, authValue: String): SyncResult {
+    private suspend fun prepareSync(device: DiscoveredSyncDevice, authMode: String, authValue: String, interactive: Boolean): SyncResult {
         initialize()
         val storedDevice = dao.getSyncRegisteredDevice(device.deviceId)
         val expectedFingerprint = storedDevice?.serverCertFingerprint?.takeIf { it.isNotBlank() }
@@ -710,7 +739,9 @@ class LocalSyncManager(
         }
         val remotePayload = remoteResponse.getJSONObject("payload")
         val localPayload = repository.exportSyncPayload()
-        val conflicts = detectConflicts(localPayload, remotePayload, device.deviceId)
+        val conflictAutoNewerFirst = dao.getSyncProfile()?.conflictAutoNewerFirst ?: false
+        val forceConflictOnDifference = interactive && !conflictAutoNewerFirst
+        val conflicts = detectConflicts(localPayload, remotePayload, device.deviceId, forceConflictOnDifference)
         val session = PreparedSyncSession(
             target = device,
             authMode = authMode,
@@ -728,7 +759,8 @@ class LocalSyncManager(
     private suspend fun detectConflicts(
         localPayload: JSONObject,
         remotePayload: JSONObject,
-        remoteDeviceId: String
+        remoteDeviceId: String,
+        forceConflictOnDifference: Boolean
     ): List<SyncConflict> {
         val registered = dao.getSyncRegisteredDevice(remoteDeviceId)
         val localDeviceName = localPayload.getJSONObject("device").optString("deviceName", "この端末")
@@ -740,7 +772,8 @@ class LocalSyncManager(
             SchedulerRepository.DATASET_SCHEDULE_SETTINGS,
             SchedulerRepository.DATASET_LESSONS,
             SchedulerRepository.DATASET_DAY_TYPES,
-            SchedulerRepository.DATASET_LONG_BREAKS
+            SchedulerRepository.DATASET_LONG_BREAKS,
+            SchedulerRepository.DATASET_CANCELLED_LESSONS
         ).forEach { key ->
             val localContent = localPayload.opt(key)?.toString() ?: ""
             val remoteContent = remotePayload.opt(key)?.toString() ?: ""
@@ -748,6 +781,17 @@ class LocalSyncManager(
 
             val localUpdatedAt = localPayload.getJSONObject("metadata").getJSONObject(key).optLong("updatedAt", 0L)
             val remoteUpdatedAt = remotePayload.getJSONObject("metadata").getJSONObject(key).optLong("updatedAt", 0L)
+            if (forceConflictOnDifference) {
+                conflicts += SyncConflict(
+                    datasetKey = key,
+                    label = datasetLabel(key),
+                    localUpdatedAt = localUpdatedAt,
+                    remoteUpdatedAt = remoteUpdatedAt,
+                    localDeviceName = localDeviceName,
+                    remoteDeviceName = remoteDeviceName
+                )
+                return@forEach
+            }
             val lastSyncedAt = registered?.let {
                 when (key) {
                     SchedulerRepository.DATASET_TASKS -> it.lastTasksSyncAt
@@ -756,6 +800,7 @@ class LocalSyncManager(
                     SchedulerRepository.DATASET_LESSONS -> it.lastLessonsSyncAt
                     SchedulerRepository.DATASET_DAY_TYPES -> it.lastDayTypesSyncAt
                     SchedulerRepository.DATASET_LONG_BREAKS -> it.lastLongBreaksSyncAt
+                    SchedulerRepository.DATASET_CANCELLED_LESSONS -> it.lastCancelledLessonsSyncAt
                     else -> 0L
                 }
             } ?: 0L

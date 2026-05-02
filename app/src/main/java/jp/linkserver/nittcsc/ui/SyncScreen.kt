@@ -284,6 +284,15 @@ fun SyncScreen(
         }
     }
 
+    LaunchedEffect(state.syncDiagnostics.isSearchingForIp) {
+        if (state.syncDiagnostics.isSearchingForIp && activeSyncDeviceId != null) {
+            syncStatusByDeviceId[activeSyncDeviceId!!] = WifiSyncStatus(
+                phase = WifiSyncPhase.PREPARING,
+                message = "IPが見つかりません、再検索します..."
+            )
+        }
+    }
+
     fun startQueuedSyncIfNeeded() {
         if (syncQueueProcessing || pendingSession != null || pendingSyncQueue.isEmpty()) return
         syncQueueProcessing = true

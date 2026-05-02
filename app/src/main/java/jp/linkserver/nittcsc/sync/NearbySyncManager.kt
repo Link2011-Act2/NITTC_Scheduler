@@ -454,14 +454,15 @@ class NearbySyncManager(
         val localMeta = local.getJSONObject("metadata")
         val remoteMeta = remote.getJSONObject("metadata")
         val conflicts = mutableListOf<SyncConflict>()
-        val datasetsWithoutCancelled = datasets.filter { it != SchedulerRepository.DATASET_CANCELLED_LESSONS }
-        datasetsWithoutCancelled.forEach { key ->
+        datasets.forEach { key ->
             val localContent = local.opt(key)?.toString() ?: ""
             val remoteContent = remote.opt(key)?.toString() ?: ""
             if (localContent == remoteContent) return@forEach
             val localTs = localMeta.getJSONObject(key).optLong("updatedAt", 0L)
             val remoteTs = remoteMeta.getJSONObject(key).optLong("updatedAt", 0L)
-            if (localTs > 0 && remoteTs > 0) {
+            // 手動解決モードでは、時刻判定より安全側で「内容差分があれば競合」にする。
+            val shouldFlagConflict = if (!conflictAutoNewerFirst) true else (localTs > 0 && remoteTs > 0)
+            if (shouldFlagConflict) {
                 conflicts += SyncConflict(
                     datasetKey = key,
                     label = when (key) {
