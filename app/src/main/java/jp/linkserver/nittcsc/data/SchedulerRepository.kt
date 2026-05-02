@@ -20,16 +20,35 @@ class SchedulerRepository(private val db: AppDatabase) {
     companion object {
         private const val CURRENT_EXPORT_VERSION = 5
         private const val MIN_SUPPORTED_IMPORT_VERSION = 1
+        const val DATASET_TASKS = "tasks"
+        const val DATASET_PLANS = "plans"
+        const val DATASET_SCHEDULE_SETTINGS = "scheduleSettings"
+        const val DATASET_LESSONS = "lessons"
+        const val DATASET_DAY_TYPES = "dayTypes"
+        const val DATASET_LONG_BREAKS = "longBreaks"
+        const val DATASET_CANCELLED_LESSONS = "cancelledLessons"
+        val SYNC_DATASET_KEYS = listOf(
+            DATASET_TASKS,
+            DATASET_PLANS,
+            DATASET_SCHEDULE_SETTINGS,
+            DATASET_LESSONS,
+            DATASET_DAY_TYPES,
+            DATASET_LONG_BREAKS,
+            DATASET_CANCELLED_LESSONS
+        )
     }
 
     val settingsFlow: Flow<SettingsEntity?> = dao.observeSettings()
     val dayTypesFlow: Flow<List<DayTypeEntity>> = dao.observeDayTypes()
+    val cancelledLessonsFlow: Flow<List<CancelledLessonEntity>> = dao.observeCancelledLessons()
     val longBreaksFlow: Flow<List<LongBreakEntity>> = dao.observeLongBreaks()
     val lessonsFlow: Flow<List<LessonEntity>> = dao.observeLessons()
     val tasksFlow: Flow<List<TaskEntity>> = dao.observeTasks()
     val incompleteTasksFlow: Flow<List<TaskEntity>> = dao.observeIncompleteTasks()
     val plansFlow: Flow<List<PlanEntity>> = dao.observePlans()
     val incompletePlansFlow: Flow<List<PlanEntity>> = dao.observeIncompletePlans()
+    val syncProfileFlow: Flow<SyncProfileEntity?> = dao.observeSyncProfile()
+    val syncRegisteredDevicesFlow: Flow<List<SyncRegisteredDeviceEntity>> = dao.observeSyncRegisteredDevices()
 
     suspend fun initialize(today: LocalDate = LocalDate.now()) {
         if (dao.getSettings() == null) {
@@ -43,6 +62,7 @@ class SchedulerRepository(private val db: AppDatabase) {
         val settings = defaultSettings(today)
         dao.upsertSettings(settings)
         syncDayTypes()
+        touchSyncDatasetMeta(DATASET_SCHEDULE_SETTINGS, DATASET_DAY_TYPES)
     }
 
     suspend fun updateTerm(startDate: LocalDate, endDate: LocalDate) {
@@ -54,6 +74,7 @@ class SchedulerRepository(private val db: AppDatabase) {
             )
         )
         syncDayTypes()
+        touchSyncDatasetMeta(DATASET_SCHEDULE_SETTINGS, DATASET_DAY_TYPES)
     }
 
     suspend fun updateScheduleSettings(
@@ -88,6 +109,7 @@ class SchedulerRepository(private val db: AppDatabase) {
             )
         )
         ensureLessonRows()
+        touchSyncDatasetMeta(DATASET_SCHEDULE_SETTINGS, DATASET_LESSONS)
     }
 
     suspend fun toggleLocalAi(enabled: Boolean) {
@@ -115,6 +137,11 @@ class SchedulerRepository(private val db: AppDatabase) {
         dao.upsertSettings(current.copy(unifyTaskPlanView = enabled))
     }
 
+    suspend fun toggleTlsSync(enabled: Boolean) {
+        val current = dao.getSettings() ?: return
+        dao.upsertSettings(current.copy(enableTlsSync = enabled))
+    }
+
     suspend fun updateHfToken(token: String?) {
         val current = dao.getSettings() ?: return
         dao.upsertSettings(current.copy(hfToken = token))
@@ -136,6 +163,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                 overrideLessonDayType = existing?.overrideLessonDayType
             )
         )
+        touchSyncDatasetMeta(DATASET_DAY_TYPES)
     }
 
     suspend fun upsertDayType(date: LocalDate, dayType: DayType) {
@@ -148,6 +176,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                 overrideLessonDayType = existing?.overrideLessonDayType
             )
         )
+        touchSyncDatasetMeta(DATASET_DAY_TYPES)
     }
 
     suspend fun upsertDayTypes(dates: List<LocalDate>, dayType: DayType) {
@@ -162,6 +191,7 @@ class SchedulerRepository(private val db: AppDatabase) {
         }
         if (entities.isNotEmpty()) {
             dao.upsertDayTypes(entities)
+            touchSyncDatasetMeta(DATASET_DAY_TYPES)
         }
     }
 
@@ -174,6 +204,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                 overrideLessonDayType = dayType
             )
         )
+        touchSyncDatasetMeta(DATASET_DAY_TYPES)
     }
 
     suspend fun clearLessonOverride(date: LocalDate) {
@@ -184,6 +215,16 @@ class SchedulerRepository(private val db: AppDatabase) {
                 overrideLessonDayType = null
             )
         )
+        touchSyncDatasetMeta(DATASET_DAY_TYPES)
+    }
+
+    suspend fun setLessonCancelled(date: LocalDate, slotIndex: Int, cancelled: Boolean) {
+        if (cancelled) {
+            dao.upsertCancelledLesson(CancelledLessonEntity(date = date, slotIndex = slotIndex))
+        } else {
+            dao.deleteCancelledLesson(date, slotIndex)
+        }
+        touchSyncDatasetMeta(DATASET_CANCELLED_LESSONS)
     }
 
     suspend fun upsertLongBreak(id: Long?, name: String, startDate: LocalDate, endDate: LocalDate) {
@@ -198,11 +239,13 @@ class SchedulerRepository(private val db: AppDatabase) {
             )
         )
         syncDayTypes()
+        touchSyncDatasetMeta(DATASET_LONG_BREAKS, DATASET_DAY_TYPES)
     }
 
     suspend fun deleteLongBreak(longBreak: LongBreakEntity) {
         dao.deleteLongBreak(longBreak)
         syncDayTypes()
+        touchSyncDatasetMeta(DATASET_LONG_BREAKS, DATASET_DAY_TYPES)
     }
 
     suspend fun upsertLesson(dayOfWeek: Int, slotIndex: Int, draft: LessonDraft) {
@@ -224,6 +267,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                 bLocation = draft.bLocation.trim().takeIf { it.isNotEmpty() }
             )
         )
+        touchSyncDatasetMeta(DATASET_LESSONS)
     }
 
     suspend fun syncDayTypes() {
@@ -377,15 +421,31 @@ class SchedulerRepository(private val db: AppDatabase) {
         return weekend || longBreak || JapaneseHolidayCalculator.isHoliday(date)
     }
 
+    private suspend fun touchSyncDatasetMeta(vararg datasetKeys: String) {
+        if (datasetKeys.isEmpty()) return
+        val now = System.currentTimeMillis()
+        dao.upsertSyncDatasetMetaList(
+            datasetKeys.distinct().map { key ->
+                SyncDatasetMetaEntity(
+                    datasetKey = key,
+                    lastUpdatedAt = now,
+                    lastUpdatedByDeviceId = ""
+                )
+            }
+        )
+    }
+
     // Task管理メソッド
 
     suspend fun upsertTask(task: TaskEntity) {
         dao.upsertTask(task)
+        touchSyncDatasetMeta(DATASET_TASKS)
     }
 
     suspend fun upsertTasks(tasks: List<TaskEntity>) {
         if (tasks.isEmpty()) return
         dao.upsertTasks(tasks)
+        touchSyncDatasetMeta(DATASET_TASKS)
     }
 
     suspend fun getTaskById(id: Long): TaskEntity? {
@@ -410,31 +470,37 @@ class SchedulerRepository(private val db: AppDatabase) {
 
     suspend fun deleteTask(taskId: Long) {
         dao.deleteTask(taskId)
+        touchSyncDatasetMeta(DATASET_TASKS)
     }
 
     suspend fun deleteTasksByLessonId(lessonId: Long) {
         dao.deleteTasksByLessonId(lessonId)
+        touchSyncDatasetMeta(DATASET_TASKS)
     }
 
     suspend fun markTaskAsComplete(taskId: Long, completedDate: LocalDate = LocalDate.now()) {
         val task = dao.getTaskById(taskId) ?: return
         dao.upsertTask(task.copy(isCompleted = true, completedDate = completedDate))
+        touchSyncDatasetMeta(DATASET_TASKS)
     }
 
     suspend fun markTaskAsIncomplete(taskId: Long) {
         val task = dao.getTaskById(taskId) ?: return
         dao.upsertTask(task.copy(isCompleted = false, completedDate = null))
+        touchSyncDatasetMeta(DATASET_TASKS)
     }
 
     // Plan管理メソッド
 
     suspend fun upsertPlan(plan: PlanEntity) {
         dao.upsertPlan(plan)
+        touchSyncDatasetMeta(DATASET_PLANS)
     }
 
     suspend fun upsertPlans(plans: List<PlanEntity>) {
         if (plans.isEmpty()) return
         dao.upsertPlans(plans)
+        touchSyncDatasetMeta(DATASET_PLANS)
     }
 
     suspend fun getPlanById(id: Long): PlanEntity? {
@@ -459,20 +525,24 @@ class SchedulerRepository(private val db: AppDatabase) {
 
     suspend fun deletePlan(planId: Long) {
         dao.deletePlan(planId)
+        touchSyncDatasetMeta(DATASET_PLANS)
     }
 
     suspend fun deletePlansByLessonId(lessonId: Long) {
         dao.deletePlansByLessonId(lessonId)
+        touchSyncDatasetMeta(DATASET_PLANS)
     }
 
     suspend fun markPlanAsComplete(planId: Long, completedDate: LocalDate = LocalDate.now()) {
         val plan = dao.getPlanById(planId) ?: return
         dao.upsertPlan(plan.copy(isCompleted = true, completedDate = completedDate))
+        touchSyncDatasetMeta(DATASET_PLANS)
     }
 
     suspend fun markPlanAsIncomplete(planId: Long) {
         val plan = dao.getPlanById(planId) ?: return
         dao.upsertPlan(plan.copy(isCompleted = false, completedDate = null))
+        touchSyncDatasetMeta(DATASET_PLANS)
     }
 
     /**
@@ -562,14 +632,18 @@ class SchedulerRepository(private val db: AppDatabase) {
             for (date in fromDate.toDateRange(settings.termEnd)) {
                 if (date.dayOfWeek.value !in 1..5) continue
 
-                val dayType = dao.getDayType(date)?.dayType ?: DayType.A
+                val dayTypeEntity = dao.getDayType(date)
+                val dayType = dayTypeEntity?.dayType ?: DayType.A
                 if (dayType == DayType.HOLIDAY) continue
+                val lessonDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek ?: date.dayOfWeek.value
+                val lessonDayType = dayTypeEntity?.overrideLessonDayType ?: dayType
 
                 for (slot in slots) {
                     if (date == fromDate && slot.start < fromTime) continue
                     val slotIndex = slot.index
-                    val lesson = dao.getLesson(date.dayOfWeek.value, slotIndex) ?: continue
-                    val resolved = resolveLesson(dayType, lesson) ?: continue
+                    if (dao.getCancelledLesson(date, slotIndex) != null) continue
+                    val lesson = dao.getLesson(lessonDayOfWeek, slotIndex) ?: continue
+                    val resolved = resolveLesson(lessonDayType, lesson) ?: continue
 
                     val matches = lessonMatchesSearch(
                         resolved = resolved,
@@ -616,17 +690,21 @@ class SchedulerRepository(private val db: AppDatabase) {
                     continue
                 }
 
-                val dayType = dao.getDayType(date)?.dayType ?: DayType.A
+                val dayTypeEntity = dao.getDayType(date)
+                val dayType = dayTypeEntity?.dayType ?: DayType.A
                 if (dayType == DayType.HOLIDAY) {
                     date = date.minusDays(1)
                     continue
                 }
+                val lessonDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek ?: date.dayOfWeek.value
+                val lessonDayType = dayTypeEntity?.overrideLessonDayType ?: dayType
 
                 for (slot in slots.sortedByDescending { it.index }) {
                     if (date == fromDate && slot.start >= currentTime) continue
                     val slotIndex = slot.index
-                    val lesson = dao.getLesson(date.dayOfWeek.value, slotIndex) ?: continue
-                    val resolved = resolveLesson(dayType, lesson) ?: continue
+                    if (dao.getCancelledLesson(date, slotIndex) != null) continue
+                    val lesson = dao.getLesson(lessonDayOfWeek, slotIndex) ?: continue
+                    val resolved = resolveLesson(lessonDayType, lesson) ?: continue
 
                     val matches = lessonMatchesSearch(
                         resolved = resolved,
@@ -671,14 +749,18 @@ class SchedulerRepository(private val db: AppDatabase) {
         val startDate = fromDate
 
         suspend fun searchToday(requireTeacherMatch: Boolean): Pair<LocalDate, LocalTime>? {
-            val dayType = dao.getDayType(startDate)?.dayType ?: DayType.A
+            val dayTypeEntity = dao.getDayType(startDate)
+            val dayType = dayTypeEntity?.dayType ?: DayType.A
             if (startDate.dayOfWeek.value in 1..5 && dayType != DayType.HOLIDAY) {
+                val lessonDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek ?: startDate.dayOfWeek.value
+                val lessonDayType = dayTypeEntity?.overrideLessonDayType ?: dayType
                 for (slot in slots) {
                     if (slot.start <= currentTime) continue
 
                     val slotIndex = slot.index
-                    val lesson = dao.getLesson(startDate.dayOfWeek.value, slotIndex) ?: continue
-                    val resolved = resolveLesson(dayType, lesson) ?: continue
+                    if (dao.getCancelledLesson(startDate, slotIndex) != null) continue
+                    val lesson = dao.getLesson(lessonDayOfWeek, slotIndex) ?: continue
+                    val resolved = resolveLesson(lessonDayType, lesson) ?: continue
 
                     val matches = lessonMatchesSearch(
                         resolved = resolved,
@@ -736,6 +818,7 @@ class SchedulerRepository(private val db: AppDatabase) {
         val dayTypes = dao.getDayTypesOnce()
         val tasks = dao.getTasksOnce()
         val plans = dao.getPlansOnce()
+        val cancelledLessons = dao.getCancelledLessonsOnce()
 
         val root = org.json.JSONObject()
         root.put("version", CURRENT_EXPORT_VERSION)
@@ -764,6 +847,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                 s.put("departureHour", settings.departureHour)
                 s.put("departureMinute", settings.departureMinute)
                 s.put("unifyTaskPlanView", settings.unifyTaskPlanView)
+                s.put("enableTlsSync", settings.enableTlsSync)
             })
         }
 
@@ -849,7 +933,314 @@ class SchedulerRepository(private val db: AppDatabase) {
             }
         })
 
+        root.put("cancelledLessons", org.json.JSONArray().also { arr ->
+            cancelledLessons.forEach { cl ->
+                arr.put(org.json.JSONObject().also { obj ->
+                    obj.put("date", cl.date.toString())
+                    obj.put("slotIndex", cl.slotIndex)
+                    obj.put("createdAt", cl.createdAt)
+                })
+            }
+        })
+
         return root.toString(2)
+    }
+
+    suspend fun exportSyncPayload(): org.json.JSONObject {
+        val settings = dao.getSettings()
+        val lessons = dao.getLessonsOnce()
+        val longBreaks = dao.getLongBreaksOnce()
+        val dayTypes = dao.getDayTypesOnce()
+        val tasks = dao.getTasksOnce()
+        val plans = dao.getPlansOnce()
+        val profile = dao.getSyncProfile()
+        val now = System.currentTimeMillis()
+        val datasetMetaByKey = dao.getAllSyncDatasetMeta().associateBy { it.datasetKey }
+
+        val root = org.json.JSONObject()
+        root.put("device", org.json.JSONObject().also { d ->
+            d.put("deviceId", profile?.deviceId ?: "")
+            d.put("deviceName", profile?.deviceName ?: "")
+        })
+
+        val meta = org.json.JSONObject()
+        SYNC_DATASET_KEYS.forEach { key ->
+            val datasetMeta = datasetMetaByKey[key]
+            meta.put(key, org.json.JSONObject().also { m ->
+                m.put("updatedAt", datasetMeta?.lastUpdatedAt?.takeIf { it > 0L } ?: now)
+                m.put("updatedByDeviceId", datasetMeta?.lastUpdatedByDeviceId ?: (profile?.deviceId ?: ""))
+            })
+        }
+        root.put("metadata", meta)
+
+        if (settings != null) {
+            root.put(DATASET_SCHEDULE_SETTINGS, org.json.JSONObject().also { s ->
+                s.put("termStart", settings.termStart.toString())
+                s.put("termEnd", settings.termEnd.toString())
+                s.put("periodsPerDay", settings.periodsPerDay)
+                s.put("periodDurationMin", settings.periodDurationMin)
+                s.put("breakBetweenPeriodsMin", settings.breakBetweenPeriodsMin)
+                s.put("lunchBreakMin", settings.lunchBreakMin)
+                s.put("lunchAfterPeriod", settings.lunchAfterPeriod)
+                s.put("firstPeriodStartHour", settings.firstPeriodStartHour)
+                s.put("firstPeriodStartMinute", settings.firstPeriodStartMinute)
+                s.put("useKosenMode", settings.useKosenMode)
+                s.put("arrivalHour", settings.arrivalHour)
+                s.put("arrivalMinute", settings.arrivalMinute)
+                s.put("departureHour", settings.departureHour)
+                s.put("departureMinute", settings.departureMinute)
+            })
+        }
+
+        root.put(DATASET_LESSONS, org.json.JSONArray().also { arr ->
+            lessons.forEach { lesson ->
+                arr.put(org.json.JSONObject().also { obj ->
+                    obj.put("dayOfWeek", lesson.dayOfWeek)
+                    obj.put("slotIndex", lesson.slotIndex)
+                    obj.put("mode", lesson.mode.name)
+                    obj.put("weeklySubject", lesson.weeklySubject)
+                    obj.put("weeklyTeacher", lesson.weeklyTeacher)
+                    if (lesson.weeklyLocation != null) obj.put("weeklyLocation", lesson.weeklyLocation)
+                    obj.put("aSubject", lesson.aSubject)
+                    obj.put("aTeacher", lesson.aTeacher)
+                    if (lesson.aLocation != null) obj.put("aLocation", lesson.aLocation)
+                    obj.put("bSubject", lesson.bSubject)
+                    obj.put("bTeacher", lesson.bTeacher)
+                    if (lesson.bLocation != null) obj.put("bLocation", lesson.bLocation)
+                })
+            }
+        })
+
+        root.put(DATASET_LONG_BREAKS, org.json.JSONArray().also { arr ->
+            longBreaks.forEach { lb ->
+                arr.put(org.json.JSONObject().also { obj ->
+                    obj.put("name", lb.name)
+                    obj.put("startDate", lb.startDate.toString())
+                    obj.put("endDate", lb.endDate.toString())
+                })
+            }
+        })
+
+        root.put(DATASET_DAY_TYPES, org.json.JSONArray().also { arr ->
+            dayTypes.forEach { dt ->
+                arr.put(org.json.JSONObject().also { obj ->
+                    obj.put("date", dt.date.toString())
+                    obj.put("dayType", dt.dayType.name)
+                    if (dt.overrideLessonDayOfWeek != null) obj.put("overrideLessonDayOfWeek", dt.overrideLessonDayOfWeek)
+                    if (dt.overrideLessonDayType != null) obj.put("overrideLessonDayType", dt.overrideLessonDayType.name)
+                })
+            }
+        })
+
+        root.put(DATASET_TASKS, org.json.JSONArray().also { arr ->
+            tasks.forEach { task ->
+                arr.put(org.json.JSONObject().also { obj ->
+                    if (task.lessonId != null) obj.put("lessonId", task.lessonId)
+                    obj.put("subject", task.subject)
+                    if (task.teacher != null) obj.put("teacher", task.teacher)
+                    obj.put("title", task.title)
+                    if (task.description != null) obj.put("description", task.description)
+                    obj.put("dueDate", task.dueDate.toString())
+                    obj.put("dueHour", task.dueHour)
+                    obj.put("dueMinute", task.dueMinute)
+                    obj.put("isCompleted", task.isCompleted)
+                    if (task.completedDate != null) obj.put("completedDate", task.completedDate.toString())
+                    obj.put("createdDate", task.createdDate.toString())
+                    obj.put("priority", task.priority)
+                    obj.put("useTeacherMatching", task.useTeacherMatching)
+                })
+            }
+        })
+
+        root.put(DATASET_PLANS, org.json.JSONArray().also { arr ->
+            plans.forEach { plan ->
+                arr.put(org.json.JSONObject().also { obj ->
+                    if (plan.lessonId != null) obj.put("lessonId", plan.lessonId)
+                    obj.put("subject", plan.subject)
+                    if (plan.teacher != null) obj.put("teacher", plan.teacher)
+                    obj.put("title", plan.title)
+                    if (plan.description != null) obj.put("description", plan.description)
+                    obj.put("dueDate", plan.dueDate.toString())
+                    obj.put("dueHour", plan.dueHour)
+                    obj.put("dueMinute", plan.dueMinute)
+                    obj.put("isCompleted", plan.isCompleted)
+                    if (plan.completedDate != null) obj.put("completedDate", plan.completedDate.toString())
+                    obj.put("createdDate", plan.createdDate.toString())
+                    obj.put("priority", plan.priority)
+                    obj.put("useTeacherMatching", plan.useTeacherMatching)
+                })
+            }
+        })
+
+        val cancelledLessons = dao.getCancelledLessonsOnce()
+        root.put(DATASET_CANCELLED_LESSONS, org.json.JSONArray().also { arr ->
+            cancelledLessons.forEach { cl ->
+                arr.put(org.json.JSONObject().also { obj ->
+                    obj.put("date", cl.date.toString())
+                    obj.put("slotIndex", cl.slotIndex)
+                    obj.put("createdAt", cl.createdAt)
+                })
+            }
+        })
+
+        return root
+    }
+
+    suspend fun applySyncPayload(payload: org.json.JSONObject) {
+        val settings = dao.getSettings()
+        val touchedDatasets = mutableSetOf<String>()
+
+        payload.optJSONObject(DATASET_SCHEDULE_SETTINGS)?.let { s ->
+            touchedDatasets += DATASET_SCHEDULE_SETTINGS
+            val base = settings ?: defaultSettings(LocalDate.now())
+            dao.upsertSettings(base.copy(
+                termStart = runCatching { java.time.LocalDate.parse(s.optString("termStart")) }.getOrElse { base.termStart },
+                termEnd = runCatching { java.time.LocalDate.parse(s.optString("termEnd")) }.getOrElse { base.termEnd },
+                periodsPerDay = if (s.has("periodsPerDay")) s.optInt("periodsPerDay", base.periodsPerDay) else base.periodsPerDay,
+                periodDurationMin = if (s.has("periodDurationMin")) s.optInt("periodDurationMin", base.periodDurationMin) else base.periodDurationMin,
+                breakBetweenPeriodsMin = if (s.has("breakBetweenPeriodsMin")) s.optInt("breakBetweenPeriodsMin", base.breakBetweenPeriodsMin) else base.breakBetweenPeriodsMin,
+                lunchBreakMin = if (s.has("lunchBreakMin")) s.optInt("lunchBreakMin", base.lunchBreakMin) else base.lunchBreakMin,
+                lunchAfterPeriod = if (s.has("lunchAfterPeriod")) s.optInt("lunchAfterPeriod", base.lunchAfterPeriod) else base.lunchAfterPeriod,
+                firstPeriodStartHour = if (s.has("firstPeriodStartHour")) s.optInt("firstPeriodStartHour", base.firstPeriodStartHour) else base.firstPeriodStartHour,
+                firstPeriodStartMinute = if (s.has("firstPeriodStartMinute")) s.optInt("firstPeriodStartMinute", base.firstPeriodStartMinute) else base.firstPeriodStartMinute,
+                useKosenMode = if (s.has("useKosenMode")) s.optBoolean("useKosenMode", base.useKosenMode) else base.useKosenMode,
+                arrivalHour = if (s.has("arrivalHour")) s.optInt("arrivalHour", base.arrivalHour) else base.arrivalHour,
+                arrivalMinute = if (s.has("arrivalMinute")) s.optInt("arrivalMinute", base.arrivalMinute) else base.arrivalMinute,
+                departureHour = if (s.has("departureHour")) s.optInt("departureHour", base.departureHour) else base.departureHour,
+                departureMinute = if (s.has("departureMinute")) s.optInt("departureMinute", base.departureMinute) else base.departureMinute
+            ))
+        }
+
+        payload.optJSONArray(DATASET_LESSONS)?.let { arr ->
+            touchedDatasets += DATASET_LESSONS
+            dao.deleteAllLessons()
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                dao.upsertLesson(LessonEntity(
+                    dayOfWeek = obj.optInt("dayOfWeek"),
+                    slotIndex = obj.optInt("slotIndex"),
+                    mode = runCatching { LessonMode.valueOf(obj.optString("mode", "WEEKLY")) }.getOrElse { LessonMode.WEEKLY },
+                    weeklySubject = obj.optString("weeklySubject", ""),
+                    weeklyTeacher = obj.optString("weeklyTeacher", ""),
+                    weeklyLocation = obj.optString("weeklyLocation", null).takeIf { it?.isNotBlank() == true },
+                    aSubject = obj.optString("aSubject", ""),
+                    aTeacher = obj.optString("aTeacher", ""),
+                    aLocation = obj.optString("aLocation", null).takeIf { it?.isNotBlank() == true },
+                    bSubject = obj.optString("bSubject", ""),
+                    bTeacher = obj.optString("bTeacher", ""),
+                    bLocation = obj.optString("bLocation", null).takeIf { it?.isNotBlank() == true }
+                ))
+            }
+        }
+
+        payload.optJSONArray(DATASET_LONG_BREAKS)?.let { arr ->
+            touchedDatasets += DATASET_LONG_BREAKS
+            dao.deleteAllLongBreaks()
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val startDate = runCatching { java.time.LocalDate.parse(obj.optString("startDate")) }.getOrNull() ?: continue
+                val endDate = runCatching { java.time.LocalDate.parse(obj.optString("endDate")) }.getOrNull() ?: continue
+                dao.upsertLongBreak(LongBreakEntity(name = obj.optString("name", ""), startDate = startDate, endDate = endDate))
+            }
+        }
+
+        payload.optJSONArray(DATASET_DAY_TYPES)?.let { arr ->
+            touchedDatasets += DATASET_DAY_TYPES
+            dao.deleteAllDayTypes()
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val date = runCatching { java.time.LocalDate.parse(obj.optString("date")) }.getOrNull() ?: continue
+                val dayType = runCatching { DayType.valueOf(obj.optString("dayType", "A")) }.getOrElse { DayType.A }
+                val overrideDow = if (obj.has("overrideLessonDayOfWeek")) obj.optInt("overrideLessonDayOfWeek") else null
+                val overrideDt = if (obj.has("overrideLessonDayType")) runCatching { DayType.valueOf(obj.optString("overrideLessonDayType")) }.getOrNull() else null
+                dao.upsertDayType(DayTypeEntity(date = date, dayType = dayType, overrideLessonDayOfWeek = overrideDow, overrideLessonDayType = overrideDt))
+            }
+        }
+
+        payload.optJSONArray(DATASET_TASKS)?.let { arr ->
+            touchedDatasets += DATASET_TASKS
+            dao.deleteAllTasks()
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val dueDate = runCatching { java.time.LocalDate.parse(obj.optString("dueDate")) }.getOrNull() ?: continue
+                val createdDate = runCatching { java.time.LocalDate.parse(obj.optString("createdDate")) }.getOrElse { LocalDate.now() }
+                val completedDate = if (obj.has("completedDate")) runCatching { java.time.LocalDate.parse(obj.optString("completedDate")) }.getOrNull() else null
+                dao.upsertTask(TaskEntity(
+                    lessonId = if (obj.has("lessonId")) obj.optLong("lessonId") else null,
+                    subject = obj.optString("subject", ""),
+                    teacher = obj.optString("teacher", null).takeIf { it?.isNotBlank() == true },
+                    title = obj.optString("title", ""),
+                    description = obj.optString("description", null).takeIf { it?.isNotBlank() == true },
+                    dueDate = dueDate,
+                    dueHour = obj.optInt("dueHour", 23),
+                    dueMinute = obj.optInt("dueMinute", 59),
+                    isCompleted = obj.optBoolean("isCompleted", false),
+                    completedDate = completedDate,
+                    createdDate = createdDate,
+                    priority = obj.optInt("priority", 0),
+                    useTeacherMatching = obj.optBoolean("useTeacherMatching", false)
+                ))
+            }
+        }
+
+        payload.optJSONArray(DATASET_PLANS)?.let { arr ->
+            touchedDatasets += DATASET_PLANS
+            dao.deleteAllPlans()
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val dueDate = runCatching { java.time.LocalDate.parse(obj.optString("dueDate")) }.getOrNull() ?: continue
+                val createdDate = runCatching { java.time.LocalDate.parse(obj.optString("createdDate")) }.getOrElse { LocalDate.now() }
+                val completedDate = if (obj.has("completedDate")) runCatching { java.time.LocalDate.parse(obj.optString("completedDate")) }.getOrNull() else null
+                dao.upsertPlan(PlanEntity(
+                    lessonId = if (obj.has("lessonId")) obj.optLong("lessonId") else null,
+                    subject = obj.optString("subject", ""),
+                    teacher = obj.optString("teacher", null).takeIf { it?.isNotBlank() == true },
+                    title = obj.optString("title", ""),
+                    description = obj.optString("description", null).takeIf { it?.isNotBlank() == true },
+                    dueDate = dueDate,
+                    dueHour = obj.optInt("dueHour", 23),
+                    dueMinute = obj.optInt("dueMinute", 59),
+                    isCompleted = obj.optBoolean("isCompleted", false),
+                    completedDate = completedDate,
+                    createdDate = createdDate,
+                    priority = obj.optInt("priority", 0),
+                    useTeacherMatching = obj.optBoolean("useTeacherMatching", false)
+                ))
+            }
+        }
+
+        payload.optJSONArray(DATASET_CANCELLED_LESSONS)?.let { arr ->
+            touchedDatasets += DATASET_CANCELLED_LESSONS
+            dao.deleteAllCancelledLessons()
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val date = runCatching { java.time.LocalDate.parse(obj.optString("date")) }.getOrNull() ?: continue
+                val slotIndex = obj.optInt("slotIndex", -1)
+                if (slotIndex < 0) continue
+                dao.upsertCancelledLesson(CancelledLessonEntity(
+                    date = date,
+                    slotIndex = slotIndex,
+                    createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+                ))
+            }
+        }
+
+        val now = System.currentTimeMillis()
+        val metadata = payload.optJSONObject("metadata")
+        if (metadata != null && touchedDatasets.isNotEmpty()) {
+            dao.upsertSyncDatasetMetaList(
+                touchedDatasets.map { key ->
+                    val entry = metadata.optJSONObject(key)
+                    SyncDatasetMetaEntity(
+                        datasetKey = key,
+                        lastUpdatedAt = entry?.optLong("updatedAt", now) ?: now,
+                        lastUpdatedByDeviceId = entry?.optString("updatedByDeviceId", "") ?: ""
+                    )
+                }
+            )
+        } else if (touchedDatasets.isNotEmpty()) {
+            touchSyncDatasetMeta(*touchedDatasets.toTypedArray())
+        }
     }
 
     suspend fun importAllData(json: String) {
@@ -891,7 +1282,8 @@ class SchedulerRepository(private val db: AppDatabase) {
                 arrivalMinute = s.optInt("arrivalMinute", -1),
                 departureHour = s.optInt("departureHour", -1),
                 departureMinute = s.optInt("departureMinute", -1),
-                unifyTaskPlanView = s.optBoolean("unifyTaskPlanView", false)
+                unifyTaskPlanView = s.optBoolean("unifyTaskPlanView", false),
+                enableTlsSync = s.optBoolean("enableTlsSync", false)
             )
         }
 
@@ -1003,6 +1395,23 @@ class SchedulerRepository(private val db: AppDatabase) {
             }
         }
 
+        val cancelledLessonEntities = mutableListOf<CancelledLessonEntity>()
+        normalizedRoot.optJSONArray("cancelledLessons")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                try {
+                    val date = LocalDate.parse(obj.getString("date"))
+                    val slotIndex = obj.getInt("slotIndex")
+                    if (slotIndex < 0) continue
+                    cancelledLessonEntities += CancelledLessonEntity(
+                        date = date,
+                        slotIndex = slotIndex,
+                        createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+                    )
+                } catch (_: Exception) { }
+            }
+        }
+
         db.withTransaction {
             settingsEntity?.let { dao.upsertSettings(it) }
 
@@ -1026,7 +1435,21 @@ class SchedulerRepository(private val db: AppDatabase) {
             dao.deleteAllPlans()
             if (planEntities.isNotEmpty()) dao.upsertPlans(planEntities)
 
+            dao.deleteAllCancelledLessons()
+            if (cancelledLessonEntities.isNotEmpty()) {
+                cancelledLessonEntities.forEach { dao.upsertCancelledLesson(it) }
+            }
+
             syncDayTypes()
+            touchSyncDatasetMeta(
+                DATASET_SCHEDULE_SETTINGS,
+                DATASET_LESSONS,
+                DATASET_LONG_BREAKS,
+                DATASET_DAY_TYPES,
+                DATASET_TASKS,
+                DATASET_PLANS,
+                DATASET_CANCELLED_LESSONS
+            )
         }
     }
 

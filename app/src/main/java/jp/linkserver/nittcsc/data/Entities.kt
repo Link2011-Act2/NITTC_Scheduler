@@ -38,7 +38,8 @@ data class SettingsEntity(
     val arrivalMinute: Int = -1,
     val departureHour: Int = -1,
     val departureMinute: Int = -1,
-    val unifyTaskPlanView: Boolean = false
+    val unifyTaskPlanView: Boolean = false,
+    val enableTlsSync: Boolean = false
 )
 
 @Entity(tableName = "day_types")
@@ -47,6 +48,16 @@ data class DayTypeEntity(
     val dayType: DayType,
     val overrideLessonDayOfWeek: Int? = null,
     val overrideLessonDayType: DayType? = null
+)
+
+@Entity(
+    tableName = "cancelled_lessons",
+    primaryKeys = ["date", "slotIndex"]
+)
+data class CancelledLessonEntity(
+    val date: LocalDate,
+    val slotIndex: Int,
+    val createdAt: Long = System.currentTimeMillis()
 )
 
 @Entity(tableName = "long_breaks")
@@ -138,4 +149,54 @@ data class PlanEntity(
     val priority: Int = 0,
     val useTeacherMatching: Boolean = false,
     val calendarEventId: Long? = null
+)
+
+@Entity(tableName = "sync_dataset_meta")
+data class SyncDatasetMetaEntity(
+    @PrimaryKey val datasetKey: String,
+    val lastUpdatedAt: Long = 0L,
+    val lastUpdatedByDeviceId: String = ""
+)
+
+@Entity(tableName = "sync_profile")
+data class SyncProfileEntity(
+    @PrimaryKey val id: Int = 1,
+    val deviceId: String = "",
+    val userNickname: String = "",
+    val deviceName: String = "",
+    val passwordPlaintext: String = "",
+    val passwordHash: String = "",
+    val passwordLength: Int = 0,
+    val autoSyncEnabled: Boolean = false,
+    val conflictAutoNewerFirst: Boolean = false
+)
+
+@Entity(tableName = "sync_registered_devices")
+data class SyncRegisteredDeviceEntity(
+    @PrimaryKey val deviceId: String,
+    val userNickname: String = "",
+    val deviceName: String = "",
+    val host: String = "",
+    val port: Int = 0,
+    val trustToken: String = "",
+    val addedAt: Long = 0L,
+    val lastSeenAt: Long = 0L,
+    val lastTasksSyncAt: Long = 0L,
+    val lastPlansSyncAt: Long = 0L,
+    val lastScheduleSettingsSyncAt: Long = 0L,
+    val lastLessonsSyncAt: Long = 0L,
+    val lastDayTypesSyncAt: Long = 0L,
+    val lastLongBreaksSyncAt: Long = 0L,
+    val lastCancelledLessonsSyncAt: Long = 0L,
+    val serverCertFingerprint: String = ""
+)
+
+@Entity(tableName = "sync_trusted_peers")
+data class SyncTrustedPeerEntity(
+    @PrimaryKey val peerDeviceId: String,
+    val peerUserNickname: String = "",
+    val peerDeviceName: String = "",
+    val trustToken: String = "",
+    val issuedAt: Long = 0L,
+    val lastUsedAt: Long = 0L
 )

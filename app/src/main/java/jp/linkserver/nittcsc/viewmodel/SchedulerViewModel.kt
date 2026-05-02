@@ -13,10 +13,22 @@ import jp.linkserver.nittcsc.data.ResolvedLesson
 import jp.linkserver.nittcsc.data.SchedulerRepository
 import jp.linkserver.nittcsc.data.SettingsEntity
 import jp.linkserver.nittcsc.data.PlanEntity
+import jp.linkserver.nittcsc.data.SyncProfileEntity
+import jp.linkserver.nittcsc.data.SyncRegisteredDeviceEntity
 import jp.linkserver.nittcsc.data.TaskEntity
 import jp.linkserver.nittcsc.logic.ExportRange
 import jp.linkserver.nittcsc.logic.GeneratedLesson
 import jp.linkserver.nittcsc.logic.JapaneseHolidayCalculator
+import jp.linkserver.nittcsc.sync.DirectConnectResult
+import jp.linkserver.nittcsc.sync.DiscoveredSyncDevice
+import jp.linkserver.nittcsc.sync.LocalSyncManager
+import jp.linkserver.nittcsc.sync.NearbyEndpoint
+import jp.linkserver.nittcsc.sync.NearbySyncManager
+import jp.linkserver.nittcsc.sync.NearbyState
+import jp.linkserver.nittcsc.sync.PreparedSyncSession
+import jp.linkserver.nittcsc.sync.SyncChoice
+import jp.linkserver.nittcsc.sync.SyncDiagnostics
+import jp.linkserver.nittcsc.sync.SyncResult
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -53,17 +65,24 @@ data class SchedulerUiState(
     val incompletePlans: List<PlanEntity> = emptyList(),
     val selectedDayOfWeek: Int = DayOfWeek.MONDAY.value,
     val selectedResultDate: LocalDate = LocalDate.now(),
-    val initialized: Boolean = false
+    val initialized: Boolean = false,
+    val syncProfile: SyncProfileEntity? = null,
+    val registeredDevices: List<SyncRegisteredDeviceEntity> = emptyList(),
+    val cancelledLessons: Set<Pair<LocalDate, Int>> = emptySet(),
+    val syncDiagnostics: SyncDiagnostics = SyncDiagnostics()
 )
 
 class SchedulerViewModel(
-    private val repository: SchedulerRepository
+    private val repository: SchedulerRepository,
+    private val syncManager: LocalSyncManager? = null,
+    val nearbySyncManager: NearbySyncManager? = null
 ) : ViewModel() {
 
     private val selectedDayOfWeek = MutableStateFlow(DayOfWeek.MONDAY.value)
     private val selectedResultDate = MutableStateFlow(LocalDate.now())
     private val initialized = MutableStateFlow(false)
     private val _snackbarMessages = MutableSharedFlow<String>()
+    private val syncDiagnosticsFlow = syncManager?.diagnostics ?: kotlinx.coroutines.flow.MutableStateFlow(SyncDiagnostics())
 
     val snackbarMessages = _snackbarMessages.asSharedFlow()
 
@@ -102,24 +121,37 @@ class SchedulerViewModel(
     }
 
     val uiState: StateFlow<SchedulerUiState> = combine(
-        coreDataFlow,
-        selectedDayOfWeek,
-        selectedResultDate,
-        initialized
-    ) { core, dayOfWeek, resultDate, isInitialized ->
-        SchedulerUiState(
-            settings = core.settings,
-            dayTypeEntities = core.dayTypeEntities,
-            dayTypeMap = core.dayTypeMap,
-            longBreaks = core.longBreaks,
-            lessons = core.lessons,
-            tasks = core.tasks,
-            incompleteTasks = core.incompleteTasks,
-            plans = core.plans,
-            incompletePlans = core.incompletePlans,
-            selectedDayOfWeek = dayOfWeek,
-            selectedResultDate = resultDate,
-            initialized = isInitialized
+        combine(
+            coreDataFlow,
+            selectedDayOfWeek,
+            selectedResultDate,
+            initialized
+        ) { core, dayOfWeek, resultDate, isInitialized ->
+            SchedulerUiState(
+                settings = core.settings,
+                dayTypeEntities = core.dayTypeEntities,
+                dayTypeMap = core.dayTypeMap,
+                longBreaks = core.longBreaks,
+                lessons = core.lessons,
+                tasks = core.tasks,
+                incompleteTasks = core.incompleteTasks,
+                plans = core.plans,
+                incompletePlans = core.incompletePlans,
+                selectedDayOfWeek = dayOfWeek,
+                selectedResultDate = resultDate,
+                initialized = isInitialized
+            )
+        },
+        repository.syncProfileFlow,
+        repository.syncRegisteredDevicesFlow,
+        repository.cancelledLessonsFlow,
+        syncDiagnosticsFlow
+    ) { base, syncProfile, registeredDevices, cancelledLessons, syncDiagnostics ->
+        base.copy(
+            syncProfile = syncProfile,
+            registeredDevices = registeredDevices,
+            cancelledLessons = cancelledLessons.map { it.date to it.slotIndex }.toSet(),
+            syncDiagnostics = syncDiagnostics
         )
     }.stateIn(
         scope = viewModelScope,
@@ -127,11 +159,140 @@ class SchedulerViewModel(
         initialValue = SchedulerUiState()
     )
 
+    val nearbyState: kotlinx.coroutines.flow.StateFlow<NearbyState> =
+        nearbySyncManager?.state ?: kotlinx.coroutines.flow.MutableStateFlow(NearbyState())
+
     init {
         viewModelScope.launch {
             repository.initialize()
+            syncManager?.initialize()
             initialized.value = true
+
+            // アプリ起動後、Nearbyアドバタイズをスタンバイ開始（相手から見つけられるようにする）
+            val manager = nearbySyncManager ?: return@launch
+            val profile = syncManager?.getProfile()
+            manager.setLocalName(profile?.deviceName ?: android.os.Build.MODEL)
+            manager.startStandbyAdvertising()
         }
+        // Wi-Fi同期受信時にSnackbarで通知
+        syncManager?.let { mgr ->
+            viewModelScope.launch {
+                mgr.incomingSyncEvents.collect { deviceName ->
+                    val msg = if (deviceName.isNotBlank()) "✓ ${deviceName}と同期されました" else "✓ 同期されました"
+                    _snackbarMessages.emit(msg)
+                }
+            }
+        }
+    }
+
+    fun startNearbySearch() {
+        val manager = nearbySyncManager ?: return
+        viewModelScope.launch {
+            val profile = syncManager?.getProfile()
+            manager.setLocalName(profile?.deviceName ?: android.os.Build.MODEL)
+            manager.conflictAutoNewerFirst = profile?.conflictAutoNewerFirst ?: false
+            manager.startSearching()
+        }
+    }
+
+    fun applyNearbyConflictResolutions(resolutions: Map<String, SyncChoice>) {
+        nearbySyncManager?.applyConflictResolutions(resolutions)
+    }
+
+    fun connectToNearbyEndpoint(endpoint: NearbyEndpoint) {
+        nearbySyncManager?.requestConnectionTo(endpoint)
+    }
+
+    fun acceptNearbyConnection() {
+        nearbySyncManager?.acceptConnection()
+    }
+
+    fun rejectNearbyConnection() {
+        nearbySyncManager?.rejectConnection()
+    }
+
+    fun stopNearbySync() {
+        nearbySyncManager?.stopAll()
+        // 画面を閉じた後もスタンバイ広告を再開して引き続き見つけられるようにする
+        viewModelScope.launch {
+            val profile = syncManager?.getProfile()
+            nearbySyncManager?.setLocalName(profile?.deviceName ?: android.os.Build.MODEL)
+            nearbySyncManager?.startStandbyAdvertising()
+        }
+    }
+
+    fun runAutoSync() {
+        val manager = syncManager ?: return
+        viewModelScope.launch {
+            manager.runAutoSync()
+        }
+    }
+
+    fun saveSyncProfile(userNickname: String, deviceName: String, password: String, autoSyncEnabled: Boolean, conflictAutoNewerFirst: Boolean = false) {
+        val manager = syncManager ?: return
+        viewModelScope.launch {
+            manager.updateProfile(userNickname, deviceName, password, autoSyncEnabled, conflictAutoNewerFirst)
+        }
+    }
+
+    suspend fun discoverSyncDevices(): List<DiscoveredSyncDevice> {
+        val manager = syncManager ?: return emptyList()
+        return manager.discoverDevices()
+    }
+
+    suspend fun connectToSyncHost(host: String, port: Int): DirectConnectResult {
+        val manager = syncManager ?: return DirectConnectResult(false, "同期機能が初期化されていません。")
+        return manager.connectToHost(host, port)
+    }
+
+    suspend fun runSyncSelfConnectivityTest(): DirectConnectResult {
+        val manager = syncManager ?: return DirectConnectResult(false, "同期機能が初期化されていません。")
+        return manager.runSelfConnectivityTest()
+    }
+
+    suspend fun preparePasswordSync(device: DiscoveredSyncDevice, password: String): SyncResult {
+        val manager = syncManager ?: return SyncResult(false, "同期機能が初期化されていません。")
+        return manager.preparePasswordSync(device, password)
+    }
+
+    suspend fun prepareTrustedSync(deviceId: String): SyncResult {
+        val manager = syncManager ?: return SyncResult(false, "同期機能が初期化されていません。")
+        return manager.prepareTrustedSync(deviceId)
+    }
+
+    suspend fun applyPreparedSync(session: PreparedSyncSession, resolutions: Map<String, SyncChoice>): SyncResult {
+        val manager = syncManager ?: return SyncResult(false, "同期機能が初期化されていません。")
+        return manager.applyPreparedSync(session, resolutions)
+    }
+
+    suspend fun registerTrustedSyncDevice(device: DiscoveredSyncDevice, password: String): SyncResult {
+        val manager = syncManager ?: return SyncResult(false, "同期機能が初期化されていません。")
+        return manager.registerTrustedDevice(device, password)
+    }
+
+    suspend fun removeTrustedSyncDevice(deviceId: String): SyncResult {
+        val manager = syncManager ?: return SyncResult(false, "同期機能が初期化されていません。")
+        return manager.removeTrustedDevice(deviceId)
+    }
+
+    suspend fun getSyncListeningPort(): Int {
+        val manager = syncManager ?: return 0
+        return manager.getListeningPort()
+    }
+
+    fun formatSyncTimestamp(value: Long): String {
+        val manager = syncManager ?: return if (value <= 0L) "未同期" else value.toString()
+        return manager.formatTimestamp(value)
+    }
+
+    fun setLessonCancelled(date: LocalDate, slotIndex: Int, cancelled: Boolean) {
+        viewModelScope.launch {
+            repository.setLessonCancelled(date, slotIndex, cancelled)
+        }
+    }
+
+    fun isLessonCancelled(date: LocalDate, slotIndex: Int, cancelledLessons: Set<Pair<LocalDate, Int>>): Boolean {
+        return cancelledLessons.contains(date to slotIndex)
     }
 
     fun selectDayOfWeek(dayOfWeek: Int) {
@@ -217,6 +378,13 @@ class SchedulerViewModel(
     fun toggleUnifyTaskPlanView(enabled: Boolean) {
         viewModelScope.launch {
             repository.toggleUnifyTaskPlanView(enabled)
+        }
+    }
+
+    fun toggleTlsSync(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.toggleTlsSync(enabled)
+            syncManager?.onTlsSettingChanged(enabled)
         }
     }
 
@@ -503,12 +671,14 @@ class SchedulerViewModel(
 }
 
 class SchedulerViewModelFactory(
-    private val repository: SchedulerRepository
+    private val repository: SchedulerRepository,
+    private val syncManager: LocalSyncManager? = null,
+    private val nearbySyncManager: NearbySyncManager? = null
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(SchedulerViewModel::class.java)) {
-            return SchedulerViewModel(repository) as T
+            return SchedulerViewModel(repository, syncManager, nearbySyncManager) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

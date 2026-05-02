@@ -24,6 +24,7 @@ data class WidgetData(
     val dayType: DayType,
     val dayTypeEntities: Map<LocalDate, DayTypeEntity>,
     val dayTypeMap: Map<LocalDate, DayType>,
+    val cancelledLessons: Set<Pair<LocalDate, Int>>,
     val lessons: Map<Pair<Int, Int>, LessonEntity>,
     val incompleteTasks: List<TaskEntity>
 )
@@ -39,6 +40,7 @@ object WidgetDataHelper {
         val dayTypes = dao.getDayTypesOnce()
         val dayTypeEntities = dayTypes.associateBy { it.date }
         val dayTypeMap = dayTypes.associate { it.date to it.dayType }
+        val cancelledLessons = dao.getCancelledLessonsOnce().map { it.date to it.slotIndex }.toSet()
         val lessons = dao.getLessonsOnce().associate { (it.dayOfWeek to it.slotIndex) to it }
         val incompleteTasks = dao.getIncompleteTasksOnce()
 
@@ -62,6 +64,7 @@ object WidgetDataHelper {
             dayType = dayType,
             dayTypeEntities = dayTypeEntities,
             dayTypeMap = dayTypeMap,
+            cancelledLessons = cancelledLessons,
             lessons = lessons,
             incompleteTasks = incompleteTasks
         )
@@ -106,6 +109,7 @@ object WidgetDataHelper {
     fun findNextLesson(data: WidgetData): Triple<ClassSlot, ResolvedLesson, List<TaskEntity>>? {
         val now = LocalTime.now()
         for (slot in data.classSlots) {
+            if (data.cancelledLessons.contains(data.today to slot.index)) continue
             val lesson = resolveLesson(data.today, slot.index, data.lessons, data.dayTypeEntities, data.dayTypeMap)
                 ?: continue
             if (slot.end.isAfter(now)) {

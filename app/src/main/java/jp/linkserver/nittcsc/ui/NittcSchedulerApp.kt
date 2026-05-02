@@ -57,6 +57,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.EditCalendar
+import androidx.compose.material.icons.outlined.Event
 import androidx.compose.material.icons.outlined.TableChart
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -125,6 +126,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.font.FontWeight
@@ -153,6 +155,7 @@ import jp.linkserver.nittcsc.logic.ExportResult
 import jp.linkserver.nittcsc.logic.generateClassSlots
 import jp.linkserver.nittcsc.viewmodel.SchedulerUiState
 import jp.linkserver.nittcsc.viewmodel.SchedulerViewModel
+import jp.linkserver.nittcsc.sync.NearbyPhase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -180,7 +183,7 @@ enum class AppTab(
     Plans(
         R.string.tab_plans,
         Icons.Filled.Event,
-        Icons.Filled.Event
+        Icons.Outlined.Event
     ),
     Timetable(
         R.string.tab_timetable,
@@ -215,6 +218,9 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     val context = LocalContext.current
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.Output) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
+    var showSync by rememberSaveable { mutableStateOf(false) }
+    var showSyncDiscovery by rememberSaveable { mutableStateOf(false) }
+    var showNearbySync by rememberSaveable { mutableStateOf(false) }
     var showVlmImport by rememberSaveable { mutableStateOf(false) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
     var showOssLicenses by rememberSaveable { mutableStateOf(false) }
@@ -243,6 +249,19 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     }
 
     BackHandler(enabled = showOssLicenses) { showOssLicenses = false }
+    BackHandler(enabled = showNearbySync) { showNearbySync = false }
+
+    // スタンバイ広告中に相手から接続要求が来たら自動的に Nearby 画面へ遷移
+    val nearbyPhase by viewModel.nearbyState.collectAsState()
+    LaunchedEffect(nearbyPhase.phase) {
+        if (nearbyPhase.phase == NearbyPhase.AUTH_CONFIRM && !showNearbySync) {
+            showNearbySync = true
+        }
+    }
+    BackHandler(enabled = showSyncDiscovery) { showSyncDiscovery = false }
+    BackHandler(enabled = showSync && !showSyncDiscovery && !showNearbySync) {
+        showSync = false
+    }
     BackHandler(enabled = showAbout && !showOssLicenses) {
         showAbout = false
         showSettings = true
@@ -488,6 +507,9 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     val currentScreenResource = when {
         showOssLicenses -> "oss"
         showAbout -> "about"
+        showNearbySync -> "nearbySync"
+        showSyncDiscovery -> "syncDiscovery"
+        showSync -> "sync"
         showVlmImport -> "vlm"
         showSettings -> "settings"
         else -> "main"
@@ -567,6 +589,57 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                     onUpdateScheduleSettings = viewModel::updateScheduleSettingsSilently,
                     onExportAllAsJson = { viewModel.exportAllData() },
                     onImportAllFromJson = viewModel::importAllData
+                )
+            }
+            "sync" -> {
+                SyncScreen(
+                    state = uiState,
+                    onBack = {
+                        showSync = false
+                    },
+                    onSaveProfile = { nickname, name, pw, autoSync, conflictAuto ->
+                        viewModel.saveSyncProfile(nickname, name, pw, autoSync, conflictAuto)
+                    },
+                    onOpenDiscovery = { showSyncDiscovery = true },
+                    onOpenNearbySync = { showNearbySync = true },
+                    onToggleTlsSync = viewModel::toggleTlsSync,
+                    onPrepareTrustedSync = viewModel::prepareTrustedSync,
+                    onApplyPreparedSync = viewModel::applyPreparedSync,
+                    onDeleteRegisteredDevice = viewModel::removeTrustedSyncDevice,
+                    formatTimestamp = viewModel::formatSyncTimestamp
+                )
+            }
+            "nearbySync" -> {
+                val nearbyState by viewModel.nearbyState.collectAsState()
+                NearbySyncScreen(
+                    nearbyState = nearbyState,
+                    onBack = { showNearbySync = false },
+                    onStartSearching = viewModel::startNearbySearch,
+                    onConnectToEndpoint = viewModel::connectToNearbyEndpoint,
+                    onAcceptConnection = viewModel::acceptNearbyConnection,
+                    onRejectConnection = viewModel::rejectNearbyConnection,
+                    onStopAll = viewModel::stopNearbySync,
+                    onApplyConflictResolutions = viewModel::applyNearbyConflictResolutions,
+                    formatTimestamp = viewModel::formatSyncTimestamp
+                )
+            }
+            "syncDiscovery" -> {
+                val localListeningPort by produceState(initialValue = 0) {
+                    value = runCatching { viewModel.getSyncListeningPort() }.getOrDefault(0)
+                }
+                SyncDeviceDiscoveryScreen(
+                    registeredDevices = uiState.registeredDevices,
+                    localListeningPort = localListeningPort,
+                    diagnostics = uiState.syncDiagnostics,
+                    onBack = { showSyncDiscovery = false },
+                    onDiscoverDevices = viewModel::discoverSyncDevices,
+                    onConnectToHost = viewModel::connectToSyncHost,
+                    onRunSelfConnectivityTest = viewModel::runSyncSelfConnectivityTest,
+                    onPreparePasswordSync = viewModel::preparePasswordSync,
+                    onPrepareTrustedSync = viewModel::prepareTrustedSync,
+                    onApplyPreparedSync = viewModel::applyPreparedSync,
+                    onRegisterTrustedDevice = viewModel::registerTrustedSyncDevice,
+                    formatTimestamp = viewModel::formatSyncTimestamp
                 )
             }
             "main" -> {
@@ -802,7 +875,11 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                                    showPlanEditor = false
                                                    editingTaskId = null
                                                }
-                                           }
+                                           },
+                                        onSetLessonCancelled = viewModel::setLessonCancelled,
+                                        isLessonCancelled = { date, slotIndex ->
+                                            viewModel.isLessonCancelled(date, slotIndex, uiState.cancelledLessons)
+                                        }
                                     )
 
                                     AppTab.Tasks -> {
@@ -963,6 +1040,12 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                                     Icon(Icons.Filled.AutoFixHigh, contentDescription = stringResource(R.string.cd_ai_import))
                                                 }
                                             }
+                                            IconButton(onClick = { showSync = true }) {
+                                                Icon(
+                                                    painter = painterResource(R.drawable.sync_desktop),
+                                                    contentDescription = stringResource(R.string.cd_open_local_sync)
+                                                )
+                                            }
                                             IconButton(onClick = { showSettings = true }) {
                                                 Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.cd_settings))
                                             }
@@ -994,7 +1077,12 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                                     icon = {
                                                         Icon(
                                                             imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
-                                                            contentDescription = tabLabel
+                                                            contentDescription = tabLabel,
+                                                            modifier = if (!isSelected && tab == AppTab.Plans) {
+                                                                Modifier.offset(x = (-0.5).dp)
+                                                            } else {
+                                                                Modifier
+                                                            }
                                                         )
                                                     },
                                                     label = { Text(tabLabel) }
@@ -1974,7 +2062,9 @@ private fun OutputScreen(
     onOpenTask: (TaskEntity) -> Unit,
     onOpenPlan: (PlanEntity) -> Unit,
     onExportWithPermission: (ExportRange) -> Unit,
-    onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean) -> Unit)? = null
+    onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean) -> Unit)? = null,
+    onSetLessonCancelled: (LocalDate, Int, Boolean) -> Unit,
+    isLessonCancelled: (LocalDate, Int) -> Boolean
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -2196,6 +2286,8 @@ private fun OutputScreen(
                     departureMin = departureMin,
                     showCurrentTimeMarker = showCurrentTimeMarker,
                     onAddFromLesson = onAddFromLesson,
+                    onSetLessonCancelled = onSetLessonCancelled,
+                    isLessonCancelled = isLessonCancelled,
                     modifier = swipeModifier
                 )
             } else {
@@ -2210,6 +2302,9 @@ private fun OutputScreen(
                     showCurrentTimeMarker = showCurrentTimeMarker,
                     onSaveLessonOverride = onSaveLessonOverride,
                     onClearLessonOverride = onClearLessonOverride,
+                    onAddFromLesson = onAddFromLesson,
+                    onSetLessonCancelled = onSetLessonCancelled,
+                    isLessonCancelled = isLessonCancelled,
                     onDayClick = { date ->
                         onPickDate(date)
                         displayMode = OutputDisplayMode.DAY
@@ -2254,77 +2349,42 @@ private fun DayScheduleTable(
     departureMin: Int? = null,
     showCurrentTimeMarker: Boolean = false,
     onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean) -> Unit)? = null,
+    onSetLessonCancelled: (LocalDate, Int, Boolean) -> Unit,
+    isLessonCancelled: (LocalDate, Int) -> Boolean,
     modifier: Modifier = Modifier
 ) {
     val today = remember { LocalDate.now() }
     val hapticDaySchedule = LocalHapticFeedback.current
-    var lessonForAddDialog by remember { mutableStateOf<ResolvedLesson?>(null) }
+    data class LessonActionDialogData(
+        val lesson: ResolvedLesson,
+        val slotIndex: Int,
+        val cancelled: Boolean
+    )
+    var lessonActionDialog by remember { mutableStateOf<LessonActionDialogData?>(null) }
     val strAddFromLessonTitle = stringResource(R.string.dialog_add_from_lesson_title)
-    val strAddTask = stringResource(R.string.dialog_add_task_from_lesson)
-    val strAddPlan = stringResource(R.string.dialog_add_plan_from_lesson)
-    val strCancelDialog = stringResource(R.string.btn_cancel)
-    if (lessonForAddDialog != null) {
-        val lessonSnap = lessonForAddDialog!!
-        AlertDialog(
-            onDismissRequest = { lessonForAddDialog = null },
-            title = null,
-            text = {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-                ) {
-                    Text(
-                        text = lessonSnap.subject,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    if (lessonSnap.teacher.isNotBlank()) {
-                        Text(
-                            text = lessonSnap.teacher,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = strAddFromLessonTitle,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+    if (lessonActionDialog != null) {
+        val lessonSnap = lessonActionDialog!!
+        LessonActionDialog(
+            date = date,
+            slotIndex = lessonSnap.slotIndex,
+            lesson = lessonSnap.lesson,
+            cancelled = lessonSnap.cancelled,
+            onDismiss = { lessonActionDialog = null },
+            onAddTask = onAddFromLesson?.let {
+                {
+                    lessonActionDialog = null
+                    it(lessonSnap.lesson.subject, lessonSnap.lesson.teacher, false)
                 }
             },
-            confirmButton = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Button(
-                            onClick = {
-                                lessonForAddDialog = null
-                                onAddFromLesson?.invoke(lessonSnap.subject, lessonSnap.teacher, false)
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) { Text(strAddTask) }
-                        OutlinedButton(
-                            onClick = {
-                                lessonForAddDialog = null
-                                onAddFromLesson?.invoke(lessonSnap.subject, lessonSnap.teacher, true)
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) { Text(strAddPlan) }
-                    }
-                    TextButton(
-                        onClick = { lessonForAddDialog = null },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text(strCancelDialog) }
+            onAddPlan = onAddFromLesson?.let {
+                {
+                    lessonActionDialog = null
+                    it(lessonSnap.lesson.subject, lessonSnap.lesson.teacher, true)
                 }
+            },
+            onToggleCancelled = {
+                onSetLessonCancelled(date, lessonSnap.slotIndex, !lessonSnap.cancelled)
+                lessonActionDialog = null
             }
         )
     }
@@ -2338,6 +2398,7 @@ private fun DayScheduleTable(
     val strNoLesson = stringResource(R.string.label_no_class_short)
     val strHasTask = stringResource(R.string.label_task_exists)
     val strHasPlan = stringResource(R.string.label_plan_exists)
+    val strCancelled = stringResource(R.string.label_cancelled)
 
     data class TimeSegment(
         val startMin: Int,
@@ -2573,16 +2634,21 @@ private fun DayScheduleTable(
                 compareBy<IndexedValue<TimelineMark>> { it.value.rawOffset }.thenBy { it.index }
             )
             var prevAdjustedOffset = Float.NEGATIVE_INFINITY
+            var prevMarkMinHeight = minMarkGapDp
             sortedMarks.forEach { marked ->
                 val mark = marked.value
-                val adjusted = maxOf(mark.rawOffset, prevAdjustedOffset + minMarkGapDp)
+                val adjusted = maxOf(mark.rawOffset, prevAdjustedOffset + prevMarkMinHeight)
                 when (mark.type) {
                     1 -> {
                         val idx = mark.dueIndex ?: return@forEach
                         adjustedDueOffsets[idx] = adjusted
+                        // タイトル行(~14dp) + 備考がある場合は2行分(~22dp)を加算
+                        val hasDes = sortedSegTicks.getOrNull(idx)?.description != null
+                        prevMarkMinHeight = if (hasDes) 36f else 14f
                     }
-                    2 -> arrivalMarkOffsetDp = adjusted
-                    3 -> departureMarkOffsetDp = adjusted
+                    2 -> { arrivalMarkOffsetDp = adjusted; prevMarkMinHeight = minMarkGapDp }
+                    3 -> { departureMarkOffsetDp = adjusted; prevMarkMinHeight = minMarkGapDp }
+                    else -> prevMarkMinHeight = minMarkGapDp
                 }
                 prevAdjustedOffset = adjusted
             }
@@ -2632,6 +2698,7 @@ private fun DayScheduleTable(
             val hasLessonPlan = lessonPlans.isNotEmpty()
             val primaryTask = lessonTasks.firstOrNull()
             val primaryPlan = lessonPlans.firstOrNull()
+            val isCancelled = slot != null && isLessonCancelled(date, slot.index)
 
             Row(modifier = Modifier.fillMaxWidth().height(heightDp)) {
                 // 左: 時刻ラベル + 縦線
@@ -2788,10 +2855,14 @@ private fun DayScheduleTable(
                                             primaryPlan != null -> onOpenPlan(primaryPlan)
                                         }
                                     },
-                                    onLongClick = if (onAddFromLesson != null && lesson != null && lesson.subject.isNotBlank()) {
+                                    onLongClick = if (lesson != null && lesson.subject.isNotBlank()) {
                                         {
                                             hapticDaySchedule.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            lessonForAddDialog = lesson
+                                            lessonActionDialog = LessonActionDialogData(
+                                                lesson = lesson,
+                                                slotIndex = slot.index,
+                                                cancelled = isCancelled
+                                            )
                                         }
                                     } else null
                                 ),
@@ -2834,6 +2905,20 @@ private fun DayScheduleTable(
                                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = LegacyTaskBadgeOnContainer,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                        if (isCancelled) {
+                                            Surface(
+                                                shape = RoundedCornerShape(50),
+                                                color = MaterialTheme.colorScheme.tertiaryContainer
+                                            ) {
+                                                Text(
+                                                    text = strCancelled,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
                                                     fontWeight = FontWeight.Bold
                                                 )
                                             }
@@ -2948,13 +3033,19 @@ private fun DayScheduleTable(
                                         Text(
                                             text = lesson?.subject ?: strNoLesson,
                                             style = MaterialTheme.typography.titleLarge,
-                                            fontWeight = if (lesson != null) FontWeight.Bold else FontWeight.Normal,
+                                            fontWeight = when {
+                                                lesson == null -> FontWeight.Normal
+                                                isCancelled -> FontWeight.Light
+                                                else -> FontWeight.Bold
+                                            },
                                             color = if (lesson != null) MaterialTheme.colorScheme.onSurface
                                                     else MaterialTheme.colorScheme.onSurfaceVariant,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
+                                            textDecoration = if (isCancelled) androidx.compose.ui.text.style.TextDecoration.LineThrough else null,
                                             modifier = Modifier
                                                 .width(subjectWidth)
+                                                .alpha(if (isCancelled) 0.6f else 1f)
                                                 .padding(end = contentGap)
                                         )
                                         if (hasLessonDetails) {
@@ -2965,9 +3056,9 @@ private fun DayScheduleTable(
                                             ) {
                                                 lessonTasks.take(2).forEach { task ->
                                                     Text(
-                                                        text = task.title,
+                                                        text = "${if (task.isCompleted) "\u2713 " else ""}${task.title}",
                                                         style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.error,
+                                                        color = if (task.isCompleted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
                                                         fontWeight = FontWeight.Bold,
                                                         maxLines = 1,
                                                         overflow = TextOverflow.Ellipsis,
@@ -2990,9 +3081,9 @@ private fun DayScheduleTable(
                                                 }
                                                 lessonPlans.take(2).forEach { plan ->
                                                     Text(
-                                                        text = plan.title,
+                                                        text = "${if (plan.isCompleted) "\u2713 " else ""}${plan.title}",
                                                         style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.primary,
+                                                        color = if (plan.isCompleted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
                                                         fontWeight = FontWeight.Bold,
                                                         maxLines = 1,
                                                         overflow = TextOverflow.Ellipsis,
@@ -3037,7 +3128,10 @@ private fun DayScheduleTable(
                         val yOffset = adjustedDueOffsets.getOrElse(index) {
                             ((tick.minuteOfDay - seg.startMin).coerceAtLeast(0) * dpPerMinute)
                         }.dp
+                        val tickCompleted = tick.task?.isCompleted == true || tick.plan?.isCompleted == true
+                        val tickColor = if (tickCompleted) MaterialTheme.colorScheme.onSurfaceVariant else tick.color
                         Column(
+                            verticalArrangement = Arrangement.spacedBy((-2).dp),
                             modifier = Modifier
                                 .align(Alignment.TopStart)
                                 .offset(y = yOffset)
@@ -3047,9 +3141,9 @@ private fun DayScheduleTable(
                                 }
                         ) {
                             Text(
-                                text = tick.title,
+                                text = "${if (tickCompleted) "\u2713 " else ""}${tick.title}",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = tick.color,
+                                color = tickColor,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -3058,7 +3152,7 @@ private fun DayScheduleTable(
                                 Text(
                                     text = tick.description,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = tick.color,
+                                    color = tickColor,
                                     fontSize = 10.sp,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis
@@ -3110,16 +3204,27 @@ private fun WeekScheduleTable(
     showCurrentTimeMarker: Boolean = false,
     onSaveLessonOverride: (LocalDate, Int, DayType) -> Unit,
     onClearLessonOverride: (LocalDate) -> Unit,
+    onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean) -> Unit)? = null,
+    onSetLessonCancelled: (LocalDate, Int, Boolean) -> Unit,
+    isLessonCancelled: (LocalDate, Int) -> Boolean,
     onDayClick: (LocalDate) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val today = remember { LocalDate.now() }
     val currentTime = if (showCurrentTimeMarker) rememberCurrentTime() else null
     val haptic = LocalHapticFeedback.current
+    data class WeekLessonActionDialogData(
+        val date: LocalDate,
+        val slotIndex: Int,
+        val lesson: ResolvedLesson,
+        val cancelled: Boolean
+    )
     val slotLabelWidth = 44.dp
     val cellHeight = 140.dp
     val currentMinuteOfDay = currentTime?.let { it.hour * 60 + it.minute }
     var overrideEditingDate by remember(dates) { mutableStateOf<LocalDate?>(null) }
+    var lessonActionDialog by remember(dates) { mutableStateOf<WeekLessonActionDialogData?>(null) }
+    val strCancelled = stringResource(R.string.label_cancelled)
 
     Column(
         modifier = modifier.fillMaxWidth()
@@ -3220,6 +3325,7 @@ private fun WeekScheduleTable(
                     val hasPlan = lesson != null && plans.any { plan ->
                         plan.dueDate == date && planMatchesLesson(plan, lesson)
                     }
+                    val isCancelled = isLessonCancelled(date, slot.index)
                     val bgColor = if (lesson != null) MaterialTheme.colorScheme.surfaceContainerLow
                                   else MaterialTheme.colorScheme.surfaceContainer
                     val contentColor = if (lesson != null) MaterialTheme.colorScheme.onSurface
@@ -3232,8 +3338,22 @@ private fun WeekScheduleTable(
                             .padding(horizontal = 1.dp, vertical = 4.dp)
                     ) {
                         Card(
-                            onClick = { onDayClick(date) },
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .combinedClickable(
+                                    onClick = { onDayClick(date) },
+                                    onLongClick = if (lesson != null && lesson.subject.isNotBlank()) {
+                                        {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            lessonActionDialog = WeekLessonActionDialogData(
+                                                date = date,
+                                                slotIndex = slot.index,
+                                                lesson = lesson,
+                                                cancelled = isCancelled
+                                            )
+                                        }
+                                    } else null
+                                ),
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(containerColor = bgColor)
                         ) {
@@ -3246,12 +3366,28 @@ private fun WeekScheduleTable(
                                         Text(
                                             text = lesson.subject,
                                             style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Bold,
+                                            fontWeight = if (isCancelled) FontWeight.Light else FontWeight.Bold,
                                             color = contentColor,
                                             maxLines = 3,
-                                            overflow = TextOverflow.Ellipsis
+                                            overflow = TextOverflow.Ellipsis,
+                                            textDecoration = if (isCancelled) androidx.compose.ui.text.style.TextDecoration.LineThrough else null,
+                                            modifier = Modifier.alpha(if (isCancelled) 0.6f else 1f)
                                         )
                                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            if (isCancelled) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(50),
+                                                    color = MaterialTheme.colorScheme.tertiaryContainer
+                                                ) {
+                                                    Text(
+                                                        text = strCancelled,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
                                             if (hasTask) {
                                                 Box(
                                                     modifier = Modifier
@@ -3312,6 +3448,32 @@ private fun WeekScheduleTable(
         }
     }
 
+    lessonActionDialog?.let { target ->
+        LessonActionDialog(
+            date = target.date,
+            slotIndex = target.slotIndex,
+            lesson = target.lesson,
+            cancelled = target.cancelled,
+            onDismiss = { lessonActionDialog = null },
+            onAddTask = onAddFromLesson?.let {
+                {
+                    lessonActionDialog = null
+                    it(target.lesson.subject, target.lesson.teacher, false)
+                }
+            },
+            onAddPlan = onAddFromLesson?.let {
+                {
+                    lessonActionDialog = null
+                    it(target.lesson.subject, target.lesson.teacher, true)
+                }
+            },
+            onToggleCancelled = {
+                onSetLessonCancelled(target.date, target.slotIndex, !target.cancelled)
+                lessonActionDialog = null
+            }
+        )
+    }
+
     overrideEditingDate?.let { date ->
         val dayTypeEntity = dayTypeEntityForDate(date)
         LessonOverrideDialog(
@@ -3334,6 +3496,124 @@ private fun WeekScheduleTable(
             }
         )
     }
+}
+
+@Composable
+private fun LessonActionDialog(
+    date: LocalDate,
+    slotIndex: Int,
+    lesson: ResolvedLesson,
+    cancelled: Boolean,
+    onDismiss: () -> Unit,
+    onAddTask: (() -> Unit)?,
+    onAddPlan: (() -> Unit)?,
+    onToggleCancelled: () -> Unit
+) {
+    val strDialogTitle = stringResource(R.string.dialog_lesson_action_title)
+    val strAddFromLessonTitle = stringResource(R.string.dialog_add_from_lesson_title)
+    val strAddTask = stringResource(R.string.dialog_add_task_from_lesson)
+    val strAddPlan = stringResource(R.string.dialog_add_plan_from_lesson)
+    val strSetCancelled = stringResource(R.string.dialog_mark_lesson_cancelled)
+    val strClearCancelled = stringResource(R.string.dialog_unmark_lesson_cancelled)
+    val strCancelDialog = stringResource(R.string.btn_cancel)
+    val strActionHint = stringResource(R.string.dialog_lesson_action_hint)
+    val strStatusCancelled = stringResource(R.string.label_lesson_status_cancelled)
+    val strStatusNormal = stringResource(R.string.label_lesson_status_normal)
+    val strSlotInfo = stringResource(R.string.label_lesson_slot_info, date.format(dateFormatter), slotIndex + 1)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(strDialogTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = strSlotInfo,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = if (cancelled) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer
+                ) {
+                    Text(
+                        text = if (cancelled) strStatusCancelled else strStatusNormal,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (cancelled) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            text = lesson.subject,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = if (cancelled) FontWeight.Light else FontWeight.Bold,
+                            textDecoration = if (cancelled) androidx.compose.ui.text.style.TextDecoration.LineThrough else null,
+                            modifier = Modifier.alpha(if (cancelled) 0.65f else 1f)
+                        )
+                        if (lesson.teacher.isNotBlank()) {
+                            Text(
+                                text = lesson.teacher,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = "$strAddFromLessonTitle / $strActionHint",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (onAddTask != null) {
+                    Button(
+                        onClick = onAddTask,
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text(strAddTask) }
+                }
+                if (onAddPlan != null) {
+                    OutlinedButton(
+                        onClick = onAddPlan,
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text(strAddPlan) }
+                }
+                TextButton(
+                    onClick = onToggleCancelled,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                ) {
+                    Text(
+                        text = if (cancelled) strClearCancelled else strSetCancelled,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(strCancelDialog) }
+            }
+        }
+    )
 }
 
 @Composable

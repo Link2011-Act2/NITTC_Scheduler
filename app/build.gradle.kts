@@ -259,8 +259,8 @@ android {
         applicationId = "jp.linkserver.nittcsc"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.9.4-Beta" // (1.1.4-IntDev相当)
+        versionCode = 8
+        versionName = "0.9.5-Beta" // (1.2.0-IntDev相当)
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -343,4 +343,7 @@ dependencies {
     
     // ML Kit for local on-device OCR fallback for text-only LLMs
     implementation("com.google.android.gms:play-services-mlkit-text-recognition-japanese:16.0.1")
+
+    // Nearby Connections for peer-to-peer sync
+    implementation("com.google.android.gms:play-services-nearby:19.3.0")
 }

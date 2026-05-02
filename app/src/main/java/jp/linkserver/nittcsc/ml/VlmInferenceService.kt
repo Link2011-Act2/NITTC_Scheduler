@@ -88,14 +88,15 @@ class VlmInferenceService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
-            // Android 16+ (API 35+): 詳細なプログレス情報を表示
-            android.util.Log.d("VlmInference", "Using enhanced notification for Android 16+")
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
+            // Android 16+ (API 36): ステータスバーチップに進捗テキストを表示
+            android.util.Log.d("VlmInference", "Using promoted-ongoing notification for Android 16+")
+            val chipText = "${progress}%"
             val progressBar = "█".repeat((progress / 5).coerceAtMost(20)) +
                               "░".repeat((20 - (progress / 5)).coerceAtLeast(0))
-            val detailedText = "$progressBar ${progress}%\n$status"
+            val detailedText = "$progressBar $chipText\n$status"
             val titleText = getString(R.string.notif_ai_processing_title)
-            
+
             Notification.Builder(this, CHANNEL_ID)
                 .setContentTitle(titleText)
                 .setContentText(status)
@@ -108,12 +109,16 @@ class VlmInferenceService : Service() {
                     cancelPendingIntent
                 )
                 .setOngoing(true)
+                .setOnlyAlertOnce(true)
                 .setAutoCancel(false)
                 .setStyle(Notification.BigTextStyle().bigText(detailedText))
+                .setShortCriticalText(chipText)
+                // FLAG_PROMOTED_ONGOING によりステータスバーチップとして表示
+                .setFlag(Notification.FLAG_PROMOTED_ONGOING, true)
                 .build()
         } else {
-            // Android 15以下: BigTextStyle を使った通知
-            android.util.Log.d("VlmInference", "Using BigTextStyle notification for Android 15-")
+            // Android 15以下は NotificationCompat で統一
+            android.util.Log.d("VlmInference", "Using NotificationCompat notification for Android 15-")
             val progressBar = "▓".repeat((progress / 5).coerceAtMost(20)) +
                               "▒".repeat((20 - (progress / 5)).coerceAtLeast(0))
             val progressText = "$progressBar ${progress}%"
@@ -132,6 +137,7 @@ class VlmInferenceService : Service() {
                     cancelPendingIntent
                 )
                 .setOngoing(true)
+                .setOnlyAlertOnce(true)
                 .setAutoCancel(false)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(detailedText))
                 .build()

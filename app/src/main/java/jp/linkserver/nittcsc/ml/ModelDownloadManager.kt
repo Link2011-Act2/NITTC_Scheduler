@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.isActive
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Interceptor
+import okhttp3.Response
 import java.io.File
 import java.io.FileOutputStream
 import java.security.cert.X509Certificate
@@ -32,10 +34,10 @@ sealed class DownloadState {
 }
 
 class ModelDownloadManager(private val context: Context) {
-    private val client = getUnsafeOkHttpClient()
+    private val client = buildOkHttpClient(authToken = null)
     private val incompleteSuffix = ".partial"
 
-    private fun getUnsafeOkHttpClient(): OkHttpClient {
+    private fun buildOkHttpClient(authToken: String?): OkHttpClient {
         try {
             val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
                 override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
@@ -46,14 +48,25 @@ class ModelDownloadManager(private val context: Context) {
             val sslContext = SSLContext.getInstance("SSL")
             sslContext.init(null, trustAllCerts, java.security.SecureRandom())
 
-            return OkHttpClient.Builder()
+            val builder = OkHttpClient.Builder()
                 .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
                 .hostnameVerifier { _, _ -> true }
                 .connectTimeout(30, TimeUnit.SECONDS)
                 .readTimeout(5, TimeUnit.MINUTES)
                 .writeTimeout(5, TimeUnit.MINUTES)
                 .callTimeout(60, TimeUnit.MINUTES)
-                .build()
+
+            // リダイレクト先（CDNドメイン）にもAuthorizationヘッダーを引き継ぐ
+            if (!authToken.isNullOrBlank()) {
+                builder.addNetworkInterceptor(Interceptor { chain ->
+                    val req = chain.request().newBuilder()
+                        .header("Authorization", "Bearer $authToken")
+                        .build()
+                    chain.proceed(req)
+                })
+            }
+
+            return builder.build()
         } catch (e: Exception) {
             return OkHttpClient()
         }
@@ -66,17 +79,20 @@ class ModelDownloadManager(private val context: Context) {
         try {
             emit(DownloadState.Downloading(0f, 0f))
             
-            val requestBuilder = Request.Builder().url(modelUrl)
-            if (!authToken.isNullOrBlank()) {
-                requestBuilder.addHeader("Authorization", "Bearer $authToken")
-            }
-            val request = requestBuilder.build()
-            val call = client.newCall(request)
+            // トークンがある場合はNetworkInterceptorでリダイレクト先にも認証ヘッダーを付けるクライアントを使用
+            val httpClient = if (!authToken.isNullOrBlank()) buildOkHttpClient(authToken) else client
+            val request = Request.Builder().url(modelUrl).build()
+            val call = httpClient.newCall(request)
             
             val response = call.execute()
             
             if (!response.isSuccessful) {
-                throw Exception("Failed to download model: ${response.code}")
+                val msg = when (response.code) {
+                    401 -> "認証エラー (401): アクセストークンが無効か未設定です"
+                    403 -> "アクセス拒否 (403): HuggingFaceでモデルの利用規約に同意してください"
+                    else -> "ダウンロード失敗: HTTP ${response.code}"
+                }
+                throw Exception(msg)
             }
             
             val body = response.body ?: throw Exception("Empty response body")

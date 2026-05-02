@@ -69,6 +69,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
+import kotlin.math.abs
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import androidx.compose.animation.core.animateFloatAsState
@@ -103,10 +104,18 @@ fun TaskScreen(
     val overdueTasks = remember(tasks, today) { tasks.filter { it.dueDate.isBefore(today) } }
     val todayTasks = remember(tasks, today) { tasks.filter { it.dueDate == today } }
     val upcomingTasks = remember(tasks, today) { tasks.filter { it.dueDate.isAfter(today) } }
+    val completedTasksSorted = remember(completedTasks, today) {
+        completedTasks.sortedWith(
+            compareBy<TaskEntity> { abs(ChronoUnit.DAYS.between(today, it.dueDate)) }
+                .thenBy { it.dueDate }
+                .thenBy { it.dueHour }
+                .thenBy { it.dueMinute }
+        )
+    }
 
-    LaunchedEffect(focusTaskId, tasks, completedTasks, expandCompleted) {
+    LaunchedEffect(focusTaskId, tasks, completedTasksSorted, expandCompleted) {
         val targetId = focusTaskId ?: return@LaunchedEffect
-        val isInCompleted = completedTasks.any { it.id == targetId }
+        val isInCompleted = completedTasksSorted.any { it.id == targetId }
         if (isInCompleted && !expandCompleted) {
             expandCompleted = true
             return@LaunchedEffect
@@ -140,10 +149,10 @@ fun TaskScreen(
             }
         }
 
-        if (targetIndex < 0 && completedTasks.isNotEmpty()) {
+        if (targetIndex < 0 && completedTasksSorted.isNotEmpty()) {
             cursor += 1 // completed header
             if (expandCompleted) {
-                val idx = completedTasks.indexOfFirst { it.id == targetId }
+                val idx = completedTasksSorted.indexOfFirst { it.id == targetId }
                 if (idx >= 0) targetIndex = cursor + idx
             }
         }
@@ -221,18 +230,18 @@ fun TaskScreen(
             }
 
             // Completed Tasks Section
-            if (completedTasks.isNotEmpty()) {
+            if (completedTasksSorted.isNotEmpty()) {
                 item {
                     CompletedTasksHeader(
                         isExpanded = expandCompleted,
                         onToggle = { expandCompleted = !expandCompleted },
-                        count = completedTasks.size,
+                        count = completedTasksSorted.size,
                         isPlan = isPlan
                     )
                 }
 
                 if (expandCompleted) {
-                    items(completedTasks) { task ->
+                    items(completedTasksSorted) { task ->
                         TaskCard(
                             task = task,
                             onEdit = { onOpenTaskEditor(it) },

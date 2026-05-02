@@ -1,5 +1,6 @@
 package jp.linkserver.nittcsc.ui
 
+import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -49,9 +50,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import jp.linkserver.nittcsc.viewmodel.SchedulerUiState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
@@ -61,6 +66,7 @@ fun SettingsScreen(
     state: SchedulerUiState,
     onBack: () -> Unit,
     onAbout: () -> Unit,
+    onOpenLocalSync: () -> Unit = {},
     onToggleLocalAi: (Boolean) -> Unit,
     onToggleDrawerNavigation: (Boolean) -> Unit,
     onToggleAddTasksToCalendar: (Boolean) -> Unit,
@@ -144,24 +150,6 @@ fun SettingsScreen(
 
         if (changed) {
             onUpdateScheduleSettings(p, d, b, l, la, h, m, useKosenMode, ah, am, dh, dm)
-        }
-    }
-
-    val exportJsonLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/json")
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            runCatching {
-                val json = onExportAllAsJson()
-                context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use {
-                    it.write(json)
-                } ?: error("failed to open output stream")
-            }.onSuccess {
-                Toast.makeText(context, context.getString(R.string.msg_export_success), Toast.LENGTH_SHORT).show()
-            }.onFailure {
-                Toast.makeText(context, context.getString(R.string.msg_export_failed), Toast.LENGTH_SHORT).show()
-            }
         }
     }
 
@@ -500,9 +488,40 @@ fun SettingsScreen(
                         ) {
                             Button(
                                 onClick = {
-                                    val stamp = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
-                                        .format(LocalDateTime.now())
-                                    exportJsonLauncher.launch("nittcsc_settings_${stamp}.json")
+                                    scope.launch {
+                                        runCatching {
+                                            val stamp = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
+                                                .format(LocalDateTime.now())
+                                            val filename = "nittcsc_settings_${stamp}.json"
+                                            val json = onExportAllAsJson()
+                                            val exportFile = withContext(Dispatchers.IO) {
+                                                File(context.cacheDir, filename).apply {
+                                                    writeText(json)
+                                                }
+                                            }
+                                            val uri = FileProvider.getUriForFile(
+                                                context,
+                                                "${context.packageName}.provider",
+                                                exportFile
+                                            )
+                                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                                type = "application/json"
+                                                putExtra(Intent.EXTRA_STREAM, uri)
+                                                putExtra(Intent.EXTRA_SUBJECT, filename)
+                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            }
+                                            context.startActivity(
+                                                Intent.createChooser(
+                                                    shareIntent,
+                                                    context.getString(R.string.btn_export_json)
+                                                )
+                                            )
+                                        }.onSuccess {
+                                            Toast.makeText(context, context.getString(R.string.msg_export_success), Toast.LENGTH_SHORT).show()
+                                        }.onFailure {
+                                            Toast.makeText(context, context.getString(R.string.msg_export_failed), Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
                                 },
                                 modifier = Modifier.weight(1f)
                             ) {

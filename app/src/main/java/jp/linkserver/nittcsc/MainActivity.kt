@@ -8,6 +8,8 @@ import androidx.activity.viewModels
 import androidx.lifecycle.lifecycleScope
 import jp.linkserver.nittcsc.data.AppDatabase
 import jp.linkserver.nittcsc.data.SchedulerRepository
+import jp.linkserver.nittcsc.sync.LocalSyncManager
+import jp.linkserver.nittcsc.sync.NearbySyncManager
 import jp.linkserver.nittcsc.ui.NittcSchedulerApp
 import jp.linkserver.nittcsc.ui.theme.NittcSchedulerTheme
 import jp.linkserver.nittcsc.viewmodel.SchedulerViewModel
@@ -19,8 +21,11 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
 
     private val viewModel: SchedulerViewModel by viewModels {
-        val repository = SchedulerRepository(AppDatabase.getInstance(this))
-        SchedulerViewModelFactory(repository)
+        val database = AppDatabase.getInstance(this)
+        val repository = SchedulerRepository(database)
+        val syncManager = LocalSyncManager(this, repository, database)
+        val nearbySyncManager = NearbySyncManager(this, repository)
+        SchedulerViewModelFactory(repository, syncManager, nearbySyncManager)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -42,5 +47,6 @@ class MainActivity : ComponentActivity() {
             WidgetUpdater.updateTaskWidgets(this@MainActivity)
             WidgetUpdater.updateAll(this@MainActivity)
         }
+        viewModel.runAutoSync()
     }
 }

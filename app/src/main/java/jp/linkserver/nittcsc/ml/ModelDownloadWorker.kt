@@ -62,10 +62,16 @@ class ModelDownloadWorker(
                                 assetCount,
                                 progressDisplayMode
                             )
-                            notificationManager.notify(DOWNLOAD_NOTIFICATION_ID, notification)
+                            // setForeground 経由で更新することで FLAG_FOREGROUND_SERVICE が付き
+                            // Android 16+ の Live Updates チップに反映される
                             try {
                                 setForeground(getForegroundInfo(notification))
-                            } catch (_: Exception) { /* foreground update failed, notification still posted */ }
+                            } catch (_: android.app.ForegroundServiceStartNotAllowedException) {
+                                // フォアグラウンド起動不可の場合は直接 notify にフォールバック
+                                notificationManager.notify(DOWNLOAD_NOTIFICATION_ID, notification)
+                            } catch (_: Exception) {
+                                notificationManager.notify(DOWNLOAD_NOTIFICATION_ID, notification)
+                            }
                             val progressData = Data.Builder()
                                 .putInt("progress", progress)
                                 .putFloat("speed_mbps", state.speedMbps)
@@ -232,6 +238,10 @@ class ModelDownloadWorker(
                 )
                 .addAction(cancelAction)
                 .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setShortCriticalText("${displayProgress}%")
+                // FLAG_PROMOTED_ONGOING によりステータスバーチップとして表示
+                .setFlag(Notification.FLAG_PROMOTED_ONGOING, true)
                 .build()
         } else {
             // Android 15以前: NotificationCompat + テキストプログレスバー
@@ -253,6 +263,7 @@ class ModelDownloadWorker(
                     cancelPendingIntent
                 )
                 .setOngoing(true)
+                .setOnlyAlertOnce(true)
                 .build()
         }
     }

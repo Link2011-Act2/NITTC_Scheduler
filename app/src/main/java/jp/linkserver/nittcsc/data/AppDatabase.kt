@@ -12,10 +12,15 @@ import androidx.room.TypeConverters
         DayTypeEntity::class,
         LongBreakEntity::class,
         LessonEntity::class,
+        CancelledLessonEntity::class,
         TaskEntity::class,
-        PlanEntity::class
+        PlanEntity::class,
+        SyncDatasetMetaEntity::class,
+        SyncProfileEntity::class,
+        SyncRegisteredDeviceEntity::class,
+        SyncTrustedPeerEntity::class
     ],
-    version = 17,
+    version = 24,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -210,13 +215,127 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_17_18 = object : androidx.room.migration.Migration(17, 18) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS sync_profile (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        deviceId TEXT NOT NULL DEFAULT '',
+                        userNickname TEXT NOT NULL DEFAULT '',
+                        deviceName TEXT NOT NULL DEFAULT '',
+                        passwordPlaintext TEXT NOT NULL DEFAULT '',
+                        passwordHash TEXT NOT NULL DEFAULT '',
+                        passwordLength INTEGER NOT NULL DEFAULT 0,
+                        autoSyncEnabled INTEGER NOT NULL DEFAULT 0
+                    )
+                """.trimIndent())
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS sync_registered_devices (
+                        deviceId TEXT NOT NULL PRIMARY KEY,
+                        userNickname TEXT NOT NULL DEFAULT '',
+                        deviceName TEXT NOT NULL DEFAULT '',
+                        host TEXT NOT NULL DEFAULT '',
+                        port INTEGER NOT NULL DEFAULT 0,
+                        trustToken TEXT NOT NULL DEFAULT '',
+                        addedAt INTEGER NOT NULL DEFAULT 0,
+                        lastSeenAt INTEGER NOT NULL DEFAULT 0,
+                        lastTasksSyncAt INTEGER NOT NULL DEFAULT 0,
+                        lastPlansSyncAt INTEGER NOT NULL DEFAULT 0,
+                        lastScheduleSettingsSyncAt INTEGER NOT NULL DEFAULT 0,
+                        lastLessonsSyncAt INTEGER NOT NULL DEFAULT 0,
+                        lastDayTypesSyncAt INTEGER NOT NULL DEFAULT 0,
+                        lastLongBreaksSyncAt INTEGER NOT NULL DEFAULT 0
+                    )
+                """.trimIndent())
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS sync_trusted_peers (
+                        peerDeviceId TEXT NOT NULL PRIMARY KEY,
+                        peerUserNickname TEXT NOT NULL DEFAULT '',
+                        peerDeviceName TEXT NOT NULL DEFAULT '',
+                        trustToken TEXT NOT NULL DEFAULT '',
+                        issuedAt INTEGER NOT NULL DEFAULT 0,
+                        lastUsedAt INTEGER NOT NULL DEFAULT 0
+                    )
+                """.trimIndent())
+            }
+        }
+
+        val MIGRATION_18_19 = object : androidx.room.migration.Migration(18, 19) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS cancelled_lessons (
+                        date TEXT NOT NULL,
+                        slotIndex INTEGER NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        PRIMARY KEY(date, slotIndex)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        val MIGRATION_19_20 = object : androidx.room.migration.Migration(19, 20) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE sync_profile ADD COLUMN conflictAutoNewerFirst INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_20_21 = object : androidx.room.migration.Migration(20, 21) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE sync_registered_devices ADD COLUMN lastCancelledLessonsSyncAt INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_21_22 = object : androidx.room.migration.Migration(21, 22) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS sync_dataset_meta (
+                        datasetKey TEXT NOT NULL PRIMARY KEY,
+                        lastUpdatedAt INTEGER NOT NULL DEFAULT 0,
+                        lastUpdatedByDeviceId TEXT NOT NULL DEFAULT ''
+                    )
+                    """.trimIndent()
+                )
+                val now = System.currentTimeMillis()
+                val datasetKeys = listOf(
+                    "tasks",
+                    "plans",
+                    "scheduleSettings",
+                    "lessons",
+                    "dayTypes",
+                    "longBreaks",
+                    "cancelledLessons"
+                )
+                datasetKeys.forEach { key ->
+                    db.execSQL(
+                        "INSERT OR IGNORE INTO sync_dataset_meta(datasetKey, lastUpdatedAt, lastUpdatedByDeviceId) VALUES (?, ?, '')",
+                        arrayOf<Any>(key, now)
+                    )
+                }
+            }
+        }
+
+        val MIGRATION_22_23 = object : androidx.room.migration.Migration(22, 23) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE sync_registered_devices ADD COLUMN serverCertFingerprint TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
+        val MIGRATION_23_24 = object : androidx.room.migration.Migration(23, 24) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE settings ADD COLUMN enableTlsSync INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "nittc_scheduler.db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24)
                  .build().also { INSTANCE = it }
             }
         }

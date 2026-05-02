@@ -40,6 +40,24 @@ interface SchedulerDao {
     @Query("DELETE FROM day_types WHERE date < :startDate OR date > :endDate")
     suspend fun deleteDayTypesOutsideRange(startDate: LocalDate, endDate: LocalDate)
 
+    @Query("SELECT * FROM cancelled_lessons ORDER BY date, slotIndex")
+    fun observeCancelledLessons(): Flow<List<CancelledLessonEntity>>
+
+    @Query("SELECT * FROM cancelled_lessons ORDER BY date, slotIndex")
+    suspend fun getCancelledLessonsOnce(): List<CancelledLessonEntity>
+
+    @Query("SELECT * FROM cancelled_lessons WHERE date = :date AND slotIndex = :slotIndex LIMIT 1")
+    suspend fun getCancelledLesson(date: LocalDate, slotIndex: Int): CancelledLessonEntity?
+
+    @Upsert
+    suspend fun upsertCancelledLesson(cancelledLesson: CancelledLessonEntity)
+
+    @Query("DELETE FROM cancelled_lessons WHERE date = :date AND slotIndex = :slotIndex")
+    suspend fun deleteCancelledLesson(date: LocalDate, slotIndex: Int)
+
+    @Query("DELETE FROM cancelled_lessons")
+    suspend fun deleteAllCancelledLessons()
+
     @Query("SELECT * FROM long_breaks ORDER BY startDate")
     fun observeLongBreaks(): Flow<List<LongBreakEntity>>
 
@@ -147,4 +165,43 @@ interface SchedulerDao {
 
     @Query("DELETE FROM plans")
     suspend fun deleteAllPlans()
+
+    @Query("SELECT * FROM sync_profile WHERE id = 1")
+    fun observeSyncProfile(): Flow<SyncProfileEntity?>
+
+    @Query("SELECT * FROM sync_profile WHERE id = 1")
+    suspend fun getSyncProfile(): SyncProfileEntity?
+
+    @Upsert
+    suspend fun upsertSyncProfile(profile: SyncProfileEntity)
+
+    @Query("SELECT * FROM sync_dataset_meta")
+    suspend fun getAllSyncDatasetMeta(): List<SyncDatasetMetaEntity>
+
+    @Upsert
+    suspend fun upsertSyncDatasetMeta(meta: SyncDatasetMetaEntity)
+
+    @Upsert
+    suspend fun upsertSyncDatasetMetaList(meta: List<SyncDatasetMetaEntity>)
+
+    @Query("SELECT * FROM sync_registered_devices ORDER BY deviceName")
+    fun observeSyncRegisteredDevices(): Flow<List<SyncRegisteredDeviceEntity>>
+
+    @Query("SELECT * FROM sync_registered_devices ORDER BY deviceName")
+    suspend fun getSyncRegisteredDevices(): List<SyncRegisteredDeviceEntity>
+
+    @Query("SELECT * FROM sync_registered_devices WHERE deviceId = :deviceId LIMIT 1")
+    suspend fun getSyncRegisteredDevice(deviceId: String): SyncRegisteredDeviceEntity?
+
+    @Upsert
+    suspend fun upsertSyncRegisteredDevice(device: SyncRegisteredDeviceEntity)
+
+    @Query("DELETE FROM sync_registered_devices WHERE deviceId = :deviceId")
+    suspend fun deleteSyncRegisteredDevice(deviceId: String)
+
+    @Query("SELECT * FROM sync_trusted_peers WHERE trustToken = :token LIMIT 1")
+    suspend fun getSyncTrustedPeerByToken(token: String): SyncTrustedPeerEntity?
+
+    @Upsert
+    suspend fun upsertSyncTrustedPeer(peer: SyncTrustedPeerEntity)
 }

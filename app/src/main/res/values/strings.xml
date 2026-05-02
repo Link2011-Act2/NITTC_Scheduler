@@ -40,11 +40,19 @@
     <string name="notif_download_channel">AIモデルのダウンロード</string>
     <string name="notif_download_channel_desc">AIモデルをバックグラウンドでダウンロード中の進捗を表示します</string>
     <string name="notif_download_title">ダウンロード中: %s</string>
+    <string name="notif_download_overall_text">全体 %1$d%% (%2$d/%3$d ファイル) - %4$s</string>
     <string name="notif_download_complete_title">ダウンロード完了</string>
     <string name="notif_download_complete_text">%s をダウンロードしました</string>
     <string name="notif_download_failed_title">ダウンロード失敗</string>
     <string name="notif_download_failed_text">%1$s のダウンロードに失敗しました: %2$s</string>
-    <string name="notif_download_overall_text">%1$d%% | %2$d/%3$d ファイル | %4$s</string>
+
+    <!-- Download Settings Dialog -->
+    <string name="dialog_title_download_progress_settings">ダウンロード進捗の表示設定</string>
+    <string name="label_download_progress_mode">通知の進捗表示モード</string>
+    <string name="option_download_progress_per_file">ファイルごとに表示</string>
+    <string name="desc_download_progress_per_file">ダウンロード中のファイルの進捗を表示します</string>
+    <string name="option_download_progress_overall">全体の進捗を表示</string>
+    <string name="desc_download_progress_overall">全ファイルの合計進捗を表示します</string>
 
     <!-- UI Text -->
     <string name="label_json_correction_model">JSON校正用モデル</string>
@@ -60,7 +68,7 @@
     <string name="model_smolvlm2_500m">SmolVLM2 500M</string>
     <string name="model_smolvlm2_2_2b">SmolVLM2 2.2B</string>
     <string name="model_gemma4_e2b">Gemma 4 E2B</string>
-    <string name="model_gemma4_e4b">Gemma 4 E4B-it</string>
+    <string name="model_gemma4_e4b">Gemma 4 E4B</string>
     <string name="model_gemma3_270m">Gemma 3 270M</string>
     <string name="model_qwen3_5_0_8b">Qwen3.5 0.8B</string>
     <string name="model_qwen3_5_2b">Qwen3.5 2B</string>
@@ -70,14 +78,14 @@
     <!-- Model Descriptions -->
     <string name="model_desc_smolvlm2_256m">~279 MB</string>
     <string name="model_desc_smolvlm2_500m">~546 MB</string>
-    <string name="model_desc_smolvlm2_2_2b">~1.7 GB</string>
-    <string name="model_desc_gemma4_e2b">~3.7 GB</string>
-    <string name="model_desc_gemma4_e4b">~14.5 GB</string>
+    <string name="model_desc_smolvlm2_2_2b">~1.70 GB</string>
+    <string name="model_desc_gemma4_e2b">~4.30 GB</string>
+    <string name="model_desc_gemma4_e4b">~6.34 GB</string>
     <string name="model_desc_gemma3_270m">292 MB</string>
-    <string name="model_desc_qwen3_5_0_8b">~1.7 GB</string>
-    <string name="model_desc_qwen3_5_2b">~4.0 GB</string>
-    <string name="model_desc_qwen3_5_4b">~7.5 GB</string>
-    <string name="model_desc_qwen3_5_9b">~17.5 GB</string>
+    <string name="model_desc_qwen3_5_0_8b">~762 MB</string>
+    <string name="model_desc_qwen3_5_2b">~1.97 GB</string>
+    <string name="model_desc_qwen3_5_4b">~3.54 GB</string>
+    <string name="model_desc_qwen3_5_9b">~6.81 GB</string>
 
     <!-- Download Speed Format -->
     <string name="format_speed_mbps">%.2f Mbps</string>
@@ -125,6 +133,7 @@
 
     <!-- VLM Import Screen -->
     <string name="msg_offline_notice">一部のモデルでは、ダウンロードにHugging Faceのアクセストークンが必要な場合があります</string>
+    <string name="msg_requires_token">このモデルのダウンロードにはHugging Faceのアクセストークンが必要です。上部でトークンを設定してください。</string>
     <string name="msg_token_configured">Access Token 設定済み</string>
     <string name="msg_analysis_result">解析結果:</string>
     <string name="msg_preparing">準備中...</string>
@@ -251,6 +260,14 @@
     <string name="dialog_add_from_lesson_title">授業から追加</string>
     <string name="dialog_add_task_from_lesson">課題を追加</string>
     <string name="dialog_add_plan_from_lesson">予定を追加</string>
+    <string name="dialog_mark_lesson_cancelled">休講にする</string>
+    <string name="dialog_unmark_lesson_cancelled">休講を解除</string>
+    <string name="label_cancelled">休講</string>
+    <string name="dialog_lesson_action_title">授業アクション</string>
+    <string name="dialog_lesson_action_hint">実行する操作を選択してください</string>
+    <string name="label_lesson_status_cancelled">現在: 休講</string>
+    <string name="label_lesson_status_normal">現在: 通常授業</string>
+    <string name="label_lesson_slot_info">%1$s / %2$d限</string>
     <string name="dialog_lesson_override_title">例外時間割を設定</string>
     <string name="dialog_task_delete_title">課題を削除</string>
     <string name="dialog_plan_delete_title">予定を削除</string>
@@ -316,12 +333,14 @@
     <string name="section_experimental">実験的機能 (Experimental)</string>
     <string name="label_unify_task_plan_view">ToDo タブを有効化</string>
     <string name="desc_unify_task_plan_view">「課題」「予定」タブを一つのタブに統合します</string>
+    <string name="label_enable_tls_sync">TLS通信を有効化</string>
+    <string name="desc_enable_tls_sync">Wi-Fi同期でTLS暗号化通信を利用します。機種によって動作しない場合があり、まだ検証中です。</string>
     <string name="label_local_ai_import">AI画像インポート</string>
     <string name="desc_local_ai_import">スマホ内でローカルAIを動かし、時間割の画像から自動でインポートすることができます。\n⚠️非常に大きな負荷がかかるため、機種によってはアプリがクラッシュする可能性があります</string>
     <string name="section_data_transfer">設定データの移行</string>
     <string name="desc_data_transfer">時間割・A/B表・長期休み・課題・各種設定をJSONでエクスポート/インポートできます。</string>
-    <string name="btn_export_json">JSONを保存</string>
-    <string name="btn_import_json">JSONを読込</string>
+    <string name="btn_export_json">エクスポート</string>
+    <string name="btn_import_json">インポート</string>
     <string name="msg_export_success">JSONを書き出しました。</string>
     <string name="msg_export_failed">JSONの書き出しに失敗しました。</string>
     <string name="msg_import_read_failed">JSONの読み込みに失敗しました。</string>
@@ -371,6 +390,7 @@
     <string name="msg_task_calendar_auto_disabled">カレンダー権限がないため、自動追加はオフのままです。</string>
     <string name="msg_task_calendar_sync_skipped">カレンダー権限がないため、課題・予定の自動同期は行われませんでした。</string>
     <string name="cd_sync_tasks_to_calendar">カレンダーに同期</string>
+    <string name="cd_open_local_sync">ローカル同期を開く</string>
     <string name="dialog_sync_tasks_to_calendar_title">カレンダーに同期</string>
     <string name="dialog_sync_tasks_to_calendar_message">現在の課題または予定を端末カレンダーに手動で同期します。続行しますか？</string>
     <string name="btn_ok">OK</string>
@@ -384,12 +404,6 @@
     <string name="cd_open_navigation_menu">ナビゲーションメニューを開く</string>
     <string name="label_no_model_selected">選択なし</string>
     <string name="cd_settings">設定</string>
-    <string name="dialog_title_download_progress_settings">設定</string>
-    <string name="label_download_progress_mode">通知での進捗表示</string>
-    <string name="option_download_progress_per_file">ファイルごと</string>
-    <string name="option_download_progress_overall">モデル全体</string>
-    <string name="desc_download_progress_per_file">現在ダウンロード中のファイルの進捗を表示します</string>
-    <string name="desc_download_progress_overall">モデル全ファイルの進捗を表示します</string>
     <string name="legend_ab_toggle">タップで切替: A → B → 休日</string>
     <string name="legend_ab_override_long_press">長押しで例外時間割</string>
 
@@ -416,9 +430,9 @@
     <string name="about_version_details_message">バージョン: %1$s\n内部バージョン番号: %2$d</string>
     <string name="about_support_title">サポート情報</string>
     <string name="about_support_help">不具合報告や連絡先はこちら</string>
-    <string name="about_support_open_site">サイトを開く</string>
-    <string name="about_support_open_twitter">X (Twitter) を開く</string>
-    <string name="about_support_site_url" translatable="false">https://linkserver.jp/</string>
+    <string name="about_support_open_site">GitHubを開く</string>
+    <string name="about_support_open_twitter">Twitter)を開く</string>
+    <string name="about_support_site_url" translatable="false">https://github.com/Link2011-Act2/NITTC_Scheduler/releases</string>
     <string name="about_support_twitter_url" translatable="false">https://x.com/Link_2011A</string>
 
     <!-- OSS ライセンス（About 画面） -->
@@ -441,4 +455,102 @@
     <string name="widget_next_lesson_desc">次の授業の情報を表示します</string>
     <string name="widget_task_small_desc">直近の課題を最大2件表示します</string>
     <string name="widget_task_huge_desc">直近の課題を最大3件表示し、完了チェックができます</string>
+
+    <!-- Local Sync / Nearby / Wi-Fi Sync -->
+    <string name="empty_string"></string>
+
+    <string name="sync_title_local_sync">他のデバイスと同期</string>
+    <string name="sync_section_device_search">デバイス検索</string>
+    <string name="sync_device_search_desc">他のデバイスを検索してデータを同期できます</string>
+    <string name="sync_btn_search_wifi">同じWi-Fiの端末から検索 (Local)</string>
+    <string name="sync_btn_search_nearby">近くの端末から検索 (Nearby)</string>
+    <string name="sync_section_registered_devices">登録済みデバイス</string>
+    <string name="sync_no_registered_devices">まだ登録された自分のデバイスはありません。</string>
+    <string name="sync_registered_schedule_settings">時間割設定:%1$s</string>
+    <string name="sync_registered_tasks_plans">課題:%1$s  予定:%2$s</string>
+    <string name="sync_btn_syncing">同期中...</string>
+    <string name="sync_btn_manual_sync">手動で同期</string>
+    <string name="sync_section_this_device">この端末</string>
+    <string name="sync_label_user_nickname">ユーザーニックネーム</string>
+    <string name="sync_label_device_name">デバイス名</string>
+    <string name="sync_label_device_password">デバイスのパスワード</string>
+    <string name="sync_btn_change_password">パスワードを変更</string>
+    <string name="sync_label_auto_sync">自動同期</string>
+    <string name="sync_desc_auto_sync">アプリ再開時に登録済みのデバイスと自動的に同期します</string>
+    <string name="sync_label_experimental">実験的</string>
+    <string name="sync_label_conflict_newer_first">競合時は新しい方を優先</string>
+    <string name="sync_desc_conflict_newer_first">同期時にデータが競合した場合、更新日時が新しい方のデータを自動的に採用します</string>
+    <string name="sync_profile_saved">同期プロフィールを保存しました。</string>
+    <string name="sync_dialog_change_password_title">パスワードを変更</string>
+    <string name="sync_dialog_change_password_message">現在のパスワード表示を消して、新しいパスワードを入力し直します。続行しますか？</string>
+    <string name="sync_btn_continue">続行</string>
+    <string name="sync_dialog_conflict_title">競合を解決</string>
+    <string name="sync_dialog_conflict_message">データの更新日時が異なります。どちらのデータを使うか選択してください。</string>
+    <string name="sync_btn_conflict_use_newer_all">すべて新しい方を採用</string>
+    <string name="sync_btn_apply_with_choices">この内容で同期</string>
+    <string name="sync_label_newer">新しい</string>
+    <string name="sync_label_password">パスワード</string>
+    <string name="sync_label_registered">登録済み</string>
+
+    <string name="nearby_title">近くの端末と同期</string>
+    <string name="nearby_dialog_confirm_title">接続の確認</string>
+    <string name="nearby_dialog_confirm_message">「%1$s」と接続しようとしています。</string>
+    <string name="nearby_dialog_confirm_hint">両方のデバイスで同じコードが表示されていることを確認してください。</string>
+    <string name="nearby_btn_code_matches">コードが一致している</string>
+    <string name="nearby_btn_reject">拒否</string>
+    <string name="nearby_idle_description">Nearby通信を使って近くのデバイスと直接同期します。同じWi-Fiに繋がっていなくても使えます。</string>
+    <string name="nearby_permission_required">Bluetooth・位置情報の権限が必要です。設定から許可してください。</string>
+    <string name="nearby_btn_start_search">検索を開始する</string>
+    <string name="nearby_searching">近くのデバイスを検索中...</string>
+    <string name="nearby_no_devices">まだデバイスが見つかりません</string>
+    <string name="nearby_no_devices_hint">相手側でも同じアプリを開いておいてください。</string>
+    <string name="nearby_tap_to_connect">タップして接続</string>
+    <string name="nearby_connecting_selected">接続要求を送信中...</string>
+    <string name="nearby_btn_stop_search">検索を停止する</string>
+    <string name="nearby_syncing">同期中...</string>
+    <string name="nearby_syncing_description">データを交換しています。しばらくお待ちください。</string>
+    <string name="nearby_done_title">同期完了</string>
+    <string name="nearby_done_description">データの同期が完了しました。</string>
+    <string name="nearby_btn_sync_again">もう一度同期する</string>
+    <string name="nearby_btn_done">完了</string>
+    <string name="nearby_error_title">エラー</string>
+    <string name="nearby_btn_retry">再試行</string>
+
+    <string name="sync_wifi_title">Wi-Fi同期</string>
+    <string name="sync_wifi_cd_refresh_search">再検索</string>
+    <string name="sync_wifi_searching">検索中...</string>
+    <string name="sync_wifi_no_available_devices">利用可能なデバイスは見つかりませんでした。</string>
+    <string name="sync_wifi_found_count">%1$d 台見つかりました。</string>
+    <string name="sync_wifi_search_failed">デバイス検索に失敗しました。</string>
+    <string name="sync_wifi_connecting">接続しています...</string>
+    <string name="sync_wifi_prompt_sync_password">同期先のパスワードを入力</string>
+    <string name="sync_wifi_prompt_register_password">登録先デバイスのパスワードを入力</string>
+    <string name="sync_wifi_idle_description">同じWi-Fiに接続している端末と直接同期します。相手側でも同じアプリを起動しておいてください。</string>
+    <string name="sync_wifi_btn_start_search">検索を開始する</string>
+    <string name="sync_wifi_section_this_device_info">この端末の情報</string>
+    <string name="sync_wifi_server_waiting">待受中</string>
+    <string name="sync_wifi_server_stopped">停止中</string>
+    <string name="sync_wifi_port_label">port %1$d</string>
+    <string name="sync_wifi_ip_port_label">IP: %1$s  port: %2$d</string>
+    <string name="sync_wifi_ip_label">IP: %1$s</string>
+    <string name="sync_wifi_ip_unavailable">取得できませんでした</string>
+    <string name="sync_wifi_btn_self_test">自己接続テスト</string>
+    <string name="sync_wifi_section_direct_connect">IPで直接接続</string>
+    <string name="sync_wifi_label_ip_address">IPアドレス</string>
+    <string name="sync_wifi_label_port">ポート</string>
+    <string name="sync_wifi_btn_connect_this_ip">このIPに接続</string>
+    <string name="sync_wifi_searching_nearby_devices">近くのデバイスを検索中...</string>
+    <string name="sync_wifi_found_devices">デバイスが見つかりました</string>
+    <string name="sync_wifi_no_devices_found">デバイスが見つかりませんでした</string>
+    <string name="sync_wifi_no_devices_hint">相手側でも同じアプリを起動し、Wi-Fiに接続されていることを確認してください。</string>
+    <string name="sync_wifi_btn_sync_now_no_password">今すぐ同期（パスワード不要）</string>
+    <string name="sync_wifi_btn_sync_now">今すぐ同期</string>
+    <string name="sync_wifi_btn_register_trusted">自分のデバイスとして登録</string>
+    <string name="sync_wifi_last_sync">前回同期: %1$s</string>
+    <string name="sync_wifi_btn_stop_search">検索をやめる</string>
+    <string name="sync_wifi_section_connection_logs">接続ログ</string>
+    <string name="sync_wifi_logs_count">%1$d 件</string>
+    <string name="sync_wifi_copy_logs">ログをコピー</string>
+    <string name="sync_wifi_logs_copied">接続ログをクリップボードにコピーしました。</string>
+    <string name="sync_wifi_no_logs">まだログはありません。</string>
 </resources>

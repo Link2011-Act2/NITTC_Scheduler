@@ -46,7 +46,8 @@ data class VlmModelInfo(
     val id: String,
     val name: String,
     val description: String,
-    val assets: List<ModelAsset>
+    val assets: List<ModelAsset>,
+    val requiresToken: Boolean = false
 )
 
 data class ModelAsset(
@@ -57,203 +58,115 @@ data class ModelAsset(
 
 private fun VlmModelInfo.primaryFileName(): String = assets.first().fileName
 
-private fun ModelAsset.expectedSizeBytes(): Long? {
-    val match = Regex("""^\s*([0-9]+(?:\.[0-9]+)?)\s*(KB|MB|GB)\s*$""", RegexOption.IGNORE_CASE)
-        .matchEntire(sizeLabel)
-        ?: return null
-    val value = match.groupValues[1].toDoubleOrNull() ?: return null
-    val multiplier = when (match.groupValues[2].uppercase()) {
-        "KB" -> 1_000L
-        "MB" -> 1_000_000L
-        "GB" -> 1_000_000_000L
-        else -> return null
-    }
-    return (value * multiplier).toLong()
+private fun formatFileSize(bytes: Long): String = when {
+    bytes >= 1_000_000_000L -> "%.2f GB".format(bytes / 1_000_000_000.0)
+    bytes >= 1_000_000L     -> "%.0f MB".format(bytes / 1_000_000.0)
+    bytes >= 1_000L         -> "%.0f KB".format(bytes / 1_000.0)
+    else                    -> "$bytes B"
 }
 
 private fun ModelAsset.isDownloaded(filesByName: Map<String, File>): Boolean {
     val file = filesByName[fileName] ?: return false
-    if (!file.isFile || file.length() <= 0L) return false
-    val expectedSize = expectedSizeBytes() ?: return true
-    return file.length() >= (expectedSize * 0.99).toLong()
+    return file.isFile && file.length() > 0L
 }
 
 private fun VlmModelInfo.isFullyDownloaded(filesByName: Map<String, File>): Boolean =
     assets.all { it.isDownloaded(filesByName) }
 
-val MODEL_FAMILIES = mapOf(
-    "SmolVLM2" to listOf(
-        VlmModelInfo(
-            id = "smolvlm2_256m",
-            name = "SmolVLM2 256M",
-            description = "~279 MB",
-            assets = listOf(
-                ModelAsset(
-                    "SmolVLM2-256M-Video-Instruct-Q8_0.gguf",
-                    "175 MB",
-                    "https://huggingface.co/ggml-org/SmolVLM2-256M-Video-Instruct-GGUF/resolve/main/SmolVLM2-256M-Video-Instruct-Q8_0.gguf"
-                ),
-                ModelAsset(
-                    "mmproj-SmolVLM2-256M-Video-Instruct-Q8_0.gguf",
-                    "104 MB",
-                    "https://huggingface.co/ggml-org/SmolVLM2-256M-Video-Instruct-GGUF/resolve/main/mmproj-SmolVLM2-256M-Video-Instruct-Q8_0.gguf"
-                )
-            )
-        ),
-        VlmModelInfo(
-            id = "smolvlm2_500m",
-            name = "SmolVLM2 500M",
-            description = "~546 MB",
-            assets = listOf(
-                ModelAsset(
-                    "SmolVLM2-500M-Video-Instruct-Q8_0.gguf",
-                    "437 MB",
-                    "https://huggingface.co/ggml-org/SmolVLM2-500M-Video-Instruct-GGUF/resolve/main/SmolVLM2-500M-Video-Instruct-Q8_0.gguf"
-                ),
-                ModelAsset(
-                    "mmproj-SmolVLM2-500M-Video-Instruct-Q8_0.gguf",
-                    "109 MB",
-                    "https://huggingface.co/ggml-org/SmolVLM2-500M-Video-Instruct-GGUF/resolve/main/mmproj-SmolVLM2-500M-Video-Instruct-Q8_0.gguf"
-                )
-            )
-        ),
-        VlmModelInfo(
-            id = "smolvlm2_2.2b",
-            name = "SmolVLM2 2.2B",
-            description = "~1.7 GB",
-            assets = listOf(
-                ModelAsset(
-                    "SmolVLM2-2.2B-Instruct-Q4_K_M.gguf",
-                    "1.11 GB",
-                    "https://huggingface.co/ggml-org/SmolVLM2-2.2B-Instruct-GGUF/resolve/main/SmolVLM2-2.2B-Instruct-Q4_K_M.gguf"
-                ),
-                ModelAsset(
-                    "mmproj-SmolVLM2-2.2B-Instruct-Q8_0.gguf",
-                    "593 MB",
-                    "https://huggingface.co/ggml-org/SmolVLM2-2.2B-Instruct-GGUF/resolve/main/mmproj-SmolVLM2-2.2B-Instruct-Q8_0.gguf"
-                )
-            )
-        )
-    ),
-    "Gemma" to listOf(
-        VlmModelInfo(
-            id = "gemma4_e2b",
-            name = "Gemma 4 E2B",
-            description = "~3.7 GB",
-            assets = listOf(
-                ModelAsset(
-                    "gemma-4-E2B-it-Q4_K_M.gguf",
-                    "2.46 GB",
-                    "https://huggingface.co/bartowski/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf"
-                ),
-                ModelAsset(
-                    "mmproj-gemma-4-E2B-it-f16.gguf",
-                    "1.24 GB",
-                    "https://huggingface.co/bartowski/gemma-4-E2B-it-GGUF/resolve/main/mmproj-gemma-4-E2B-it-f16.gguf"
-                )
-            )
-        ),
-        VlmModelInfo(
-            id = "gemma4_e4b",
-            name = "Gemma 4 E4B-it",
-            description = "~14.5 GB",
-            assets = listOf(
-                ModelAsset(
-                    "gemma-4-E4B-it-Q4_K_M.gguf",
-                    "10.2 GB",
-                    "https://huggingface.co/bartowski/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf"
-                ),
-                ModelAsset(
-                    "mmproj-gemma-4-E4B-it-f16.gguf",
-                    "4.3 GB",
-                    "https://huggingface.co/bartowski/gemma-4-E4B-it-GGUF/resolve/main/mmproj-gemma-4-E4B-it-f16.gguf"
-                )
-            )
-        ),
-        VlmModelInfo(
-            id = "gemma3_270m",
-            name = "Gemma 3 270M",
-            description = "292 MB",
-            assets = listOf(
-                ModelAsset(
-                    "gemma-3-270m-it-Q8_0.gguf",
-                    "292 MB",
-                    "https://huggingface.co/ggml-org/gemma-3-270m-it-GGUF/resolve/main/gemma-3-270m-it-Q8_0.gguf"
-                )
+@Composable
+fun rememberModelFamilies(): Map<String, List<VlmModelInfo>> {
+    val s256m  = stringResource(R.string.model_smolvlm2_256m)
+    val s500m  = stringResource(R.string.model_smolvlm2_500m)
+    val s2_2b  = stringResource(R.string.model_smolvlm2_2_2b)
+    val gE2b   = stringResource(R.string.model_gemma4_e2b)
+    val gE4b   = stringResource(R.string.model_gemma4_e4b)
+    val g270m  = stringResource(R.string.model_gemma3_270m)
+    val q08b   = stringResource(R.string.model_qwen3_5_0_8b)
+    val q2b    = stringResource(R.string.model_qwen3_5_2b)
+    val q4b    = stringResource(R.string.model_qwen3_5_4b)
+    val q9b    = stringResource(R.string.model_qwen3_5_9b)
+    val fSmol  = stringResource(R.string.model_family_smolvlm2)
+    val fGemma = stringResource(R.string.model_family_gemma)
+    val fQwen  = stringResource(R.string.model_family_qwen)
+    val d256m  = stringResource(R.string.model_desc_smolvlm2_256m)
+    val d500m  = stringResource(R.string.model_desc_smolvlm2_500m)
+    val d2_2b  = stringResource(R.string.model_desc_smolvlm2_2_2b)
+    val dE2b   = stringResource(R.string.model_desc_gemma4_e2b)
+    val dE4b   = stringResource(R.string.model_desc_gemma4_e4b)
+    val d270m  = stringResource(R.string.model_desc_gemma3_270m)
+    val d08b   = stringResource(R.string.model_desc_qwen3_5_0_8b)
+    val d2b    = stringResource(R.string.model_desc_qwen3_5_2b)
+    val d4b    = stringResource(R.string.model_desc_qwen3_5_4b)
+    val d9b    = stringResource(R.string.model_desc_qwen3_5_9b)
+    return remember(s256m, gE2b, gE4b, fSmol) {
+        mapOf(
+            fSmol to listOf(
+                VlmModelInfo(id = "smolvlm2_256m", name = s256m, description = d256m, assets = listOf(
+                    ModelAsset("SmolVLM2-256M-Video-Instruct-Q8_0.gguf", "175 MB",
+                        "https://huggingface.co/ggml-org/SmolVLM2-256M-Video-Instruct-GGUF/resolve/main/SmolVLM2-256M-Video-Instruct-Q8_0.gguf"),
+                    ModelAsset("mmproj-SmolVLM2-256M-Video-Instruct-Q8_0.gguf", "104 MB",
+                        "https://huggingface.co/ggml-org/SmolVLM2-256M-Video-Instruct-GGUF/resolve/main/mmproj-SmolVLM2-256M-Video-Instruct-Q8_0.gguf")
+                )),
+                VlmModelInfo(id = "smolvlm2_500m", name = s500m, description = d500m, assets = listOf(
+                    ModelAsset("SmolVLM2-500M-Video-Instruct-Q8_0.gguf", "437 MB",
+                        "https://huggingface.co/ggml-org/SmolVLM2-500M-Video-Instruct-GGUF/resolve/main/SmolVLM2-500M-Video-Instruct-Q8_0.gguf"),
+                    ModelAsset("mmproj-SmolVLM2-500M-Video-Instruct-Q8_0.gguf", "109 MB",
+                        "https://huggingface.co/ggml-org/SmolVLM2-500M-Video-Instruct-GGUF/resolve/main/mmproj-SmolVLM2-500M-Video-Instruct-Q8_0.gguf")
+                )),
+                VlmModelInfo(id = "smolvlm2_2.2b", name = s2_2b, description = d2_2b, assets = listOf(
+                    ModelAsset("SmolVLM2-2.2B-Instruct-Q4_K_M.gguf", "1.11 GB",
+                        "https://huggingface.co/ggml-org/SmolVLM2-2.2B-Instruct-GGUF/resolve/main/SmolVLM2-2.2B-Instruct-Q4_K_M.gguf"),
+                    ModelAsset("mmproj-SmolVLM2-2.2B-Instruct-Q8_0.gguf", "593 MB",
+                        "https://huggingface.co/ggml-org/SmolVLM2-2.2B-Instruct-GGUF/resolve/main/mmproj-SmolVLM2-2.2B-Instruct-Q8_0.gguf")
+                ))
+            ),
+            fGemma to listOf(
+                VlmModelInfo(id = "gemma4_e2b", name = gE2b, description = dE2b, assets = listOf(
+                    ModelAsset("google_gemma-4-E2B-it-Q4_K_M.gguf", "3.46 GB",
+                        "https://huggingface.co/bartowski/google_gemma-4-E2B-it-GGUF/resolve/main/google_gemma-4-E2B-it-Q4_K_M.gguf"),
+                    ModelAsset("mmproj-google_gemma-4-E2B-it-f16.gguf", "986 MB",
+                        "https://huggingface.co/bartowski/google_gemma-4-E2B-it-GGUF/resolve/main/mmproj-google_gemma-4-E2B-it-f16.gguf")
+                )),
+                VlmModelInfo(id = "gemma4_e4b", name = gE4b, description = dE4b, assets = listOf(
+                    ModelAsset("google_gemma-4-E4B-it-Q4_K_M.gguf", "5.40 GB",
+                        "https://huggingface.co/bartowski/google_gemma-4-E4B-it-GGUF/resolve/main/google_gemma-4-E4B-it-Q4_K_M.gguf"),
+                    ModelAsset("mmproj-google_gemma-4-E4B-it-f16.gguf", "990 MB",
+                        "https://huggingface.co/bartowski/google_gemma-4-E4B-it-GGUF/resolve/main/mmproj-google_gemma-4-E4B-it-f16.gguf")
+                )),
+                VlmModelInfo(id = "gemma3_270m", name = g270m, description = d270m, assets = listOf(
+                    ModelAsset("gemma-3-270m-it-Q8_0.gguf", "292 MB",
+                        "https://huggingface.co/ggml-org/gemma-3-270m-it-GGUF/resolve/main/gemma-3-270m-it-Q8_0.gguf")
+                ))
+            ),
+            fQwen to listOf(
+                VlmModelInfo(id = "qwen3.5_0.8b", name = q08b, description = d08b, assets = listOf(
+                    ModelAsset("Qwen_Qwen3.5-0.8B-Q4_K_M.gguf", "557 MB",
+                        "https://huggingface.co/bartowski/Qwen_Qwen3.5-0.8B-GGUF/resolve/main/Qwen_Qwen3.5-0.8B-Q4_K_M.gguf"),
+                    ModelAsset("mmproj-Qwen_Qwen3.5-0.8B-f16.gguf", "205 MB",
+                        "https://huggingface.co/bartowski/Qwen_Qwen3.5-0.8B-GGUF/resolve/main/mmproj-Qwen_Qwen3.5-0.8B-f16.gguf")
+                )),
+                VlmModelInfo(id = "qwen3.5_2b", name = q2b, description = d2b, assets = listOf(
+                    ModelAsset("Qwen_Qwen3.5-2B-Q4_K_M.gguf", "1.33 GB",
+                        "https://huggingface.co/bartowski/Qwen_Qwen3.5-2B-GGUF/resolve/main/Qwen_Qwen3.5-2B-Q4_K_M.gguf"),
+                    ModelAsset("mmproj-Qwen_Qwen3.5-2B-f16.gguf", "668 MB",
+                        "https://huggingface.co/bartowski/Qwen_Qwen3.5-2B-GGUF/resolve/main/mmproj-Qwen_Qwen3.5-2B-f16.gguf")
+                )),
+                VlmModelInfo(id = "qwen3.5_4b", name = q4b, description = d4b, assets = listOf(
+                    ModelAsset("Qwen_Qwen3.5-4B-Q4_K_M.gguf", "2.87 GB",
+                        "https://huggingface.co/bartowski/Qwen_Qwen3.5-4B-GGUF/resolve/main/Qwen_Qwen3.5-4B-Q4_K_M.gguf"),
+                    ModelAsset("mmproj-Qwen_Qwen3.5-4B-f16.gguf", "672 MB",
+                        "https://huggingface.co/bartowski/Qwen_Qwen3.5-4B-GGUF/resolve/main/mmproj-Qwen_Qwen3.5-4B-f16.gguf")
+                )),
+                VlmModelInfo(id = "qwen3.5_9b", name = q9b, description = d9b, assets = listOf(
+                    ModelAsset("Qwen_Qwen3.5-9B-Q4_K_M.gguf", "5.89 GB",
+                        "https://huggingface.co/bartowski/Qwen_Qwen3.5-9B-GGUF/resolve/main/Qwen_Qwen3.5-9B-Q4_K_M.gguf"),
+                    ModelAsset("mmproj-Qwen_Qwen3.5-9B-f16.gguf", "918 MB",
+                        "https://huggingface.co/bartowski/Qwen_Qwen3.5-9B-GGUF/resolve/main/mmproj-Qwen_Qwen3.5-9B-f16.gguf")
+                ))
             )
         )
-    ),
-    "Qwen 3.5" to listOf(
-        VlmModelInfo(
-            id = "qwen3.5_0.8b",
-            name = "Qwen 3.5 0.8B",
-            description = "~1.7 GB",
-            assets = listOf(
-                ModelAsset(
-                    "Qwen_Qwen3.5-0.8B-Q4_K_M.gguf",
-                    "0.6 GB",
-                    "https://huggingface.co/bartowski/Qwen_Qwen3.5-0.8B-GGUF/resolve/main/Qwen_Qwen3.5-0.8B-Q4_K_M.gguf"
-                ),
-                ModelAsset(
-                    "mmproj-Qwen_Qwen3.5-0.8B-f16.gguf",
-                    "1.1 GB",
-                    "https://huggingface.co/bartowski/Qwen_Qwen3.5-0.8B-GGUF/resolve/main/mmproj-Qwen_Qwen3.5-0.8B-f16.gguf"
-                )
-            )
-        ),
-        VlmModelInfo(
-            id = "qwen3.5_2b",
-            name = "Qwen 3.5 2B",
-            description = "~4.0 GB",
-            assets = listOf(
-                ModelAsset(
-                    "Qwen_Qwen3.5-2B-Q4_K_M.gguf",
-                    "1.4 GB",
-                    "https://huggingface.co/bartowski/Qwen_Qwen3.5-2B-GGUF/resolve/main/Qwen_Qwen3.5-2B-Q4_K_M.gguf"
-                ),
-                ModelAsset(
-                    "mmproj-Qwen_Qwen3.5-2B-f16.gguf",
-                    "2.6 GB",
-                    "https://huggingface.co/bartowski/Qwen_Qwen3.5-2B-GGUF/resolve/main/mmproj-Qwen_Qwen3.5-2B-f16.gguf"
-                )
-            )
-        ),
-        VlmModelInfo(
-            id = "qwen3.5_4b",
-            name = "Qwen 3.5 4B",
-            description = "~7.5 GB",
-            assets = listOf(
-                ModelAsset(
-                    "Qwen_Qwen3.5-4B-Q4_K_M.gguf",
-                    "2.7 GB",
-                    "https://huggingface.co/bartowski/Qwen_Qwen3.5-4B-GGUF/resolve/main/Qwen_Qwen3.5-4B-Q4_K_M.gguf"
-                ),
-                ModelAsset(
-                    "mmproj-Qwen_Qwen3.5-4B-f16.gguf",
-                    "4.8 GB",
-                    "https://huggingface.co/bartowski/Qwen_Qwen3.5-4B-GGUF/resolve/main/mmproj-Qwen_Qwen3.5-4B-f16.gguf"
-                )
-            )
-        ),
-        VlmModelInfo(
-            id = "qwen3.5_9b",
-            name = "Qwen 3.5 9B",
-            description = "~17.5 GB",
-            assets = listOf(
-                ModelAsset(
-                    "Qwen_Qwen3.5-9B-Q4_K_M.gguf",
-                    "6.2 GB",
-                    "https://huggingface.co/bartowski/Qwen_Qwen3.5-9B-GGUF/resolve/main/Qwen_Qwen3.5-9B-Q4_K_M.gguf"
-                ),
-                ModelAsset(
-                    "mmproj-Qwen_Qwen3.5-9B-f16.gguf",
-                    "11.3 GB",
-                    "https://huggingface.co/bartowski/Qwen_Qwen3.5-9B-GGUF/resolve/main/mmproj-Qwen_Qwen3.5-9B-f16.gguf"
-                )
-            )
-        )
-    )
-)
+    }
+}
 
 class VlmDownloadViewModel(application: Application) : AndroidViewModel(application) {
     val downloadStates = mutableStateMapOf<String, DownloadState>()
@@ -314,8 +227,13 @@ class VlmDownloadViewModel(application: Application) : AndroidViewModel(applicat
                         )
                     }
                     when {
-                        workInfos.any { it.state == WorkInfo.State.FAILED } ->
-                            downloadStates[modelId] = DownloadState.Error(Exception("ダウンロードに失敗しました"))
+                        workInfos.any { it.state == WorkInfo.State.FAILED } -> {
+                            val errMsg = workInfos
+                                .firstOrNull { it.state == WorkInfo.State.FAILED }
+                                ?.outputData?.getString("error")
+                                ?: "ダウンロードに失敗しました"
+                            downloadStates[modelId] = DownloadState.Error(Exception(errMsg))
+                        }
                         workInfos.any { it.state == WorkInfo.State.CANCELLED } ->
                             downloadStates[modelId] = DownloadState.Idle
                         activeCount == 0 && succeeded.isNotEmpty() ->
@@ -406,7 +324,8 @@ fun VlmImportScreen(
         mutableStateOf(DownloadNotificationSettings.getProgressDisplayMode(context))
     }
 
-    val allModels = MODEL_FAMILIES.values.flatten()
+    val modelFamilies = rememberModelFamilies()
+    val allModels = modelFamilies.values.flatten()
     val downloadedFilesByName = downloadedModelFiles.associateBy { it.name }
     val allKnownFileNames = allModels.flatMap { model -> model.assets.map { it.fileName } }.toSet()
     val knownPrimaryFileNames = allModels.map { it.primaryFileName() }.toSet()
@@ -875,7 +794,7 @@ fun VlmImportScreen(
                 }
             }
             
-            MODEL_FAMILIES.forEach { (family, models) ->
+            modelFamilies.forEach { (family, models) ->
                 item {
                     val isExpanded = expandedFamilies[family] ?: false
                     Card(
@@ -909,8 +828,13 @@ fun VlmImportScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 model.assets.forEach { asset ->
+                                    val actualFile = downloadedFilesByName[asset.fileName]
+                                    val sizeText = if (actualFile != null && actualFile.isFile && actualFile.length() > 0L)
+                                        formatFileSize(actualFile.length())
+                                    else
+                                        "~${asset.sizeLabel}"
                                     Text(
-                                        text = "- ${asset.fileName} (${asset.sizeLabel})",
+                                        text = "- ${asset.fileName} ($sizeText)",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -947,9 +871,20 @@ fun VlmImportScreen(
                                                 }) { Text(stringResource(R.string.btn_delete), color = MaterialTheme.colorScheme.error) }
                                             }
                                         } else {
-                                            Button(onClick = {
-                                                downloadViewModel.startDownload(model, hfToken)
-                                            }) { Text(stringResource(R.string.btn_download)) }
+                                            val tokenMissing = model.requiresToken && hfToken.isNullOrEmpty()
+                                            if (tokenMissing) {
+                                                Text(
+                                                    stringResource(R.string.msg_requires_token),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.error
+                                                )
+                                            }
+                                            Button(
+                                                onClick = {
+                                                    downloadViewModel.startDownload(model, hfToken)
+                                                },
+                                                enabled = !tokenMissing
+                                            ) { Text(stringResource(R.string.btn_download)) }
                                         }
                                     }
                                 }

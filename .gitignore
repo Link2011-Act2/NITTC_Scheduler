@@ -11,6 +11,8 @@ local.properties
 
 # Build system caches and outputs
 .gradle/
+.gradle-user/
+.gradle-user-2/
 .kotlin/
 build/
 app/build/
@@ -25,6 +27,7 @@ out/
 
 # Logs and temp files
 *.log
+*.db
 build_error*.txt
 build_out.txt
 temp_llama/
