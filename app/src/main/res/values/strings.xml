@@ -431,7 +431,7 @@
     <string name="about_support_title">サポート情報</string>
     <string name="about_support_help">不具合報告や連絡先はこちら</string>
     <string name="about_support_open_site">GitHubを開く</string>
-    <string name="about_support_open_twitter">Twitter)を開く</string>
+    <string name="about_support_open_twitter">Twitterを開く</string>
     <string name="about_support_site_url" translatable="false">https://github.com/Link2011-Act2/NITTC_Scheduler/releases</string>
     <string name="about_support_twitter_url" translatable="false">https://x.com/Link_2011A</string>
 
