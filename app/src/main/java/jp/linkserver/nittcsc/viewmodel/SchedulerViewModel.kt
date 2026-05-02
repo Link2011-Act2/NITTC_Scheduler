@@ -221,6 +221,16 @@ class SchedulerViewModel(
         }
     }
 
+    /** パーミッション付与後などにスタンバイ広告を（再）開始する */
+    fun retryStandbyAdvertising() {
+        val manager = nearbySyncManager ?: return
+        viewModelScope.launch {
+            val profile = syncManager?.getProfile()
+            manager.setLocalName(profile?.deviceName ?: android.os.Build.MODEL)
+            manager.startStandbyAdvertising()
+        }
+    }
+
     fun runAutoSync() {
         val manager = syncManager ?: return
         viewModelScope.launch {

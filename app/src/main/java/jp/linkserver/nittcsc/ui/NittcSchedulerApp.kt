@@ -221,6 +221,8 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     var showSync by rememberSaveable { mutableStateOf(false) }
     var showSyncDiscovery by rememberSaveable { mutableStateOf(false) }
     var showNearbySync by rememberSaveable { mutableStateOf(false) }
+    var showNearbyPermissionRationale by rememberSaveable { mutableStateOf(false) }
+    var pendingNearbyPerms by remember { mutableStateOf<Array<String>>(emptyArray()) }
     var showVlmImport by rememberSaveable { mutableStateOf(false) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
     var showOssLicenses by rememberSaveable { mutableStateOf(false) }
@@ -308,6 +310,16 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         }
     }
 
+    // Nearby Connections 権限をリクエスト（スタンバイ広告に必要）
+    val nearbyStandbyPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        if (results.values.all { it }) {
+            // 権限が付与されたらスタンバイ広告を開始
+            viewModel.retryStandbyAdvertising()
+        }
+    }
+
     // アプリ起動時に通知権限をリクエスト（Android 13以上）
     LaunchedEffect(Unit) {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
@@ -318,13 +330,69 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         }
     }
 
+    // アプリ起動時にNearby Connections権限を確認し、スタンバイ広告を確実に開始する
+    LaunchedEffect(Unit) {
+        val nearbyPerms = buildList {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                add(Manifest.permission.BLUETOOTH_SCAN)
+                add(Manifest.permission.BLUETOOTH_ADVERTISE)
+                add(Manifest.permission.BLUETOOTH_CONNECT)
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.NEARBY_WIFI_DEVICES)
+            }
+            add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        val allGranted = nearbyPerms.all {
+            context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED
+        }
+        if (allGranted) {
+            // すでに権限がある場合はスタンバイ広告を再試行（起動時の失敗をリカバリ）
+            viewModel.retryStandbyAdvertising()
+        } else {
+            // 未付与の場合は先に説明ダイアログを表示してからリクエスト
+            pendingNearbyPerms = nearbyPerms.toTypedArray()
+            showNearbyPermissionRationale = true
+        }
+    }
+
     LaunchedEffect(Unit) {
         viewModel.snackbarMessages.collect { snackbarHostState.showSnackbar(it) }
     }
 
-    var pendingExportRange by remember { mutableStateOf<ExportRange?>(null) }
+    // Nearby権限の使用目的説明ダイアログ
+    if (showNearbyPermissionRationale) {
+        AlertDialog(
+            onDismissRequest = { showNearbyPermissionRationale = false },
+            title = { Text("近くの端末との同期について") },
+            text = {
+                Text(
+                    "このアプリは近くの端末と直接通信してデータを同期する機能を備えています。\n\n" +
+                    "この機能のために、Bluetooth・Wi-Fi・位置情報の権限が必要です。" +
+                    "位置情報は近くのデバイスを検出するためにのみ使用され、現在地の取得や記録には使用しません。\n\n" +
+                    "同期機能を使用しない場合は「スキップ」を選択してください。"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showNearbyPermissionRationale = false
+                    nearbyStandbyPermissionLauncher.launch(pendingNearbyPerms)
+                }) {
+                    Text("許可する")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNearbyPermissionRationale = false }) {
+                    Text("スキップ")
+                }
+            }
+        )
+    }
+
+
     val msgNoCalendarPerm = stringResource(R.string.msg_no_calendar_permission)
     val msgNoTasksToSync = stringResource(R.string.msg_no_tasks_to_sync)
+    var pendingExportRange by remember { mutableStateOf<ExportRange?>(null) }
 
     val calendarPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()

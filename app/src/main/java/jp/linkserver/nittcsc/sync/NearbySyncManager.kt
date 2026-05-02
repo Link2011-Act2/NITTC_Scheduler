@@ -88,7 +88,10 @@ class NearbySyncManager(
         standbyActive = true
         val advOptions = AdvertisingOptions.Builder().setStrategy(STRATEGY).build()
         connectionsClient.startAdvertising(localName, SERVICE_ID, connectionLifecycleCallback, advOptions)
-            .addOnFailureListener { /* スタンバイ失敗は無視 */ }
+            .addOnFailureListener {
+                // 失敗時（パーミッション未付与など）はフラグをリセットして再試行を可能にする
+                standbyActive = false
+            }
     }
 
     fun stopStandbyAdvertising() {

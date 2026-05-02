@@ -499,7 +499,7 @@
     <string name="nearby_btn_code_matches">コードが一致している</string>
     <string name="nearby_btn_reject">拒否</string>
     <string name="nearby_idle_description">Nearby通信を使って近くのデバイスと直接同期します。同じWi-Fiに繋がっていなくても使えます。</string>
-    <string name="nearby_permission_required">Bluetooth・位置情報の権限が必要です。設定から許可してください。</string>
+    <string name="nearby_permission_required">同期通信をするために、Bluetooth・位置情報の権限が必要です。設定から許可してください。</string>
     <string name="nearby_btn_start_search">検索を開始する</string>
     <string name="nearby_searching">近くのデバイスを検索中...</string>
     <string name="nearby_no_devices">まだデバイスが見つかりません</string>
