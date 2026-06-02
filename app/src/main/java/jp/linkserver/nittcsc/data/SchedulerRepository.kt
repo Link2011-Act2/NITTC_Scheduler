@@ -158,6 +158,11 @@ class SchedulerRepository(private val db: AppDatabase) {
         dao.upsertSettings(current.copy(enableTlsSync = enabled))
     }
 
+    suspend fun toggleAdvancedTimeSettingsUi(enabled: Boolean) {
+        val current = dao.getSettings() ?: return
+        dao.upsertSettings(current.copy(useAdvancedTimeSettingsUi = enabled))
+    }
+
     suspend fun updateHfToken(token: String?) {
         val current = dao.getSettings() ?: return
         dao.upsertSettings(current.copy(hfToken = token))
@@ -1029,6 +1034,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                 s.put("unifyTaskPlanView", settings.unifyTaskPlanView)
                 s.put("showWeekdayOnDates", settings.showWeekdayOnDates)
                 s.put("enableTlsSync", settings.enableTlsSync)
+                s.put("useAdvancedTimeSettingsUi", settings.useAdvancedTimeSettingsUi)
             })
         }
 
@@ -1195,6 +1201,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                 s.put("arrivalMinute", settings.arrivalMinute)
                 s.put("departureHour", settings.departureHour)
                 s.put("departureMinute", settings.departureMinute)
+                s.put("useAdvancedTimeSettingsUi", settings.useAdvancedTimeSettingsUi)
             })
         }
 
@@ -1335,7 +1342,8 @@ class SchedulerRepository(private val db: AppDatabase) {
                 arrivalHour = if (s.has("arrivalHour")) s.optInt("arrivalHour", base.arrivalHour) else base.arrivalHour,
                 arrivalMinute = if (s.has("arrivalMinute")) s.optInt("arrivalMinute", base.arrivalMinute) else base.arrivalMinute,
                 departureHour = if (s.has("departureHour")) s.optInt("departureHour", base.departureHour) else base.departureHour,
-                departureMinute = if (s.has("departureMinute")) s.optInt("departureMinute", base.departureMinute) else base.departureMinute
+                departureMinute = if (s.has("departureMinute")) s.optInt("departureMinute", base.departureMinute) else base.departureMinute,
+                useAdvancedTimeSettingsUi = if (s.has("useAdvancedTimeSettingsUi")) s.optBoolean("useAdvancedTimeSettingsUi", base.useAdvancedTimeSettingsUi) else base.useAdvancedTimeSettingsUi
             ))
         }
 
@@ -1560,7 +1568,8 @@ class SchedulerRepository(private val db: AppDatabase) {
                 departureMinute = s.optInt("departureMinute", -1),
                 unifyTaskPlanView = s.optBoolean("unifyTaskPlanView", false),
                 showWeekdayOnDates = s.optBoolean("showWeekdayOnDates", false),
-                enableTlsSync = s.optBoolean("enableTlsSync", false)
+                enableTlsSync = s.optBoolean("enableTlsSync", false),
+                useAdvancedTimeSettingsUi = s.optBoolean("useAdvancedTimeSettingsUi", false)
             )
         }
 
@@ -1796,6 +1805,9 @@ class SchedulerRepository(private val db: AppDatabase) {
             }
             if (!s.has("showWeekdayOnDates")) {
                 s.put("showWeekdayOnDates", false)
+            }
+            if (!s.has("useAdvancedTimeSettingsUi")) {
+                s.put("useAdvancedTimeSettingsUi", false)
             }
         }
 

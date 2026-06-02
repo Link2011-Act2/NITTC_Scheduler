@@ -445,6 +445,12 @@ class SchedulerViewModel(
         }
     }
 
+    fun toggleAdvancedTimeSettingsUi(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.toggleAdvancedTimeSettingsUi(enabled)
+        }
+    }
+
     fun updateScheduleSettings(
         periodsPerDay: Int,
         periodDurationMin: Int,

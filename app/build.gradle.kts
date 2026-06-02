@@ -259,7 +259,7 @@ android {
         applicationId = "jp.linkserver.nittcsc"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
+        versionCode = 10
         versionName = "0.9.7-IntDev_rev1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

@@ -1208,6 +1208,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                     onToggleCurrentTimeMarker = viewModel::toggleCurrentTimeMarker,
                     onToggleUnifyTaskPlanView = viewModel::toggleUnifyTaskPlanView,
                     onToggleShowWeekdayOnDates = viewModel::toggleShowWeekdayOnDates,
+                    onToggleAdvancedTimeSettingsUi = viewModel::toggleAdvancedTimeSettingsUi,
                     onUpdateScheduleSettings = viewModel::updateScheduleSettingsSilently,
                     onExportAllAsJson = { viewModel.exportAllData() },
                     onImportAllFromJson = viewModel::importAllData

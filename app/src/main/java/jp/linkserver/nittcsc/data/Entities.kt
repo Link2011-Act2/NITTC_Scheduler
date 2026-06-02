@@ -47,7 +47,8 @@ data class SettingsEntity(
     val departureMinute: Int = -1,
     val unifyTaskPlanView: Boolean = false,
     val showWeekdayOnDates: Boolean = false,
-    val enableTlsSync: Boolean = false
+    val enableTlsSync: Boolean = false,
+    val useAdvancedTimeSettingsUi: Boolean = false
 )
 
 @Entity(tableName = "day_types")
