@@ -8,6 +8,8 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -65,6 +67,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -77,7 +80,6 @@ import androidx.compose.animation.core.spring
 import jp.linkserver.nittcsc.data.TaskEntity
 import java.time.LocalDate
 import java.time.LocalTime
-import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
 private val LegacyTaskBadgeContainer = Color(0xFF93000A)
@@ -88,6 +90,7 @@ fun TaskScreen(
     modifier: Modifier = Modifier,
     tasks: List<TaskEntity>,
     completedTasks: List<TaskEntity>,
+    showWeekdayOnDates: Boolean = false,
     focusTaskId: Long? = null,
     onFocusHandled: () -> Unit = {},
     onOpenTaskEditor: (TaskEntity?) -> Unit,
@@ -191,6 +194,7 @@ fun TaskScreen(
                 items(overdueTasks) { task ->
                     TaskCard(
                         task = task,
+                        showWeekdayOnDates = showWeekdayOnDates,
                         onEdit = { onOpenTaskEditor(it) },
                         onDelete = { deletingTask = it },
                         onMarkComplete = { onMarkComplete(it) },
@@ -206,6 +210,7 @@ fun TaskScreen(
                 items(todayTasks) { task ->
                     TaskCard(
                         task = task,
+                        showWeekdayOnDates = showWeekdayOnDates,
                         onEdit = { onOpenTaskEditor(it) },
                         onDelete = { deletingTask = it },
                         onMarkComplete = { onMarkComplete(it) },
@@ -221,6 +226,7 @@ fun TaskScreen(
                 items(upcomingTasks) { task ->
                     TaskCard(
                         task = task,
+                        showWeekdayOnDates = showWeekdayOnDates,
                         onEdit = { onOpenTaskEditor(it) },
                         onDelete = { deletingTask = it },
                         onMarkComplete = { onMarkComplete(it) },
@@ -244,6 +250,7 @@ fun TaskScreen(
                     items(completedTasksSorted) { task ->
                         TaskCard(
                             task = task,
+                            showWeekdayOnDates = showWeekdayOnDates,
                             onEdit = { onOpenTaskEditor(it) },
                             onDelete = { deletingTask = it },
                             onMarkIncomplete = { onMarkIncomplete(it) },
@@ -322,9 +329,11 @@ private fun TaskSubHeader(text: String) {
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TaskCard(
     task: TaskEntity,
+    showWeekdayOnDates: Boolean,
     onEdit: (TaskEntity) -> Unit,
     onDelete: (TaskEntity) -> Unit,
     onMarkComplete: ((TaskEntity) -> Unit)? = null,
@@ -333,7 +342,6 @@ private fun TaskCard(
     showMarkIncomplete: Boolean = false,
     isCompleted: Boolean = false
 ) {
-    val dateFormatter = DateTimeFormatter.ofPattern("yyyy/MM/dd")
     val today = LocalDate.now()
     val currentTime = LocalTime.now()
     val dueTime = LocalTime.of(task.dueHour, task.dueMinute)
@@ -341,7 +349,10 @@ private fun TaskCard(
                     (task.dueDate == today && currentTime.isAfter(dueTime))
 
     val dueStatusText = if (task.completedDate != null) {
-        stringResource(R.string.label_completed_date, task.completedDate.format(dateFormatter))
+        stringResource(
+            R.string.label_completed_date,
+            formatDateForDisplay(task.completedDate, showWeekdayOnDates)
+        )
     } else {
         when {
             task.dueDate.isBefore(today) -> {
@@ -600,16 +611,16 @@ private fun TaskCard(
                     }
 
                     Text(
-                        text = task.dueDate.format(dateFormatter) + String.format(" %02d:%02d", task.dueHour, task.dueMinute),
+                        text = formatDateTimeForDisplay(task.dueDate, task.dueHour, task.dueMinute, showWeekdayOnDates),
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Medium
                     )
 
-                    Row(
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         if (task.subject.isNotBlank()) {
                             Surface(
@@ -620,7 +631,9 @@ private fun TaskCard(
                                     text = task.subject,
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                     style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -633,18 +646,21 @@ private fun TaskCard(
                                     text = task.teacher,
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                     style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
-                        Spacer(Modifier.weight(1f))
                         Surface(shape = RoundedCornerShape(999.dp), color = dueStatusContainer) {
                             Text(
                                 text = dueStatusText,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = dueStatusContent,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }

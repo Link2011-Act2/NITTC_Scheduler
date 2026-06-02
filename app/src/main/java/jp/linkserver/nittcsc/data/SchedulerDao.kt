@@ -58,6 +58,24 @@ interface SchedulerDao {
     @Query("DELETE FROM cancelled_lessons")
     suspend fun deleteAllCancelledLessons()
 
+    @Query("SELECT * FROM changed_lessons ORDER BY date, slotIndex")
+    fun observeChangedLessons(): Flow<List<ChangedLessonEntity>>
+
+    @Query("SELECT * FROM changed_lessons ORDER BY date, slotIndex")
+    suspend fun getChangedLessonsOnce(): List<ChangedLessonEntity>
+
+    @Query("SELECT * FROM changed_lessons WHERE date = :date AND slotIndex = :slotIndex LIMIT 1")
+    suspend fun getChangedLesson(date: LocalDate, slotIndex: Int): ChangedLessonEntity?
+
+    @Upsert
+    suspend fun upsertChangedLesson(changedLesson: ChangedLessonEntity)
+
+    @Query("DELETE FROM changed_lessons WHERE date = :date AND slotIndex = :slotIndex")
+    suspend fun deleteChangedLesson(date: LocalDate, slotIndex: Int)
+
+    @Query("DELETE FROM changed_lessons")
+    suspend fun deleteAllChangedLessons()
+
     @Query("SELECT * FROM long_breaks ORDER BY startDate")
     fun observeLongBreaks(): Flow<List<LongBreakEntity>>
 
@@ -110,7 +128,7 @@ interface SchedulerDao {
     suspend fun getTaskById(id: Long): TaskEntity?
 
     @Upsert
-    suspend fun upsertTask(task: TaskEntity)
+    suspend fun upsertTask(task: TaskEntity): Long
 
     @Upsert
     suspend fun upsertTasks(tasks: List<TaskEntity>)
@@ -152,7 +170,7 @@ interface SchedulerDao {
     suspend fun getPlanById(id: Long): PlanEntity?
 
     @Upsert
-    suspend fun upsertPlan(plan: PlanEntity)
+    suspend fun upsertPlan(plan: PlanEntity): Long
 
     @Upsert
     suspend fun upsertPlans(plans: List<PlanEntity>)

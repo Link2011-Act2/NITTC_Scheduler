@@ -4,13 +4,14 @@ import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.provider.CalendarContract
+import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.PlanEntity
 import jp.linkserver.nittcsc.data.TaskEntity
 import java.time.ZoneId
 
 class TaskCalendarSync(private val context: Context) {
 
-    fun upsertTaskEvent(task: TaskEntity): Long? {
+    fun syncTask(task: TaskEntity): TaskEntity {
         val title = "${task.subject}: ${task.title}"
         val description = buildString {
             append("NITTC Scheduler - 課題")
@@ -22,13 +23,30 @@ class TaskCalendarSync(private val context: Context) {
                 append(task.description)
             }
         }
-        return upsertEvent(
+        val dueEventId = upsertEvent(
             date = task.dueDate,
             hour = task.dueHour,
             minute = task.dueMinute,
             title = title,
             description = description,
             existingEventId = task.calendarEventId
+        )
+        val reminderEventId = if (task.reminderEnabled && task.reminderDate != null) {
+            upsertEvent(
+                date = task.reminderDate,
+                hour = task.reminderHour,
+                minute = task.reminderMinute,
+                title = context.getString(R.string.task_reminder_calendar_title, task.subject, task.title),
+                description = buildReminderDescription(task),
+                existingEventId = task.reminderCalendarEventId
+            )
+        } else {
+            task.reminderCalendarEventId?.let(::deleteTaskEvent)
+            null
+        }
+        return task.copy(
+            calendarEventId = dueEventId ?: task.calendarEventId,
+            reminderCalendarEventId = reminderEventId
         )
     }
 
@@ -51,6 +69,27 @@ class TaskCalendarSync(private val context: Context) {
             title = title,
             description = description,
             existingEventId = plan.calendarEventId
+        )
+    }
+
+    fun syncPlan(plan: PlanEntity): PlanEntity {
+        val dueEventId = upsertPlanEvent(plan)
+        val reminderEventId = if (plan.reminderEnabled && plan.reminderDate != null) {
+            upsertEvent(
+                date = plan.reminderDate,
+                hour = plan.reminderHour,
+                minute = plan.reminderMinute,
+                title = context.getString(R.string.plan_reminder_calendar_title, plan.subject, plan.title),
+                description = buildPlanReminderDescription(plan),
+                existingEventId = plan.reminderCalendarEventId
+            )
+        } else {
+            plan.reminderCalendarEventId?.let(::deletePlanEvent)
+            null
+        }
+        return plan.copy(
+            calendarEventId = dueEventId ?: plan.calendarEventId,
+            reminderCalendarEventId = reminderEventId
         )
     }
 
@@ -109,6 +148,34 @@ class TaskCalendarSync(private val context: Context) {
     }
 
     fun deletePlanEvent(calendarEventId: Long): Boolean = deleteTaskEvent(calendarEventId)
+
+    private fun buildReminderDescription(task: TaskEntity): String {
+        return buildString {
+            append("NITTC Scheduler - 課題リマインド")
+            if (!task.teacher.isNullOrBlank()) {
+                append("\n担当: ${task.teacher}")
+            }
+            append("\n期限: ${task.dueDate} ${String.format("%02d:%02d", task.dueHour, task.dueMinute)}")
+            if (!task.description.isNullOrBlank()) {
+                append("\n")
+                append(task.description)
+            }
+        }
+    }
+
+    private fun buildPlanReminderDescription(plan: PlanEntity): String {
+        return buildString {
+            append("NITTC Scheduler - 予定リマインド")
+            if (!plan.teacher.isNullOrBlank()) {
+                append("\n担当: ${plan.teacher}")
+            }
+            append("\n時刻: ${plan.dueDate} ${String.format("%02d:%02d", plan.dueHour, plan.dueMinute)}")
+            if (!plan.description.isNullOrBlank()) {
+                append("\n")
+                append(plan.description)
+            }
+        }
+    }
 
     private fun getWritableCalendarId(): Long? {
         val projection = arrayOf(

@@ -13,11 +13,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -33,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,32 +44,82 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import jp.linkserver.nittcsc.R
+import jp.linkserver.nittcsc.update.AppUpdateInfo
+import jp.linkserver.nittcsc.update.checkGitHubReleaseUpdate
+import jp.linkserver.nittcsc.update.detectReleaseChannel
+import jp.linkserver.nittcsc.update.isShowLatestReleaseForTestingEnabled
+import jp.linkserver.nittcsc.update.markUpdateCheckFinished
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AboutScreen(
     onBack: () -> Unit,
-    onOssLicenses: () -> Unit = {}
+    onOssLicenses: () -> Unit = {},
+    onUpdateAvailable: (AppUpdateInfo) -> Unit = {}
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val (versionName, versionCode) = remember { resolveAppVersionInfo(context) }
-    val (simpleVersion, channelName) = remember { splitVersionAndChannel(versionName) }
+    val (simpleVersion, _) = remember { splitVersionAndChannel(versionName) }
+    val normalizedChannelName = remember(versionName) { detectReleaseChannel(versionName) }
+    val repositoryUrl = stringResource(R.string.about_support_site_url)
 
     val channelLabel = when {
-        channelName.equals("IntDev", ignoreCase = true) -> stringResource(R.string.about_dev_channel_value_intdev)
-        channelName.equals("Beta", ignoreCase = true) -> stringResource(R.string.about_dev_channel_value_beta)
-        channelName.equals("Stable", ignoreCase = true) -> stringResource(R.string.about_dev_channel_value_stable)
+        normalizedChannelName.equals("IntDev", ignoreCase = true) -> stringResource(R.string.about_dev_channel_value_intdev)
+        normalizedChannelName.equals("Beta", ignoreCase = true) -> stringResource(R.string.about_dev_channel_value_beta)
+        normalizedChannelName.equals("PreRelease", ignoreCase = true) -> stringResource(R.string.about_dev_channel_value_prerelease)
+        normalizedChannelName.equals("Stable", ignoreCase = true) ||
+            normalizedChannelName.equals("Release", ignoreCase = true) -> stringResource(R.string.about_dev_channel_value_stable)
         else -> stringResource(R.string.about_dev_channel_value_unknown)
     }
     val channelDescResId = when {
-        channelName.equals("IntDev", ignoreCase = true) -> R.string.about_dev_channel_desc_intdev
-        channelName.equals("Beta", ignoreCase = true) -> R.string.about_dev_channel_desc_dev
-        channelName.equals("Stable", ignoreCase = true) -> R.string.about_dev_channel_desc_stable
+        normalizedChannelName.equals("IntDev", ignoreCase = true) -> R.string.about_dev_channel_desc_intdev
+        normalizedChannelName.equals("Beta", ignoreCase = true) -> R.string.about_dev_channel_desc_dev
+        normalizedChannelName.equals("PreRelease", ignoreCase = true) -> R.string.about_dev_channel_desc_prerelease
+        normalizedChannelName.equals("Stable", ignoreCase = true) ||
+            normalizedChannelName.equals("Release", ignoreCase = true) -> R.string.about_dev_channel_desc_stable
         else -> R.string.about_dev_channel_desc_unknown
     }
 
     var showChannelDialog by remember { mutableStateOf(false) }
     var showVersionDetailsDialog by remember { mutableStateOf(false) }
+    var checkingUpdates by remember { mutableStateOf(false) }
+    var updateStatus by remember { mutableStateOf<String?>(null) }
+
+    fun startUpdateCheck() {
+        if (checkingUpdates) return
+        checkingUpdates = true
+        updateStatus = context.getString(R.string.about_update_checking)
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                checkGitHubReleaseUpdate(
+                    repositoryUrl = repositoryUrl,
+                    currentVersion = versionName,
+                    showLatestForTesting = isShowLatestReleaseForTestingEnabled(context, versionName)
+                )
+            }
+            markUpdateCheckFinished(context)
+            checkingUpdates = false
+            result
+                .onSuccess { updateInfo ->
+                    if (updateInfo != null) {
+                        updateStatus = context.getString(R.string.about_update_available, updateInfo.tagName)
+                        onUpdateAvailable(updateInfo)
+                    } else {
+                        updateStatus = context.getString(R.string.about_update_latest)
+                    }
+                }
+                .onFailure { error ->
+                    updateStatus = context.getString(
+                        R.string.about_update_check_failed,
+                        error.localizedMessage ?: error.javaClass.simpleName
+                    )
+                }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -209,6 +262,42 @@ fun AboutScreen(
                 }
             }
 
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = stringResource(R.string.about_update_section_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = stringResource(R.string.about_update_section_help),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedButton(
+                    onClick = { startUpdateCheck() },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !checkingUpdates
+                ) {
+                    if (checkingUpdates) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .padding(end = 10.dp)
+                                .size(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                    }
+                    Text(stringResource(R.string.about_update_check_button))
+                }
+                updateStatus?.let { status ->
+                    Text(
+                        text = status,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
             // ── オープンソースライセンス ──────────────────────────────
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
@@ -237,7 +326,7 @@ fun AboutScreen(
         AlertDialog(
             onDismissRequest = { showChannelDialog = false },
             title = {
-                Text(stringResource(R.string.about_dev_channel_dialog_title, channelName))
+                Text(stringResource(R.string.about_dev_channel_dialog_title, channelLabel))
             },
             text = { Text(stringResource(channelDescResId)) },
             confirmButton = {

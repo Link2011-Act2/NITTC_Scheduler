@@ -1,6 +1,7 @@
 package jp.linkserver.nittcsc.ui
 
 import android.content.Intent
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -51,6 +52,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import jp.linkserver.nittcsc.update.clearDismissedUpdateNotification
+import jp.linkserver.nittcsc.update.isIntDevBuild
+import jp.linkserver.nittcsc.update.isShowLatestReleaseForTestingEnabled
+import jp.linkserver.nittcsc.update.setShowLatestReleaseForTestingEnabled
 import jp.linkserver.nittcsc.viewmodel.SchedulerUiState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -72,6 +77,7 @@ fun SettingsScreen(
     onToggleAddTasksToCalendar: (Boolean) -> Unit,
     onToggleCurrentTimeMarker: (Boolean) -> Unit,
     onToggleUnifyTaskPlanView: (Boolean) -> Unit,
+    onToggleShowWeekdayOnDates: (Boolean) -> Unit,
     onUpdateScheduleSettings: (periodsPerDay: Int, periodDurationMin: Int, breakBetweenPeriodsMin: Int, lunchBreakMin: Int, lunchAfterPeriod: Int, startHour: Int, startMinute: Int, useKosenMode: Boolean, arrivalHour: Int, arrivalMinute: Int, departureHour: Int, departureMinute: Int) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _ -> },
     onExportAllAsJson: suspend () -> String = { "{}" },
     onImportAllFromJson: (String) -> Unit = {}
@@ -81,6 +87,7 @@ fun SettingsScreen(
     val enabledTaskCalendarSync = state.settings?.addTasksToCalendar ?: false
     val enabledCurrentTimeMarker = state.settings?.showCurrentTimeMarker ?: false
     val enabledUnifyTaskPlanView = state.settings?.unifyTaskPlanView ?: false
+    val enabledShowWeekdayOnDates = state.settings?.showWeekdayOnDates ?: false
     var expandTimetableSettings by rememberSaveable { mutableStateOf(true) }
     var showLocalAiWarningDialog by remember { mutableStateOf(false) }
     val s = state.settings
@@ -103,6 +110,24 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     var showImportConfirmDialog by remember { mutableStateOf(false) }
     var pendingImportJson by remember { mutableStateOf<String?>(null) }
+    val currentVersionName = remember {
+        runCatching {
+            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.packageManager.getPackageInfo(
+                    context.packageName,
+                    android.content.pm.PackageManager.PackageInfoFlags.of(0)
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                context.packageManager.getPackageInfo(context.packageName, 0)
+            }
+            info.versionName ?: "unknown"
+        }.getOrDefault("unknown")
+    }
+    val isIntDev = remember(currentVersionName) { isIntDevBuild(currentVersionName) }
+    var showLatestReleaseForTesting by remember {
+        mutableStateOf(isShowLatestReleaseForTestingEnabled(context, currentVersionName))
+    }
 
     // 時間割設定は入力後に自動保存（デバウンス）
     LaunchedEffect(
@@ -311,6 +336,93 @@ fun SettingsScreen(
                 }
             }
 
+            // ── 表示設定 ──────────────────────────────────────────
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = stringResource(R.string.section_display_settings),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column {
+                        SettingsSwitchRow(
+                            title = stringResource(R.string.label_show_current_time_marker),
+                            description = stringResource(R.string.desc_show_current_time_marker),
+                            checked = enabledCurrentTimeMarker,
+                            onCheckedChange = onToggleCurrentTimeMarker
+                        )
+                        SettingsSwitchRow(
+                            title = stringResource(R.string.label_show_weekday_on_dates),
+                            description = stringResource(R.string.desc_show_weekday_on_dates),
+                            checked = enabledShowWeekdayOnDates,
+                            onCheckedChange = onToggleShowWeekdayOnDates
+                        )
+                    }
+                }
+            }
+
+            // ── 課題・予定設定 ──────────────────────────────────────────
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = stringResource(R.string.section_task_plan_settings),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column {
+                        SettingsSwitchRow(
+                            title = stringResource(R.string.label_add_tasks_to_calendar),
+                            description = stringResource(R.string.desc_add_tasks_to_calendar),
+                            checked = enabledTaskCalendarSync,
+                            onCheckedChange = onToggleAddTasksToCalendar
+                        )
+                        SettingsSwitchRow(
+                            title = stringResource(R.string.label_unify_task_plan_view),
+                            description = stringResource(R.string.desc_unify_task_plan_view),
+                            checked = enabledUnifyTaskPlanView,
+                            onCheckedChange = onToggleUnifyTaskPlanView
+                        )
+                    }
+                }
+            }
+
+            // ── ナビゲーション設定 ──────────────────────────────────────────
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = stringResource(R.string.section_navigation_settings),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column {
+                        SettingsSwitchRow(
+                            title = stringResource(R.string.label_use_hamburger_navigation),
+                            description = stringResource(R.string.desc_use_hamburger_navigation),
+                            checked = enabledDrawerNavigation,
+                            onCheckedChange = onToggleDrawerNavigation
+                        )
+                    }
+                }
+            }
+
             // ── 実験的機能 ──────────────────────────────────────────
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
@@ -319,142 +431,55 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold
                 )
-                
+
                 Surface(
                     shape = MaterialTheme.shapes.medium,
                     color = MaterialTheme.colorScheme.surfaceContainer,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
-                                Text(
-                                    stringResource(R.string.label_add_tasks_to_calendar),
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    stringResource(R.string.desc_add_tasks_to_calendar),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                        SettingsSwitchRow(
+                            title = stringResource(R.string.label_local_ai_import),
+                            description = stringResource(R.string.desc_local_ai_import),
+                            checked = enabledLocalAi,
+                            onCheckedChange = { checked ->
+                                if (checked) {
+                                    showLocalAiWarningDialog = true
+                                } else {
+                                    onToggleLocalAi(false)
+                                }
                             }
-                            Switch(
-                                checked = enabledTaskCalendarSync,
-                                onCheckedChange = onToggleAddTasksToCalendar
-                            )
-                        }
+                        )
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
-                                Text(
-                                    stringResource(R.string.label_show_current_time_marker),
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    stringResource(R.string.desc_show_current_time_marker),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Switch(
-                                checked = enabledCurrentTimeMarker,
-                                onCheckedChange = onToggleCurrentTimeMarker
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
-                                Text(
-                                    stringResource(R.string.label_use_hamburger_navigation),
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    stringResource(R.string.desc_use_hamburger_navigation),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Switch(
-                                checked = enabledDrawerNavigation,
-                                onCheckedChange = onToggleDrawerNavigation
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
-                                Text(
-                                    stringResource(R.string.label_unify_task_plan_view),
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    stringResource(R.string.desc_unify_task_plan_view),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Switch(
-                                checked = enabledUnifyTaskPlanView,
-                                onCheckedChange = onToggleUnifyTaskPlanView
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
-                                Text(
-                                    stringResource(R.string.label_local_ai_import),
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    stringResource(R.string.desc_local_ai_import),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Switch(
-                                checked = enabledLocalAi,
-                                onCheckedChange = { checked ->
-                                    if (checked) {
-                                        showLocalAiWarningDialog = true
-                                    } else {
-                                        onToggleLocalAi(false)
-                                    }
+                        if (isIntDev) {
+                            SettingsSwitchRow(
+                                title = stringResource(R.string.label_update_show_latest_for_testing),
+                                description = stringResource(R.string.desc_update_show_latest_for_testing),
+                                checked = showLatestReleaseForTesting,
+                                onCheckedChange = { enabled ->
+                                    showLatestReleaseForTesting = enabled
+                                    setShowLatestReleaseForTestingEnabled(context, currentVersionName, enabled)
                                 }
                             )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        clearDismissedUpdateNotification(context)
+                                        Toast.makeText(
+                                            context,
+                                            context.getString(R.string.msg_update_dismiss_reset),
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                ) {
+                                    Text(stringResource(R.string.btn_reset_update_dismiss))
+                                }
+                            }
                         }
                     }
                 }
@@ -635,6 +660,39 @@ fun SettingsScreen(
                     Text(stringResource(R.string.btn_cancel))
                 }
             }
+        )
+    }
+}
+
+@Composable
+private fun SettingsSwitchRow(
+    title: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
         )
     }
 }

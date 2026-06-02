@@ -14,8 +14,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -35,6 +38,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -52,7 +56,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.font.FontWeight
@@ -61,8 +64,8 @@ import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.TaskEntity
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
-import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,6 +75,7 @@ fun AddTaskScreen(
     subjectTeacherCandidates: Map<String, List<String>> = emptyMap(),
     defaultDueHour: Int = 8,
     defaultDueMinute: Int = 40,
+    showWeekdayOnDates: Boolean = false,
     isPlan: Boolean = false,
     onResolveNextLessonDateTime: suspend (subject: String, teacher: String?, fromDate: LocalDate, fromTime: LocalTime) -> Pair<LocalDate, LocalTime>? = { _, _, _, _ -> null },
     onResolvePreviousLessonDateTime: suspend (subject: String, teacher: String?, fromDate: LocalDate, fromTime: LocalTime) -> Pair<LocalDate, LocalTime>? = { _, _, _, _ -> null },
@@ -79,9 +83,7 @@ fun AddTaskScreen(
     onSave: (TaskEntity) -> Unit,
     onBack: () -> Unit
 ) {
-    val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
-    val dateFormatter = DateTimeFormatter.ofPattern("yyyy/MM/dd")
     val coroutineScope = rememberCoroutineScope()
 
     var title by remember { mutableStateOf(task?.title ?: "") }
@@ -94,10 +96,75 @@ fun AddTaskScreen(
     var dueHour by remember { mutableStateOf(if ((task?.id ?: 0L) == 0L) defaultDueHour else (task?.dueHour ?: defaultDueHour)) }
     var dueMinute by remember { mutableStateOf(if ((task?.id ?: 0L) == 0L) defaultDueMinute else (task?.dueMinute ?: defaultDueMinute)) }
     var priority by remember { mutableStateOf(task?.priority ?: 0) }
+    val defaultReminderDateTime = remember(task?.id) {
+        val now = LocalDateTime.now()
+        val baseDate = if (now.toLocalTime() >= LocalTime.of(20, 0)) now.toLocalDate().plusDays(1) else now.toLocalDate()
+        baseDate to LocalTime.of(20, 0)
+    }
+    var reminderExpanded by rememberSaveable(task?.id) { mutableStateOf(task?.reminderEnabled == true) }
+    var reminderEnabled by remember { mutableStateOf(task?.reminderEnabled ?: false) }
+    var reminderDate by remember {
+        mutableStateOf(task?.reminderDate ?: defaultReminderDateTime.first)
+    }
+    var reminderHour by remember {
+        mutableStateOf(if (task?.reminderEnabled == true) task.reminderHour else defaultReminderDateTime.second.hour)
+    }
+    var reminderMinute by remember {
+        mutableStateOf(if (task?.reminderEnabled == true) task.reminderMinute else defaultReminderDateTime.second.minute)
+    }
     var showSubjectSuggestions by remember { mutableStateOf(false) }
     var isAutoResolvingDate by remember { mutableStateOf(false) }
     var showDatePickerDialog by rememberSaveable { mutableStateOf(false) }
     var showTimePickerDialog by rememberSaveable { mutableStateOf(false) }
+    var showDiscardConfirmDialog by rememberSaveable { mutableStateOf(false) }
+
+    data class EditorSnapshot(
+        val title: String,
+        val description: String,
+        val subject: String,
+        val teacher: String,
+        val dueDate: LocalDate,
+        val dueHour: Int,
+        val dueMinute: Int,
+        val priority: Int,
+        val reminderEnabled: Boolean,
+        val reminderDate: LocalDate,
+        val reminderHour: Int,
+        val reminderMinute: Int
+    )
+
+    fun currentSnapshot() = EditorSnapshot(
+        title = title,
+        description = description,
+        subject = subject,
+        teacher = teacher,
+        dueDate = dueDate,
+        dueHour = dueHour,
+        dueMinute = dueMinute,
+        priority = priority,
+        reminderEnabled = reminderEnabled,
+        reminderDate = reminderDate,
+        reminderHour = reminderHour,
+        reminderMinute = reminderMinute
+    )
+
+    val initialSnapshot = remember(task?.id, defaultDueHour, defaultDueMinute) {
+        EditorSnapshot(
+            title = task?.title ?: "",
+            description = task?.description ?: "",
+            subject = task?.subject ?: "",
+            teacher = task?.teacher ?: "",
+            dueDate = task?.dueDate ?: LocalDate.now(),
+            dueHour = if ((task?.id ?: 0L) == 0L) defaultDueHour else (task?.dueHour ?: defaultDueHour),
+            dueMinute = if ((task?.id ?: 0L) == 0L) defaultDueMinute else (task?.dueMinute ?: defaultDueMinute),
+            priority = task?.priority ?: 0,
+            reminderEnabled = task?.reminderEnabled ?: false,
+            reminderDate = task?.reminderDate ?: defaultReminderDateTime.first,
+            reminderHour = if (task?.reminderEnabled == true) task.reminderHour else defaultReminderDateTime.second.hour,
+            reminderMinute = if (task?.reminderEnabled == true) task.reminderMinute else defaultReminderDateTime.second.minute
+        )
+    }
+    val hasUnsavedChanges = currentSnapshot() != initialSnapshot
 
     val teacherCandidatesForSubject = remember(subject, subjectTeacherCandidates) {
         val key = subject.trim()
@@ -180,12 +247,63 @@ fun AddTaskScreen(
                 createdDate = task?.createdDate ?: LocalDate.now(),
                 priority = priority,
                 useTeacherMatching = true,
-                calendarEventId = task?.calendarEventId
+                calendarEventId = task?.calendarEventId,
+                reminderEnabled = reminderEnabled,
+                reminderDate = reminderDate.takeIf { reminderEnabled },
+                reminderHour = reminderHour,
+                reminderMinute = reminderMinute,
+                reminderCalendarEventId = task?.reminderCalendarEventId
             )
         )
     }
 
-    BackHandler { onBack() }
+    fun handleBackRequest() {
+        if (hasUnsavedChanges) {
+            showDiscardConfirmDialog = true
+        } else {
+            onBack()
+        }
+    }
+
+    BackHandler { handleBackRequest() }
+
+    if (showDiscardConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showDiscardConfirmDialog = false },
+            title = { Text(stringResource(R.string.dialog_unsaved_task_changes_title)) },
+            text = { Text(stringResource(R.string.dialog_unsaved_task_changes_message)) },
+            confirmButton = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalAlignment = Alignment.End
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                showDiscardConfirmDialog = false
+                                onBack()
+                            }
+                        ) {
+                            Text(stringResource(R.string.btn_discard_changes))
+                        }
+                        Button(
+                            onClick = {
+                                saveTask()
+                            },
+                            enabled = canSave
+                        ) {
+                            Text(stringResource(R.string.btn_save_and_back))
+                        }
+                    }
+                    TextButton(onClick = { showDiscardConfirmDialog = false }) {
+                        Text(stringResource(R.string.btn_cancel))
+                    }
+                }
+            },
+            dismissButton = {}
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -197,7 +315,7 @@ fun AddTaskScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = ::handleBackRequest) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.cd_back)
@@ -448,7 +566,7 @@ fun AddTaskScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            dueDate.format(dateFormatter),
+                            formatDateForDisplay(dueDate, showWeekdayOnDates),
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.primary
@@ -547,6 +665,82 @@ fun AddTaskScreen(
                 }
             }
 
+            SectionLabel(stringResource(R.string.section_task_reminder))
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                ),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { reminderExpanded = !reminderExpanded },
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.label_task_reminder_enable),
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = stringResource(R.string.desc_task_reminder_summary),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Icon(
+                            imageVector = if (reminderExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                            contentDescription = null
+                        )
+                    }
+                    if (reminderExpanded) {
+                        HorizontalDivider()
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(R.string.label_task_reminder_toggle),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Switch(
+                                checked = reminderEnabled,
+                                onCheckedChange = { reminderEnabled = it }
+                            )
+                        }
+                        if (reminderEnabled) {
+                            ReminderDatePickerRow(
+                                label = stringResource(R.string.label_task_reminder_date),
+                                date = reminderDate,
+                                showWeekdayOnDates = showWeekdayOnDates,
+                                onDateChange = { reminderDate = it }
+                            )
+                            ReminderTimePickerRow(
+                                label = stringResource(R.string.label_task_reminder_time),
+                                hour = reminderHour,
+                                minute = reminderMinute,
+                                onTimeChange = { h, m ->
+                                    reminderHour = h
+                                    reminderMinute = m
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
             // ── 優先度 ──────────────────────────────────────────
             SectionLabel(stringResource(R.string.label_task_priority))
             Card(
@@ -607,4 +801,118 @@ private fun SectionLabel(text: String) {
         fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(start = 4.dp)
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReminderDatePickerRow(
+    label: String,
+    date: LocalDate,
+    showWeekdayOnDates: Boolean,
+    onDateChange: (LocalDate) -> Unit
+) {
+    var showPicker by rememberSaveable(date) { mutableStateOf(false) }
+    if (showPicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = date.toEpochDay() * 86400000L
+        )
+        DatePickerDialog(
+            onDismissRequest = { showPicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        onDateChange(LocalDate.ofEpochDay(millis / 86400000L))
+                    }
+                    showPicker = false
+                }) { Text(stringResource(R.string.btn_save)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPicker = false }) { Text(stringResource(R.string.btn_cancel)) }
+            }
+        ) { DatePicker(state = datePickerState) }
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { showPicker = true }
+            .padding(vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = formatDateForDisplay(date, showWeekdayOnDates),
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.primary
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReminderTimePickerRow(
+    label: String,
+    hour: Int,
+    minute: Int,
+    onTimeChange: (Int, Int) -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    var showPicker by rememberSaveable(hour, minute) { mutableStateOf(false) }
+    if (showPicker) {
+        val timePickerState = rememberTimePickerState(
+            initialHour = hour,
+            initialMinute = minute,
+            is24Hour = true
+        )
+        var lastHour by remember(timePickerState) { mutableStateOf(timePickerState.hour) }
+        var lastMinute by remember(timePickerState) { mutableStateOf(timePickerState.minute) }
+        LaunchedEffect(timePickerState.hour, timePickerState.minute) {
+            if (timePickerState.hour != lastHour || timePickerState.minute != lastMinute) {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                lastHour = timePickerState.hour
+                lastMinute = timePickerState.minute
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { showPicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    onTimeChange(timePickerState.hour, timePickerState.minute)
+                    showPicker = false
+                }) { Text(stringResource(R.string.btn_save)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPicker = false }) { Text(stringResource(R.string.btn_cancel)) }
+            },
+            text = { TimePicker(state = timePickerState) }
+        )
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                showPicker = true
+            }
+            .padding(vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = String.format("%02d:%02d", hour, minute),
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.primary
+        )
+    }
 }

@@ -93,7 +93,11 @@
 
     <!-- Button Labels -->
     <string name="btn_save">保存</string>
+    <string name="btn_save_and_back">保存して戻る</string>
     <string name="btn_cancel">キャンセル</string>
+    <string name="btn_discard_changes">破棄して戻る</string>
+    <string name="btn_continue_editing">編集を続ける</string>
+    <string name="label_none">なし</string>
     <string name="btn_add">追加</string>
     <string name="btn_delete">削除</string>
     <string name="btn_download">ダウンロード</string>
@@ -106,7 +110,7 @@
     <string name="btn_back_to_original">今年度に戻す</string>
     <string name="btn_export_this_week">今週のみ追加</string>
     <string name="btn_export_custom">期間を指定して追加</string>
-    <string name="btn_clear_override">例外を解除</string>
+    <string name="btn_clear_override">日程振替を解除</string>
     <string name="btn_back">戻る</string>
     <string name="btn_next">次へ</string>
     <string name="label_export_range_start">開始日を選択</string>
@@ -162,9 +166,17 @@
     <string name="label_period_settings">期間設定</string>
     <string name="label_calendar_export">端末カレンダーへ出力</string>
     <string name="label_loading">読み込み中...</string>
-    <string name="label_override_weekday">参照する曜日</string>
-    <string name="label_override_day_type">A/B</string>
-    <string name="label_override_preview">適用後:</string>
+    <string name="dialog_unsaved_task_changes_title">未保存の変更があります</string>
+    <string name="dialog_unsaved_task_changes_message">保存していない変更があります。どうしますか？</string>
+    <string name="label_override_weekday">振替先の曜日</string>
+    <string name="label_override_day_type">振替先のA/B</string>
+    <string name="label_override_preview">振替後:</string>
+    <string name="label_holiday_special_label">特別ラベル</string>
+    <string name="label_holiday_special_label_none">なし</string>
+    <string name="label_holiday_mode_schedule">日程振替</string>
+    <string name="label_holiday_mode_label">特別ラベル</string>
+    <string name="desc_holiday_mode_schedule">この日に別の曜日の授業を割り当てます</string>
+    <string name="desc_holiday_mode_label">この日に中間試験等のラベルを付けます</string>
 
     <!-- Date/Time Related -->
     <string name="label_start_date">開始日: %s</string>
@@ -185,6 +197,14 @@
     <string name="daytype_a">A</string>
     <string name="daytype_b">B</string>
     <string name="daytype_holiday">休日</string>
+    <string name="holiday_label_midterm">中間試験</string>
+    <string name="holiday_label_midterm_short">中間</string>
+    <string name="holiday_label_final">期末試験</string>
+    <string name="holiday_label_final_short">期末</string>
+    <string name="holiday_label_school_closed">休校日</string>
+    <string name="holiday_label_school_closed_short">休校</string>
+    <string name="holiday_label_excursion">遠足</string>
+    <string name="holiday_label_excursion_short">遠足</string>
 
     <!-- Download Related -->
     <string name="msg_downloading">ダウンロード中</string>
@@ -225,6 +245,13 @@
     <string name="label_task_description">説明（オプション）</string>
     <string name="label_task_due_date">期限</string>
     <string name="label_task_priority">優先度</string>
+    <string name="section_task_reminder">着手リマインド</string>
+    <string name="label_task_reminder_enable">着手する時刻を通知</string>
+    <string name="desc_task_reminder_summary">手を付け始めたい時刻に、アプリから通知します。</string>
+    <string name="label_task_reminder_toggle">リマインドを有効にする</string>
+    <string name="desc_task_reminder_toggle">デフォルトは登録日の20:00です。20:00を過ぎている場合は翌日の20:00になります。</string>
+    <string name="label_task_reminder_date">リマインド日</string>
+    <string name="label_task_reminder_time">リマインド時刻</string>
     <string name="label_task_use_teacher_matching">教員マッチングを使用</string>
     <string name="label_task_link_lesson">レッスンにリンク</string>
     <string name="label_task_due_autofill_hint">教科名に応じて、次回授業日を期限に自動設定します</string>
@@ -239,11 +266,24 @@
     <string name="label_incomplete_plans">未完了予定</string>
     <string name="msg_task_no_lessons">確認できるレッスンがありません</string>
     <string name="msg_task_saved">課題を保存しました</string>
+    <string name="msg_plan_saved">予定を保存しました</string>
     <string name="msg_task_deleted">課題を削除しました</string>
     <string name="msg_task_completed">課題を完了しました</string>
     <string name="msg_task_incomplete">課題を未完了に戻しました</string>
     <string name="msg_task_no_tasks">課題がありません</string>
     <string name="msg_plan_no_plans">予定がありません</string>
+    <string name="task_reminder_channel_name">課題リマインド</string>
+    <string name="task_reminder_channel_desc">課題に取りかかる時刻を通知します</string>
+    <string name="task_reminder_notification_title">課題のリマインド</string>
+    <string name="task_reminder_notification_body">「%1$s」に取りかかる時間です。</string>
+    <string name="task_reminder_due_summary">期限: %1$s %2$s</string>
+    <string name="task_reminder_subject_summary">教科: %1$s</string>
+    <string name="task_reminder_calendar_title">着手: %1$s - %2$s</string>
+    <string name="plan_reminder_channel_name">予定リマインド</string>
+    <string name="plan_reminder_channel_desc">予定の時刻を通知します</string>
+    <string name="plan_reminder_notification_title">予定のリマインド</string>
+    <string name="plan_reminder_notification_body">「%1$s」の時間です。</string>
+    <string name="plan_reminder_calendar_title">予定: %1$s - %2$s</string>
     <string name="btn_mark_complete">完了</string>
     <string name="btn_mark_incomplete">未完了に</string>
     <string name="btn_edit_task">編集</string>
@@ -260,15 +300,32 @@
     <string name="dialog_add_from_lesson_title">授業から追加</string>
     <string name="dialog_add_task_from_lesson">課題を追加</string>
     <string name="dialog_add_plan_from_lesson">予定を追加</string>
+    <string name="dialog_change_lesson">授業変更</string>
     <string name="dialog_mark_lesson_cancelled">休講にする</string>
     <string name="dialog_unmark_lesson_cancelled">休講を解除</string>
     <string name="label_cancelled">休講</string>
+    <string name="label_changed">変更</string>
     <string name="dialog_lesson_action_title">授業アクション</string>
     <string name="dialog_lesson_action_hint">実行する操作を選択してください</string>
     <string name="label_lesson_status_cancelled">現在: 休講</string>
     <string name="label_lesson_status_normal">現在: 通常授業</string>
     <string name="label_lesson_slot_info">%1$s / %2$d限</string>
-    <string name="dialog_lesson_override_title">例外時間割を設定</string>
+    <string name="dialog_lesson_override_title">日程をカスタマイズ</string>
+    <string name="title_change_lesson">授業変更</string>
+    <string name="label_current_lesson">現在の授業</string>
+    <string name="label_replacement_lesson">置き換え後の授業</string>
+    <string name="btn_clear_lesson_change">授業変更を解除</string>
+    <string name="dialog_move_lesson_items_title">課題・予定を移動しますか？</string>
+    <string name="dialog_move_lesson_items_message">元の授業に紐づく課題や予定が見つかりました。次回授業へ移動しますか？</string>
+    <string name="dialog_move_lesson_items_target">移動先: %1$s</string>
+    <string name="dialog_move_lesson_items_entry">%1$s\n現在: %2$s</string>
+    <string name="btn_move_items">移動する</string>
+    <string name="btn_keep_items">移動しない</string>
+    <string name="msg_lesson_change_saved">授業変更を保存しました。</string>
+    <string name="msg_lesson_change_cleared">授業変更を解除しました。</string>
+    <string name="msg_lesson_change_items_moved">課題・予定を次回授業へ移動しました。</string>
+    <string name="msg_lesson_change_move_target_not_found">授業変更は保存しましたが、移動先の次回授業が見つかりませんでした。</string>
+    <string name="msg_lesson_cancel_move_target_not_found">休講は保存しましたが、移動先の次回授業が見つかりませんでした。</string>
     <string name="dialog_task_delete_title">課題を削除</string>
     <string name="dialog_plan_delete_title">予定を削除</string>
     <string name="dialog_task_delete_message">「%1$s」を削除しますか？</string>
@@ -324,6 +381,8 @@
     <string name="placeholder_time">--</string>
     <string name="btn_save_timetable_settings">時間割設定を保存</string>
     <string name="section_navigation_settings">ナビゲーション設定</string>
+    <string name="section_display_settings">表示設定</string>
+    <string name="section_task_plan_settings">課題・予定設定</string>
     <string name="label_use_hamburger_navigation">実験的UIを使用</string>
     <string name="desc_use_hamburger_navigation">下部ナビゲーションバーは非表示になり、左上のハンバーガーメニューから切り替える方式になります</string>
     <string name="label_add_tasks_to_calendar">課題をカレンダーと連携</string>
@@ -331,12 +390,18 @@
     <string name="label_show_current_time_marker">現在時刻マーカーを表示</string>
     <string name="desc_show_current_time_marker">時間割画面に現在時刻の表示を追加します</string>
     <string name="section_experimental">実験的機能 (Experimental)</string>
+    <string name="label_show_weekday_on_dates">日付に曜日を表示</string>
+    <string name="desc_show_weekday_on_dates">時間割上部や期間表示を除き、日付の横に(金)のような曜日を表示します</string>
     <string name="label_unify_task_plan_view">ToDo タブを有効化</string>
     <string name="desc_unify_task_plan_view">「課題」「予定」タブを一つのタブに統合します</string>
+    <string name="btn_reset_update_dismiss">更新通知の抑止を解除</string>
+    <string name="msg_update_dismiss_reset">更新通知の抑止を解除しました。</string>
     <string name="label_enable_tls_sync">TLS通信を有効化</string>
     <string name="desc_enable_tls_sync">Wi-Fi同期でTLS暗号化通信を利用します。機種によって動作しない場合があり、まだ検証中です。</string>
     <string name="label_local_ai_import">AI画像インポート</string>
     <string name="desc_local_ai_import">スマホ内でローカルAIを動かし、時間割の画像から自動でインポートすることができます。\n⚠️非常に大きな負荷がかかるため、機種によってはアプリがクラッシュする可能性があります</string>
+    <string name="label_update_show_latest_for_testing">最新ビルドを常にアップデートとして扱う</string>
+    <string name="desc_update_show_latest_for_testing">IntDev 用のデバッグ設定です。自分より新しいバージョンでなくても、GitHub の最新 Release を更新ありとして扱います。</string>
     <string name="section_data_transfer">設定データの移行</string>
     <string name="desc_data_transfer">時間割・A/B表・長期休み・課題・各種設定をJSONでエクスポート/インポートできます。</string>
     <string name="btn_export_json">エクスポート</string>
@@ -405,7 +470,7 @@
     <string name="label_no_model_selected">選択なし</string>
     <string name="cd_settings">設定</string>
     <string name="legend_ab_toggle">タップで切替: A → B → 休日</string>
-    <string name="legend_ab_override_long_press">長押しで例外時間割</string>
+    <string name="legend_ab_override_long_press">長押しでカスタム</string>
 
     <!-- About Screen -->
     <string name="about_screen_title">このアプリについて</string>
@@ -420,10 +485,12 @@
     <string name="about_dev_channel_dialog_title">開発チャネル: %1$s</string>
     <string name="about_dev_channel_value_intdev">内部検証版</string>
     <string name="about_dev_channel_value_beta">ベータ版</string>
+    <string name="about_dev_channel_value_prerelease">プレリリース</string>
     <string name="about_dev_channel_value_stable">安定版</string>
     <string name="about_dev_channel_value_unknown">不明</string>
     <string name="about_dev_channel_desc_intdev">IntDev は内部検証時に使用されます。開発者と一部のメンバーにのみ公開され、仕様変更や不安定な挙動が含まれる可能性があります。</string>
     <string name="about_dev_channel_desc_dev">Beta はプレリリースのバージョンです。GitHubなどで公開されますが、不安定な挙動になる可能性があります。</string>
+    <string name="about_dev_channel_desc_prerelease">Pre-release は正式版の前に公開される検証版です。新機能を含むことがありますが、安定性は保証されません。</string>
     <string name="about_dev_channel_desc_stable">Stable は安定版で、バグ検証などが十分に行われた後に配布されます。</string>
     <string name="about_dev_channel_desc_unknown">このチャネルの説明は未登録です。</string>
     <string name="about_version_details_title">バージョン詳細</string>
@@ -434,6 +501,30 @@
     <string name="about_support_open_twitter">Twitterを開く</string>
     <string name="about_support_site_url" translatable="false">https://github.com/Link2011-Act2/NITTC_Scheduler/releases</string>
     <string name="about_support_twitter_url" translatable="false">https://x.com/Link_2011A</string>
+    <string name="about_update_section_title">アップデート</string>
+    <string name="about_update_section_help">GitHub Releases から新しいバージョンを確認します。Pre-release も対象に含めます。</string>
+    <string name="about_update_check_button">アップデートを確認</string>
+    <string name="about_update_checking">GitHub Releases を確認しています…</string>
+    <string name="about_update_latest">最新バージョンを使用しています。</string>
+    <string name="about_update_available">新しいバージョンがあります: %1$s</string>
+    <string name="about_update_check_failed">アップデートを確認できませんでした: %1$s</string>
+
+    <string name="update_screen_title">アップデートがあります</string>
+    <string name="update_release_notes_title">リリースノート</string>
+    <string name="update_release_notes_empty">このバージョンのリリースノートはありません。</string>
+    <string name="update_download_install_button">ダウンロード / インストール</string>
+    <string name="update_cancel_download_button">ダウンロードをキャンセル</string>
+    <string name="update_asset_name">アセット: %1$s</string>
+    <string name="update_downloading">APK をダウンロードしています…</string>
+    <string name="update_downloading_progress">APK をダウンロードしています… %1$d%% (%2$s MB / %3$s MB)</string>
+    <string name="update_downloading_progress_unknown_total">APK をダウンロードしています… %1$s MB</string>
+    <string name="update_download_cancelled">ダウンロードをキャンセルしました。</string>
+    <string name="update_opening_installer">パッケージインストーラーを起動しています…</string>
+    <string name="update_install_permission_required">不明なアプリのインストールを許可してから、この画面に戻ってもう一度ボタンを押してください。</string>
+    <string name="update_download_failed">ダウンロードに失敗しました: %1$s</string>
+    <string name="update_banner_title">アップデートがあります</string>
+    <string name="update_banner_body">%1$s が利用できます。タップして詳細を開きます。</string>
+    <string name="update_banner_dismiss">更新通知を閉じる</string>
 
     <!-- OSS ライセンス（About 画面） -->
     <string name="about_oss_title">オープンソースライセンス</string>

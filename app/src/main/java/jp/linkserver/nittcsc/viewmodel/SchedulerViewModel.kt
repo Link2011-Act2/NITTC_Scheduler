@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import jp.linkserver.nittcsc.data.DayType
 import jp.linkserver.nittcsc.data.DayTypeEntity
+import jp.linkserver.nittcsc.data.ChangedLessonEntity
+import jp.linkserver.nittcsc.data.HolidaySpecialLabel
 import jp.linkserver.nittcsc.data.LessonDraft
 import jp.linkserver.nittcsc.data.LessonEntity
 import jp.linkserver.nittcsc.data.LessonMode
@@ -46,6 +48,7 @@ private data class CoreDataState(
     val dayTypeEntities: Map<LocalDate, DayTypeEntity>,
     val dayTypeMap: Map<LocalDate, DayType>,
     val longBreaks: List<LongBreakEntity>,
+    val changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity>,
     val lessons: Map<Pair<Int, Int>, LessonEntity>,
     val tasks: List<TaskEntity>,
     val incompleteTasks: List<TaskEntity>,
@@ -53,11 +56,19 @@ private data class CoreDataState(
     val incompletePlans: List<PlanEntity>
 )
 
+private data class SettingsBundle(
+    val settings: SettingsEntity?,
+    val dayTypes: List<DayTypeEntity>,
+    val longBreaks: List<LongBreakEntity>,
+    val changedLessons: List<ChangedLessonEntity>
+)
+
 data class SchedulerUiState(
     val settings: SettingsEntity? = null,
     val dayTypeEntities: Map<LocalDate, DayTypeEntity> = emptyMap(),
     val dayTypeMap: Map<LocalDate, DayType> = emptyMap(),
     val longBreaks: List<LongBreakEntity> = emptyList(),
+    val changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity> = emptyMap(),
     val lessons: Map<Pair<Int, Int>, LessonEntity> = emptyMap(),
     val tasks: List<TaskEntity> = emptyList(),
     val incompleteTasks: List<TaskEntity> = emptyList(),
@@ -91,27 +102,28 @@ class SchedulerViewModel(
             combine(
                 repository.settingsFlow,
                 repository.dayTypesFlow,
-                repository.longBreaksFlow
-            ) { settings: SettingsEntity?, dayTypes: List<DayTypeEntity>, longBreaks: List<LongBreakEntity> ->
-                Triple(settings, dayTypes, longBreaks)
+                repository.longBreaksFlow,
+                repository.changedLessonsFlow
+            ) { settings: SettingsEntity?, dayTypes: List<DayTypeEntity>, longBreaks: List<LongBreakEntity>, changedLessons: List<ChangedLessonEntity> ->
+                SettingsBundle(settings, dayTypes, longBreaks, changedLessons)
             },
             repository.lessonsFlow,
             repository.tasksFlow,
             repository.incompleteTasksFlow
-        ) { triple: Triple<SettingsEntity?, List<DayTypeEntity>, List<LongBreakEntity>>, lessons: List<LessonEntity>, tasks: List<TaskEntity>, incompleteTasks: List<TaskEntity> ->
-            Pair(triple, Triple(lessons, tasks, incompleteTasks))
+        ) { baseData, lessons: List<LessonEntity>, tasks: List<TaskEntity>, incompleteTasks: List<TaskEntity> ->
+            Pair(baseData, Triple(lessons, tasks, incompleteTasks))
         },
         repository.plansFlow,
         repository.incompletePlansFlow
     ) { base, plans: List<PlanEntity>, incompletePlans: List<PlanEntity> ->
-        val (triple, taskPart) = base
-        val (settings, dayTypes, longBreaks) = triple
+        val (baseData, taskPart) = base
         val (lessons, tasks, incompleteTasks) = taskPart
         CoreDataState(
-            settings = settings,
-            dayTypeEntities = dayTypes.associateBy { it.date },
-            dayTypeMap = dayTypes.associate { it.date to it.dayType },
-            longBreaks = longBreaks,
+            settings = baseData.settings,
+            dayTypeEntities = baseData.dayTypes.associateBy { it.date },
+            dayTypeMap = baseData.dayTypes.associate { it.date to it.dayType },
+            longBreaks = baseData.longBreaks,
+            changedLessons = baseData.changedLessons.associateBy { it.date to it.slotIndex },
             lessons = lessons.associateBy { it.dayOfWeek to it.slotIndex },
             tasks = tasks,
             incompleteTasks = incompleteTasks,
@@ -132,6 +144,7 @@ class SchedulerViewModel(
                 dayTypeEntities = core.dayTypeEntities,
                 dayTypeMap = core.dayTypeMap,
                 longBreaks = core.longBreaks,
+                changedLessons = core.changedLessons,
                 lessons = core.lessons,
                 tasks = core.tasks,
                 incompleteTasks = core.incompleteTasks,
@@ -301,6 +314,28 @@ class SchedulerViewModel(
         }
     }
 
+    fun saveChangedLesson(date: LocalDate, slotIndex: Int, subject: String, teacher: String, location: String?) {
+        viewModelScope.launch {
+            repository.upsertChangedLesson(date, slotIndex, subject, teacher, location)
+            _snackbarMessages.emit("授業変更を保存しました。")
+        }
+    }
+
+    suspend fun saveChangedLessonDirect(date: LocalDate, slotIndex: Int, subject: String, teacher: String, location: String?) {
+        repository.upsertChangedLesson(date, slotIndex, subject, teacher, location)
+    }
+
+    fun clearChangedLesson(date: LocalDate, slotIndex: Int) {
+        viewModelScope.launch {
+            repository.deleteChangedLesson(date, slotIndex)
+            _snackbarMessages.emit("授業変更を解除しました。")
+        }
+    }
+
+    suspend fun clearChangedLessonDirect(date: LocalDate, slotIndex: Int) {
+        repository.deleteChangedLesson(date, slotIndex)
+    }
+
     fun isLessonCancelled(date: LocalDate, slotIndex: Int, cancelledLessons: Set<Pair<LocalDate, Int>>): Boolean {
         return cancelledLessons.contains(date to slotIndex)
     }
@@ -347,6 +382,12 @@ class SchedulerViewModel(
         }
     }
 
+    fun updateHolidaySpecialLabel(date: LocalDate, label: HolidaySpecialLabel?) {
+        viewModelScope.launch {
+            repository.updateHolidaySpecialLabel(date, label)
+        }
+    }
+
     fun resetFiscalYear() {
         viewModelScope.launch {
             repository.resetToCurrentFiscalYear()
@@ -388,6 +429,12 @@ class SchedulerViewModel(
     fun toggleUnifyTaskPlanView(enabled: Boolean) {
         viewModelScope.launch {
             repository.toggleUnifyTaskPlanView(enabled)
+        }
+    }
+
+    fun toggleShowWeekdayOnDates(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.toggleShowWeekdayOnDates(enabled)
         }
     }
 
@@ -491,6 +538,19 @@ class SchedulerViewModel(
         slotIndex: Int,
         lessons: Map<Pair<Int, Int>, LessonEntity>,
         dayTypeMap: Map<LocalDate, DayType>,
+        dayTypeEntities: Map<LocalDate, DayTypeEntity> = emptyMap(),
+        changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity> = emptyMap()
+    ): ResolvedLesson? {
+        val baseLesson = resolveBaseLessonForDate(date, slotIndex, lessons, dayTypeMap, dayTypeEntities) ?: return null
+        val changedLesson = changedLessons[date to slotIndex] ?: return baseLesson
+        return ResolvedLesson(changedLesson.subject, changedLesson.teacher, changedLesson.location)
+    }
+
+    fun resolveBaseLessonForDate(
+        date: LocalDate,
+        slotIndex: Int,
+        lessons: Map<Pair<Int, Int>, LessonEntity>,
+        dayTypeMap: Map<LocalDate, DayType>,
         dayTypeEntities: Map<LocalDate, DayTypeEntity> = emptyMap()
     ): ResolvedLesson? {
         if (date.dayOfWeek.value !in 1..5) return null
@@ -530,6 +590,10 @@ class SchedulerViewModel(
             repository.upsertTask(task)
             _snackbarMessages.emit("課題を保存しました。")
         }
+    }
+
+    suspend fun saveTaskDirect(task: TaskEntity): TaskEntity {
+        return repository.upsertTask(task)
     }
 
     fun saveTasksSilently(tasks: List<TaskEntity>) {
@@ -572,6 +636,10 @@ class SchedulerViewModel(
             repository.upsertPlan(plan)
             _snackbarMessages.emit("予定を保存しました。")
         }
+    }
+
+    suspend fun savePlanDirect(plan: PlanEntity): PlanEntity {
+        return repository.upsertPlan(plan)
     }
 
     fun savePlansSilently(plans: List<PlanEntity>) {

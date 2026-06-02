@@ -8,6 +8,8 @@ import androidx.activity.viewModels
 import androidx.lifecycle.lifecycleScope
 import jp.linkserver.nittcsc.data.AppDatabase
 import jp.linkserver.nittcsc.data.SchedulerRepository
+import jp.linkserver.nittcsc.reminder.PlanReminderWorker
+import jp.linkserver.nittcsc.reminder.TaskReminderWorker
 import jp.linkserver.nittcsc.sync.LocalSyncManager
 import jp.linkserver.nittcsc.sync.NearbySyncManager
 import jp.linkserver.nittcsc.ui.NittcSchedulerApp
@@ -38,6 +40,10 @@ class MainActivity : ComponentActivity() {
         }
         // WorkManager による定期ウィジェット更新をスケジュール
         WidgetUpdateWorker.schedule(this)
+        lifecycleScope.launch {
+            TaskReminderWorker.rescheduleAll(this@MainActivity)
+            PlanReminderWorker.rescheduleAll(this@MainActivity)
+        }
     }
 
     override fun onResume() {

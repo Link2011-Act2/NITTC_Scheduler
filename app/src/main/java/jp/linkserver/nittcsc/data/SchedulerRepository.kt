@@ -1,6 +1,7 @@
 package jp.linkserver.nittcsc.data
 
 import jp.linkserver.nittcsc.logic.CLASS_SLOTS
+import jp.linkserver.nittcsc.data.HolidaySpecialLabel
 import jp.linkserver.nittcsc.logic.ExportRange
 import jp.linkserver.nittcsc.logic.GeneratedLesson
 import jp.linkserver.nittcsc.logic.JapaneseHolidayCalculator
@@ -18,7 +19,7 @@ class SchedulerRepository(private val db: AppDatabase) {
     private val dao: SchedulerDao = db.schedulerDao()
 
     companion object {
-        private const val CURRENT_EXPORT_VERSION = 5
+        private const val CURRENT_EXPORT_VERSION = 6
         private const val MIN_SUPPORTED_IMPORT_VERSION = 1
         private const val MAX_FUTURE_META_DRIFT_MS = 5 * 60 * 1000L
         const val DATASET_TASKS = "tasks"
@@ -28,6 +29,7 @@ class SchedulerRepository(private val db: AppDatabase) {
         const val DATASET_DAY_TYPES = "dayTypes"
         const val DATASET_LONG_BREAKS = "longBreaks"
         const val DATASET_CANCELLED_LESSONS = "cancelledLessons"
+        const val DATASET_CHANGED_LESSONS = "changedLessons"
         val SYNC_DATASET_KEYS = listOf(
             DATASET_TASKS,
             DATASET_PLANS,
@@ -35,13 +37,15 @@ class SchedulerRepository(private val db: AppDatabase) {
             DATASET_LESSONS,
             DATASET_DAY_TYPES,
             DATASET_LONG_BREAKS,
-            DATASET_CANCELLED_LESSONS
+            DATASET_CANCELLED_LESSONS,
+            DATASET_CHANGED_LESSONS
         )
     }
 
     val settingsFlow: Flow<SettingsEntity?> = dao.observeSettings()
     val dayTypesFlow: Flow<List<DayTypeEntity>> = dao.observeDayTypes()
     val cancelledLessonsFlow: Flow<List<CancelledLessonEntity>> = dao.observeCancelledLessons()
+    val changedLessonsFlow: Flow<List<ChangedLessonEntity>> = dao.observeChangedLessons()
     val longBreaksFlow: Flow<List<LongBreakEntity>> = dao.observeLongBreaks()
     val lessonsFlow: Flow<List<LessonEntity>> = dao.observeLessons()
     val tasksFlow: Flow<List<TaskEntity>> = dao.observeTasks()
@@ -144,6 +148,11 @@ class SchedulerRepository(private val db: AppDatabase) {
         dao.upsertSettings(current.copy(unifyTaskPlanView = enabled))
     }
 
+    suspend fun toggleShowWeekdayOnDates(enabled: Boolean) {
+        val current = dao.getSettings() ?: return
+        dao.upsertSettings(current.copy(showWeekdayOnDates = enabled))
+    }
+
     suspend fun toggleTlsSync(enabled: Boolean) {
         val current = dao.getSettings() ?: return
         dao.upsertSettings(current.copy(enableTlsSync = enabled))
@@ -168,7 +177,8 @@ class SchedulerRepository(private val db: AppDatabase) {
                     date = date,
                     dayType = next,
                     overrideLessonDayOfWeek = existing?.overrideLessonDayOfWeek,
-                    overrideLessonDayType = existing?.overrideLessonDayType
+                    overrideLessonDayType = existing?.overrideLessonDayType,
+                    holidaySpecialLabel = if (next == DayType.HOLIDAY) existing?.holidaySpecialLabel else null
                 )
             )
             touchSyncDatasetMeta(DATASET_DAY_TYPES)
@@ -183,7 +193,8 @@ class SchedulerRepository(private val db: AppDatabase) {
                     date = date,
                     dayType = dayType,
                     overrideLessonDayOfWeek = existing?.overrideLessonDayOfWeek,
-                    overrideLessonDayType = existing?.overrideLessonDayType
+                    overrideLessonDayType = existing?.overrideLessonDayType,
+                    holidaySpecialLabel = if (dayType == DayType.HOLIDAY) existing?.holidaySpecialLabel else null
                 )
             )
             touchSyncDatasetMeta(DATASET_DAY_TYPES)
@@ -198,7 +209,8 @@ class SchedulerRepository(private val db: AppDatabase) {
                     date = date,
                     dayType = dayType,
                     overrideLessonDayOfWeek = existing[date]?.overrideLessonDayOfWeek,
-                    overrideLessonDayType = existing[date]?.overrideLessonDayType
+                    overrideLessonDayType = existing[date]?.overrideLessonDayType,
+                    holidaySpecialLabel = if (dayType == DayType.HOLIDAY) existing[date]?.holidaySpecialLabel else null
                 )
             }
             if (entities.isNotEmpty()) {
@@ -210,12 +222,47 @@ class SchedulerRepository(private val db: AppDatabase) {
 
     suspend fun upsertLessonOverride(date: LocalDate, dayOfWeek: Int, dayType: DayType) {
         db.withTransaction {
+            val existing = dao.getDayType(date)
+            val currentDayType = existing?.dayType ?: if (
+                date.dayOfWeek == DayOfWeek.SATURDAY ||
+                date.dayOfWeek == DayOfWeek.SUNDAY ||
+                JapaneseHolidayCalculator.isHoliday(date)
+            ) {
+                DayType.HOLIDAY
+            } else {
+                DayType.A
+            }
+            val shouldClearOverride = dayOfWeek == date.dayOfWeek.value && dayType == currentDayType
+
             dao.upsertDayType(
-                DayTypeEntity(
-                    date = date,
-                    dayType = dayType,
-                    overrideLessonDayOfWeek = dayOfWeek,
-                    overrideLessonDayType = dayType
+                if (shouldClearOverride) {
+                    DayTypeEntity(
+                        date = date,
+                        dayType = currentDayType,
+                        overrideLessonDayOfWeek = null,
+                        overrideLessonDayType = null,
+                        holidaySpecialLabel = if (currentDayType == DayType.HOLIDAY) existing?.holidaySpecialLabel else null
+                    )
+                } else {
+                    DayTypeEntity(
+                        date = date,
+                        dayType = dayType,
+                        overrideLessonDayOfWeek = dayOfWeek,
+                        overrideLessonDayType = dayType,
+                        holidaySpecialLabel = if (dayType == DayType.HOLIDAY) existing?.holidaySpecialLabel else null
+                    )
+                }
+            )
+            touchSyncDatasetMeta(DATASET_DAY_TYPES)
+        }
+    }
+
+    suspend fun updateHolidaySpecialLabel(date: LocalDate, label: HolidaySpecialLabel?) {
+        db.withTransaction {
+            val existing = dao.getDayType(date) ?: DayTypeEntity(date = date, dayType = DayType.HOLIDAY)
+            dao.upsertDayType(
+                existing.copy(
+                    holidaySpecialLabel = if (existing.dayType == DayType.HOLIDAY) label else null
                 )
             )
             touchSyncDatasetMeta(DATASET_DAY_TYPES)
@@ -243,6 +290,34 @@ class SchedulerRepository(private val db: AppDatabase) {
                 dao.deleteCancelledLesson(date, slotIndex)
             }
             touchSyncDatasetMeta(DATASET_CANCELLED_LESSONS)
+        }
+    }
+
+    suspend fun upsertChangedLesson(
+        date: LocalDate,
+        slotIndex: Int,
+        subject: String,
+        teacher: String,
+        location: String?
+    ) {
+        db.withTransaction {
+            dao.upsertChangedLesson(
+                ChangedLessonEntity(
+                    date = date,
+                    slotIndex = slotIndex,
+                    subject = subject.trim(),
+                    teacher = teacher.trim(),
+                    location = location?.trim()?.takeIf { it.isNotEmpty() }
+                )
+            )
+            touchSyncDatasetMeta(DATASET_CHANGED_LESSONS)
+        }
+    }
+
+    suspend fun deleteChangedLesson(date: LocalDate, slotIndex: Int) {
+        db.withTransaction {
+            dao.deleteChangedLesson(date, slotIndex)
+            touchSyncDatasetMeta(DATASET_CHANGED_LESSONS)
         }
     }
 
@@ -274,21 +349,30 @@ class SchedulerRepository(private val db: AppDatabase) {
     suspend fun upsertLesson(dayOfWeek: Int, slotIndex: Int, draft: LessonDraft) {
         db.withTransaction {
             val existing = dao.getLesson(dayOfWeek, slotIndex)
+            val weeklySubject = draft.weeklySubject.trim()
+            val weeklyTeacher = draft.weeklyTeacher.trim()
+            val weeklyLocation = draft.weeklyLocation.trim().takeIf { it.isNotEmpty() }
+            val aSubject = draft.aSubject.trim()
+            val aTeacher = draft.aTeacher.trim()
+            val aLocation = draft.aLocation.trim().takeIf { it.isNotEmpty() }
+            val bSubject = draft.bSubject.trim()
+            val bTeacher = draft.bTeacher.trim()
+            val bLocation = draft.bLocation.trim().takeIf { it.isNotEmpty() }
             dao.upsertLesson(
                 LessonEntity(
                     id = existing?.id ?: 0,
                     dayOfWeek = dayOfWeek,
                     slotIndex = slotIndex,
                     mode = draft.mode,
-                    weeklySubject = draft.weeklySubject.trim(),
-                    weeklyTeacher = draft.weeklyTeacher.trim(),
-                    weeklyLocation = draft.weeklyLocation.trim().takeIf { it.isNotEmpty() },
-                    aSubject = draft.aSubject.trim(),
-                    aTeacher = draft.aTeacher.trim(),
-                    aLocation = draft.aLocation.trim().takeIf { it.isNotEmpty() },
-                    bSubject = draft.bSubject.trim(),
-                    bTeacher = draft.bTeacher.trim(),
-                    bLocation = draft.bLocation.trim().takeIf { it.isNotEmpty() }
+                    weeklySubject = if (draft.mode == LessonMode.WEEKLY) weeklySubject else "",
+                    weeklyTeacher = if (draft.mode == LessonMode.WEEKLY) weeklyTeacher else "",
+                    weeklyLocation = if (draft.mode == LessonMode.WEEKLY) weeklyLocation else null,
+                    aSubject = if (draft.mode == LessonMode.ALTERNATING) aSubject else "",
+                    aTeacher = if (draft.mode == LessonMode.ALTERNATING) aTeacher else "",
+                    aLocation = if (draft.mode == LessonMode.ALTERNATING) aLocation else null,
+                    bSubject = if (draft.mode == LessonMode.ALTERNATING) bSubject else "",
+                    bTeacher = if (draft.mode == LessonMode.ALTERNATING) bTeacher else "",
+                    bLocation = if (draft.mode == LessonMode.ALTERNATING) bLocation else null
                 )
             )
             touchSyncDatasetMeta(DATASET_LESSONS)
@@ -314,7 +398,8 @@ class SchedulerRepository(private val db: AppDatabase) {
                 date = date,
                 dayType = resolved,
                 overrideLessonDayOfWeek = if (autoHoliday) null else manual?.overrideLessonDayOfWeek,
-                overrideLessonDayType = if (autoHoliday) null else manual?.overrideLessonDayType
+                overrideLessonDayType = if (autoHoliday) null else manual?.overrideLessonDayType,
+                holidaySpecialLabel = if (resolved == DayType.HOLIDAY) manual?.holidaySpecialLabel else null
             )
         }
 
@@ -363,7 +448,9 @@ class SchedulerRepository(private val db: AppDatabase) {
                 )
                 for (slot in slots) {
                     val lesson = lessons[dayKey to slot.index] ?: continue
-                    val resolved = resolveLesson(lessonDayType, lesson) ?: continue
+                    val resolved = dao.getChangedLesson(date, slot.index)?.let {
+                        ResolvedLesson(it.subject, it.teacher, it.location)
+                    } ?: resolveLesson(lessonDayType, lesson) ?: continue
                     if (resolved.subject.isBlank()) continue
 
                     add(
@@ -431,6 +518,27 @@ class SchedulerRepository(private val db: AppDatabase) {
         }
     }
 
+    private suspend fun resolveBaseLessonForDate(date: LocalDate, slotIndex: Int): ResolvedLesson? {
+        if (date.dayOfWeek.value !in 1..5) return null
+        val dayTypeEntity = dao.getDayType(date)
+        val dayType = dayTypeEntity?.dayType ?: DayType.A
+        if (dayType == DayType.HOLIDAY) return null
+        val lessonDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek ?: date.dayOfWeek.value
+        val lessonDayType = dayTypeEntity?.overrideLessonDayType ?: dayType
+        val lesson = dao.getLesson(lessonDayOfWeek, slotIndex) ?: return null
+        return resolveLesson(lessonDayType, lesson)
+    }
+
+    private suspend fun resolveEffectiveLessonForDate(date: LocalDate, slotIndex: Int): ResolvedLesson? {
+        val baseLesson = resolveBaseLessonForDate(date, slotIndex) ?: return null
+        val changedLesson = dao.getChangedLesson(date, slotIndex) ?: return baseLesson
+        return ResolvedLesson(
+            subject = changedLesson.subject,
+            teacher = changedLesson.teacher,
+            location = changedLesson.location
+        )
+    }
+
     private fun defaultSettings(today: LocalDate): SettingsEntity {
         val fiscalStartYear = if (today.month.value >= Month.APRIL.value) today.year else today.year - 1
         return SettingsEntity(
@@ -468,10 +576,16 @@ class SchedulerRepository(private val db: AppDatabase) {
 
     // Task管理メソッド
 
-    suspend fun upsertTask(task: TaskEntity) {
-        db.withTransaction {
-            dao.upsertTask(task.copy(updatedAt = System.currentTimeMillis()))
+    suspend fun upsertTask(task: TaskEntity): TaskEntity {
+        return db.withTransaction {
+            val persistedTask = task.copy(updatedAt = System.currentTimeMillis())
+            val rowId = dao.upsertTask(persistedTask)
             touchSyncDatasetMeta(DATASET_TASKS)
+            if (persistedTask.id == 0L && rowId > 0L) {
+                persistedTask.copy(id = rowId)
+            } else {
+                persistedTask
+            }
         }
     }
 
@@ -536,10 +650,16 @@ class SchedulerRepository(private val db: AppDatabase) {
 
     // Plan管理メソッド
 
-    suspend fun upsertPlan(plan: PlanEntity) {
-        db.withTransaction {
-            dao.upsertPlan(plan.copy(updatedAt = System.currentTimeMillis()))
+    suspend fun upsertPlan(plan: PlanEntity): PlanEntity {
+        return db.withTransaction {
+            val persistedPlan = plan.copy(updatedAt = System.currentTimeMillis())
+            val rowId = dao.upsertPlan(persistedPlan)
             touchSyncDatasetMeta(DATASET_PLANS)
+            if (persistedPlan.id == 0L && rowId > 0L) {
+                persistedPlan.copy(id = rowId)
+            } else {
+                persistedPlan
+            }
         }
     }
 
@@ -692,15 +812,12 @@ class SchedulerRepository(private val db: AppDatabase) {
                 val dayTypeEntity = dao.getDayType(date)
                 val dayType = dayTypeEntity?.dayType ?: DayType.A
                 if (dayType == DayType.HOLIDAY) continue
-                val lessonDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek ?: date.dayOfWeek.value
-                val lessonDayType = dayTypeEntity?.overrideLessonDayType ?: dayType
 
                 for (slot in slots) {
                     if (date == fromDate && slot.start < fromTime) continue
                     val slotIndex = slot.index
                     if (dao.getCancelledLesson(date, slotIndex) != null) continue
-                    val lesson = dao.getLesson(lessonDayOfWeek, slotIndex) ?: continue
-                    val resolved = resolveLesson(lessonDayType, lesson) ?: continue
+                    val resolved = resolveEffectiveLessonForDate(date, slotIndex) ?: continue
 
                     val matches = lessonMatchesSearch(
                         resolved = resolved,
@@ -753,15 +870,12 @@ class SchedulerRepository(private val db: AppDatabase) {
                     date = date.minusDays(1)
                     continue
                 }
-                val lessonDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek ?: date.dayOfWeek.value
-                val lessonDayType = dayTypeEntity?.overrideLessonDayType ?: dayType
 
                 for (slot in slots.sortedByDescending { it.index }) {
                     if (date == fromDate && slot.start >= currentTime) continue
                     val slotIndex = slot.index
                     if (dao.getCancelledLesson(date, slotIndex) != null) continue
-                    val lesson = dao.getLesson(lessonDayOfWeek, slotIndex) ?: continue
-                    val resolved = resolveLesson(lessonDayType, lesson) ?: continue
+                    val resolved = resolveEffectiveLessonForDate(date, slotIndex) ?: continue
 
                     val matches = lessonMatchesSearch(
                         resolved = resolved,
@@ -809,15 +923,12 @@ class SchedulerRepository(private val db: AppDatabase) {
             val dayTypeEntity = dao.getDayType(startDate)
             val dayType = dayTypeEntity?.dayType ?: DayType.A
             if (startDate.dayOfWeek.value in 1..5 && dayType != DayType.HOLIDAY) {
-                val lessonDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek ?: startDate.dayOfWeek.value
-                val lessonDayType = dayTypeEntity?.overrideLessonDayType ?: dayType
                 for (slot in slots) {
                     if (slot.start <= currentTime) continue
 
                     val slotIndex = slot.index
                     if (dao.getCancelledLesson(startDate, slotIndex) != null) continue
-                    val lesson = dao.getLesson(lessonDayOfWeek, slotIndex) ?: continue
-                    val resolved = resolveLesson(lessonDayType, lesson) ?: continue
+                    val resolved = resolveEffectiveLessonForDate(startDate, slotIndex) ?: continue
 
                     val matches = lessonMatchesSearch(
                         resolved = resolved,
@@ -865,7 +976,18 @@ class SchedulerRepository(private val db: AppDatabase) {
         val normalizedTeacher = teacher?.trim().orEmpty()
         if (normalizedTeacher.isBlank()) return true
 
-        return resolved.teacher.trim().equals(normalizedTeacher, ignoreCase = true)
+        val resolvedTeacher = resolved.teacher.trim()
+        if (resolvedTeacher.equals(normalizedTeacher, ignoreCase = true)) return true
+
+        val resolvedTeacherCandidates = resolvedTeacher
+            .replace('，', '、')
+            .replace(',', '、')
+            .replace('　', ' ')
+            .split('、', ' ')
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+
+        return resolvedTeacherCandidates.any { it.equals(normalizedTeacher, ignoreCase = true) }
     }
 
     suspend fun exportAllData(): String {
@@ -876,6 +998,7 @@ class SchedulerRepository(private val db: AppDatabase) {
         val tasks = dao.getTasksOnce()
         val plans = dao.getPlansOnce()
         val cancelledLessons = dao.getCancelledLessonsOnce()
+        val changedLessons = dao.getChangedLessonsOnce()
 
         val root = org.json.JSONObject()
         root.put("version", CURRENT_EXPORT_VERSION)
@@ -904,6 +1027,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                 s.put("departureHour", settings.departureHour)
                 s.put("departureMinute", settings.departureMinute)
                 s.put("unifyTaskPlanView", settings.unifyTaskPlanView)
+                s.put("showWeekdayOnDates", settings.showWeekdayOnDates)
                 s.put("enableTlsSync", settings.enableTlsSync)
             })
         }
@@ -944,6 +1068,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                     obj.put("dayType", dt.dayType.name)
                     if (dt.overrideLessonDayOfWeek != null) obj.put("overrideLessonDayOfWeek", dt.overrideLessonDayOfWeek)
                     if (dt.overrideLessonDayType != null) obj.put("overrideLessonDayType", dt.overrideLessonDayType.name)
+                    if (dt.holidaySpecialLabel != null) obj.put("holidaySpecialLabel", dt.holidaySpecialLabel.name)
                 })
             }
         })
@@ -965,6 +1090,11 @@ class SchedulerRepository(private val db: AppDatabase) {
                     obj.put("priority", task.priority)
                     obj.put("useTeacherMatching", task.useTeacherMatching)
                     if (task.calendarEventId != null) obj.put("calendarEventId", task.calendarEventId)
+                    obj.put("reminderEnabled", task.reminderEnabled)
+                    if (task.reminderDate != null) obj.put("reminderDate", task.reminderDate.toString())
+                    obj.put("reminderHour", task.reminderHour)
+                    obj.put("reminderMinute", task.reminderMinute)
+                    if (task.reminderCalendarEventId != null) obj.put("reminderCalendarEventId", task.reminderCalendarEventId)
                 })
             }
         })
@@ -986,6 +1116,11 @@ class SchedulerRepository(private val db: AppDatabase) {
                     obj.put("priority", plan.priority)
                     obj.put("useTeacherMatching", plan.useTeacherMatching)
                     if (plan.calendarEventId != null) obj.put("calendarEventId", plan.calendarEventId)
+                    obj.put("reminderEnabled", plan.reminderEnabled)
+                    if (plan.reminderDate != null) obj.put("reminderDate", plan.reminderDate.toString())
+                    obj.put("reminderHour", plan.reminderHour)
+                    obj.put("reminderMinute", plan.reminderMinute)
+                    if (plan.reminderCalendarEventId != null) obj.put("reminderCalendarEventId", plan.reminderCalendarEventId)
                 })
             }
         })
@@ -1000,6 +1135,19 @@ class SchedulerRepository(private val db: AppDatabase) {
             }
         })
 
+        root.put("changedLessons", org.json.JSONArray().also { arr ->
+            changedLessons.forEach { changed ->
+                arr.put(org.json.JSONObject().also { obj ->
+                    obj.put("date", changed.date.toString())
+                    obj.put("slotIndex", changed.slotIndex)
+                    obj.put("subject", changed.subject)
+                    obj.put("teacher", changed.teacher)
+                    if (changed.location != null) obj.put("location", changed.location)
+                    obj.put("createdAt", changed.createdAt)
+                })
+            }
+        })
+
         return root.toString(2)
     }
 
@@ -1010,6 +1158,7 @@ class SchedulerRepository(private val db: AppDatabase) {
         val dayTypes = dao.getDayTypesOnce()
         val tasks = dao.getTasksOnce()
         val plans = dao.getPlansOnce()
+        val changedLessons = dao.getChangedLessonsOnce()
         val profile = dao.getSyncProfile()
         val now = System.currentTimeMillis()
         val datasetMetaByKey = dao.getAllSyncDatasetMeta().associateBy { it.datasetKey }
@@ -1085,6 +1234,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                     obj.put("dayType", dt.dayType.name)
                     if (dt.overrideLessonDayOfWeek != null) obj.put("overrideLessonDayOfWeek", dt.overrideLessonDayOfWeek)
                     if (dt.overrideLessonDayType != null) obj.put("overrideLessonDayType", dt.overrideLessonDayType.name)
+                    if (dt.holidaySpecialLabel != null) obj.put("holidaySpecialLabel", dt.holidaySpecialLabel.name)
                 })
             }
         })
@@ -1105,6 +1255,10 @@ class SchedulerRepository(private val db: AppDatabase) {
                     obj.put("createdDate", task.createdDate.toString())
                     obj.put("priority", task.priority)
                     obj.put("useTeacherMatching", task.useTeacherMatching)
+                    obj.put("reminderEnabled", task.reminderEnabled)
+                    if (task.reminderDate != null) obj.put("reminderDate", task.reminderDate.toString())
+                    obj.put("reminderHour", task.reminderHour)
+                    obj.put("reminderMinute", task.reminderMinute)
                 })
             }
         })
@@ -1125,6 +1279,10 @@ class SchedulerRepository(private val db: AppDatabase) {
                     obj.put("createdDate", plan.createdDate.toString())
                     obj.put("priority", plan.priority)
                     obj.put("useTeacherMatching", plan.useTeacherMatching)
+                    obj.put("reminderEnabled", plan.reminderEnabled)
+                    if (plan.reminderDate != null) obj.put("reminderDate", plan.reminderDate.toString())
+                    obj.put("reminderHour", plan.reminderHour)
+                    obj.put("reminderMinute", plan.reminderMinute)
                 })
             }
         })
@@ -1136,6 +1294,19 @@ class SchedulerRepository(private val db: AppDatabase) {
                     obj.put("date", cl.date.toString())
                     obj.put("slotIndex", cl.slotIndex)
                     obj.put("createdAt", cl.createdAt)
+                })
+            }
+        })
+
+        root.put(DATASET_CHANGED_LESSONS, org.json.JSONArray().also { arr ->
+            changedLessons.forEach { changed ->
+                arr.put(org.json.JSONObject().also { obj ->
+                    obj.put("date", changed.date.toString())
+                    obj.put("slotIndex", changed.slotIndex)
+                    obj.put("subject", changed.subject)
+                    obj.put("teacher", changed.teacher)
+                    if (changed.location != null) obj.put("location", changed.location)
+                    obj.put("createdAt", changed.createdAt)
                 })
             }
         })
@@ -1179,13 +1350,13 @@ class SchedulerRepository(private val db: AppDatabase) {
                     mode = runCatching { LessonMode.valueOf(obj.optString("mode", "WEEKLY")) }.getOrElse { LessonMode.WEEKLY },
                     weeklySubject = obj.optString("weeklySubject", ""),
                     weeklyTeacher = obj.optString("weeklyTeacher", ""),
-                    weeklyLocation = obj.optString("weeklyLocation", null).takeIf { it?.isNotBlank() == true },
+                    weeklyLocation = obj.optString("weeklyLocation", "").takeIf { it.isNotBlank() },
                     aSubject = obj.optString("aSubject", ""),
                     aTeacher = obj.optString("aTeacher", ""),
-                    aLocation = obj.optString("aLocation", null).takeIf { it?.isNotBlank() == true },
+                    aLocation = obj.optString("aLocation", "").takeIf { it.isNotBlank() },
                     bSubject = obj.optString("bSubject", ""),
                     bTeacher = obj.optString("bTeacher", ""),
-                    bLocation = obj.optString("bLocation", null).takeIf { it?.isNotBlank() == true }
+                    bLocation = obj.optString("bLocation", "").takeIf { it.isNotBlank() }
                 ))
             }
         }
@@ -1210,7 +1381,18 @@ class SchedulerRepository(private val db: AppDatabase) {
                 val dayType = runCatching { DayType.valueOf(obj.optString("dayType", "A")) }.getOrElse { DayType.A }
                 val overrideDow = if (obj.has("overrideLessonDayOfWeek")) obj.optInt("overrideLessonDayOfWeek") else null
                 val overrideDt = if (obj.has("overrideLessonDayType")) runCatching { DayType.valueOf(obj.optString("overrideLessonDayType")) }.getOrNull() else null
-                dao.upsertDayType(DayTypeEntity(date = date, dayType = dayType, overrideLessonDayOfWeek = overrideDow, overrideLessonDayType = overrideDt))
+                val holidaySpecialLabel = if (obj.has("holidaySpecialLabel")) runCatching {
+                    HolidaySpecialLabel.valueOf(obj.optString("holidaySpecialLabel"))
+                }.getOrNull() else null
+                dao.upsertDayType(
+                    DayTypeEntity(
+                        date = date,
+                        dayType = dayType,
+                        overrideLessonDayOfWeek = overrideDow,
+                        overrideLessonDayType = overrideDt,
+                        holidaySpecialLabel = if (dayType == DayType.HOLIDAY) holidaySpecialLabel else null
+                    )
+                )
             }
         }
 
@@ -1222,12 +1404,13 @@ class SchedulerRepository(private val db: AppDatabase) {
                 val dueDate = runCatching { java.time.LocalDate.parse(obj.optString("dueDate")) }.getOrNull() ?: continue
                 val createdDate = runCatching { java.time.LocalDate.parse(obj.optString("createdDate")) }.getOrElse { LocalDate.now() }
                 val completedDate = if (obj.has("completedDate")) runCatching { java.time.LocalDate.parse(obj.optString("completedDate")) }.getOrNull() else null
+                val reminderDate = if (obj.has("reminderDate")) runCatching { java.time.LocalDate.parse(obj.optString("reminderDate")) }.getOrNull() else null
                 dao.upsertTask(TaskEntity(
                     lessonId = if (obj.has("lessonId")) obj.optLong("lessonId") else null,
                     subject = obj.optString("subject", ""),
-                    teacher = obj.optString("teacher", null).takeIf { it?.isNotBlank() == true },
+                    teacher = obj.optString("teacher", "").takeIf { it.isNotBlank() },
                     title = obj.optString("title", ""),
-                    description = obj.optString("description", null).takeIf { it?.isNotBlank() == true },
+                    description = obj.optString("description", "").takeIf { it.isNotBlank() },
                     dueDate = dueDate,
                     dueHour = obj.optInt("dueHour", 23),
                     dueMinute = obj.optInt("dueMinute", 59),
@@ -1236,7 +1419,12 @@ class SchedulerRepository(private val db: AppDatabase) {
                     createdDate = createdDate,
                     updatedAt = System.currentTimeMillis(),
                     priority = obj.optInt("priority", 0),
-                    useTeacherMatching = obj.optBoolean("useTeacherMatching", false)
+                    useTeacherMatching = obj.optBoolean("useTeacherMatching", false),
+                    reminderEnabled = obj.optBoolean("reminderEnabled", false),
+                    reminderDate = reminderDate,
+                    reminderHour = obj.optInt("reminderHour", 20),
+                    reminderMinute = obj.optInt("reminderMinute", 0),
+                    reminderCalendarEventId = if (obj.has("reminderCalendarEventId") && !obj.isNull("reminderCalendarEventId")) obj.getLong("reminderCalendarEventId") else null
                 ))
             }
         }
@@ -1249,12 +1437,13 @@ class SchedulerRepository(private val db: AppDatabase) {
                 val dueDate = runCatching { java.time.LocalDate.parse(obj.optString("dueDate")) }.getOrNull() ?: continue
                 val createdDate = runCatching { java.time.LocalDate.parse(obj.optString("createdDate")) }.getOrElse { LocalDate.now() }
                 val completedDate = if (obj.has("completedDate")) runCatching { java.time.LocalDate.parse(obj.optString("completedDate")) }.getOrNull() else null
+                val reminderDate = if (obj.has("reminderDate")) runCatching { java.time.LocalDate.parse(obj.optString("reminderDate")) }.getOrNull() else null
                 dao.upsertPlan(PlanEntity(
                     lessonId = if (obj.has("lessonId")) obj.optLong("lessonId") else null,
                     subject = obj.optString("subject", ""),
-                    teacher = obj.optString("teacher", null).takeIf { it?.isNotBlank() == true },
+                    teacher = obj.optString("teacher", "").takeIf { it.isNotBlank() },
                     title = obj.optString("title", ""),
-                    description = obj.optString("description", null).takeIf { it?.isNotBlank() == true },
+                    description = obj.optString("description", "").takeIf { it.isNotBlank() },
                     dueDate = dueDate,
                     dueHour = obj.optInt("dueHour", 23),
                     dueMinute = obj.optInt("dueMinute", 59),
@@ -1263,7 +1452,12 @@ class SchedulerRepository(private val db: AppDatabase) {
                     createdDate = createdDate,
                     updatedAt = System.currentTimeMillis(),
                     priority = obj.optInt("priority", 0),
-                    useTeacherMatching = obj.optBoolean("useTeacherMatching", false)
+                    useTeacherMatching = obj.optBoolean("useTeacherMatching", false),
+                    reminderEnabled = obj.optBoolean("reminderEnabled", false),
+                    reminderDate = reminderDate,
+                    reminderHour = obj.optInt("reminderHour", 20),
+                    reminderMinute = obj.optInt("reminderMinute", 0),
+                    reminderCalendarEventId = if (obj.has("reminderCalendarEventId") && !obj.isNull("reminderCalendarEventId")) obj.getLong("reminderCalendarEventId") else null
                 ))
             }
         }
@@ -1281,6 +1475,28 @@ class SchedulerRepository(private val db: AppDatabase) {
                     slotIndex = slotIndex,
                     createdAt = obj.optLong("createdAt", System.currentTimeMillis())
                 ))
+            }
+        }
+
+        payload.optJSONArray(DATASET_CHANGED_LESSONS)?.let { arr ->
+            touchedDatasets += DATASET_CHANGED_LESSONS
+            dao.deleteAllChangedLessons()
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val date = runCatching { java.time.LocalDate.parse(obj.optString("date")) }.getOrNull() ?: continue
+                val slotIndex = obj.optInt("slotIndex", -1)
+                val subject = obj.optString("subject", "").trim()
+                if (slotIndex < 0 || subject.isBlank()) continue
+                dao.upsertChangedLesson(
+                    ChangedLessonEntity(
+                        date = date,
+                        slotIndex = slotIndex,
+                        subject = subject,
+                        teacher = obj.optString("teacher", "").trim(),
+                        location = obj.optString("location", "").takeIf { it.isNotBlank() },
+                        createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+                    )
+                )
             }
         }
 
@@ -1343,6 +1559,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                 departureHour = s.optInt("departureHour", -1),
                 departureMinute = s.optInt("departureMinute", -1),
                 unifyTaskPlanView = s.optBoolean("unifyTaskPlanView", false),
+                showWeekdayOnDates = s.optBoolean("showWeekdayOnDates", false),
                 enableTlsSync = s.optBoolean("enableTlsSync", false)
             )
         }
@@ -1397,7 +1614,10 @@ class SchedulerRepository(private val db: AppDatabase) {
                         overrideLessonDayOfWeek = obj.optInt("overrideLessonDayOfWeek", -1).takeIf { it in 1..5 },
                         overrideLessonDayType = obj.optString("overrideLessonDayType", "")
                             .takeIf { it.isNotBlank() }
-                            ?.let { DayType.valueOf(it) }
+                            ?.let { DayType.valueOf(it) },
+                        holidaySpecialLabel = obj.optString("holidaySpecialLabel", "")
+                            .takeIf { it.isNotBlank() }
+                            ?.let { HolidaySpecialLabel.valueOf(it) }
                     )
                 } catch (_: Exception) { }
             }
@@ -1423,7 +1643,12 @@ class SchedulerRepository(private val db: AppDatabase) {
                         createdDate = LocalDate.parse(obj.getString("createdDate")),
                         priority = obj.optInt("priority", 0),
                         useTeacherMatching = obj.optBoolean("useTeacherMatching", false),
-                        calendarEventId = if (obj.has("calendarEventId") && !obj.isNull("calendarEventId")) obj.getLong("calendarEventId") else null
+                        calendarEventId = if (obj.has("calendarEventId") && !obj.isNull("calendarEventId")) obj.getLong("calendarEventId") else null,
+                        reminderEnabled = obj.optBoolean("reminderEnabled", false),
+                        reminderDate = if (obj.has("reminderDate") && !obj.isNull("reminderDate")) LocalDate.parse(obj.getString("reminderDate")) else null,
+                        reminderHour = obj.optInt("reminderHour", 20),
+                        reminderMinute = obj.optInt("reminderMinute", 0),
+                        reminderCalendarEventId = if (obj.has("reminderCalendarEventId") && !obj.isNull("reminderCalendarEventId")) obj.getLong("reminderCalendarEventId") else null
                     )
                 } catch (_: Exception) { }
             }
@@ -1449,7 +1674,12 @@ class SchedulerRepository(private val db: AppDatabase) {
                         createdDate = LocalDate.parse(obj.getString("createdDate")),
                         priority = obj.optInt("priority", 0),
                         useTeacherMatching = obj.optBoolean("useTeacherMatching", false),
-                        calendarEventId = if (obj.has("calendarEventId") && !obj.isNull("calendarEventId")) obj.getLong("calendarEventId") else null
+                        calendarEventId = if (obj.has("calendarEventId") && !obj.isNull("calendarEventId")) obj.getLong("calendarEventId") else null,
+                        reminderEnabled = obj.optBoolean("reminderEnabled", false),
+                        reminderDate = if (obj.has("reminderDate") && !obj.isNull("reminderDate")) LocalDate.parse(obj.getString("reminderDate")) else null,
+                        reminderHour = obj.optInt("reminderHour", 20),
+                        reminderMinute = obj.optInt("reminderMinute", 0),
+                        reminderCalendarEventId = if (obj.has("reminderCalendarEventId") && !obj.isNull("reminderCalendarEventId")) obj.getLong("reminderCalendarEventId") else null
                     )
                 } catch (_: Exception) { }
             }
@@ -1466,6 +1696,27 @@ class SchedulerRepository(private val db: AppDatabase) {
                     cancelledLessonEntities += CancelledLessonEntity(
                         date = date,
                         slotIndex = slotIndex,
+                        createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+                    )
+                } catch (_: Exception) { }
+            }
+        }
+
+        val changedLessonEntities = mutableListOf<ChangedLessonEntity>()
+        normalizedRoot.optJSONArray("changedLessons")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                try {
+                    val date = LocalDate.parse(obj.getString("date"))
+                    val slotIndex = obj.getInt("slotIndex")
+                    val subject = obj.optString("subject", "").trim()
+                    if (slotIndex < 0 || subject.isBlank()) continue
+                    changedLessonEntities += ChangedLessonEntity(
+                        date = date,
+                        slotIndex = slotIndex,
+                        subject = subject,
+                        teacher = obj.optString("teacher", "").trim(),
+                        location = obj.optString("location", "").takeIf { it.isNotEmpty() },
                         createdAt = obj.optLong("createdAt", System.currentTimeMillis())
                     )
                 } catch (_: Exception) { }
@@ -1500,6 +1751,11 @@ class SchedulerRepository(private val db: AppDatabase) {
                 cancelledLessonEntities.forEach { dao.upsertCancelledLesson(it) }
             }
 
+            dao.deleteAllChangedLessons()
+            if (changedLessonEntities.isNotEmpty()) {
+                changedLessonEntities.forEach { dao.upsertChangedLesson(it) }
+            }
+
             syncDayTypes()
             touchSyncDatasetMeta(
                 DATASET_SCHEDULE_SETTINGS,
@@ -1508,7 +1764,8 @@ class SchedulerRepository(private val db: AppDatabase) {
                 DATASET_DAY_TYPES,
                 DATASET_TASKS,
                 DATASET_PLANS,
-                DATASET_CANCELLED_LESSONS
+                DATASET_CANCELLED_LESSONS,
+                DATASET_CHANGED_LESSONS
             )
         }
     }
@@ -1536,6 +1793,9 @@ class SchedulerRepository(private val db: AppDatabase) {
             }
             if (!s.has("unifyTaskPlanView")) {
                 s.put("unifyTaskPlanView", false)
+            }
+            if (!s.has("showWeekdayOnDates")) {
+                s.put("showWeekdayOnDates", false)
             }
         }
 
@@ -1568,6 +1828,15 @@ class SchedulerRepository(private val db: AppDatabase) {
 
                 if (!obj.has("useTeacherMatching")) {
                     obj.put("useTeacherMatching", false)
+                }
+                if (!obj.has("reminderEnabled")) {
+                    obj.put("reminderEnabled", false)
+                }
+                if (!obj.has("reminderHour")) {
+                    obj.put("reminderHour", 20)
+                }
+                if (!obj.has("reminderMinute")) {
+                    obj.put("reminderMinute", 0)
                 }
             }
         }

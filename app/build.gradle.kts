@@ -260,7 +260,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 9
-        versionName = "0.9.6-Beta" // (1.2.1-IntDev相当)
+        versionName = "0.9.7-IntDev_rev1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -337,6 +337,8 @@ dependencies {
     
     // WorkManager for background downloads
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+    implementation("io.noties.markwon:core:4.6.2")
+    implementation("io.noties.markwon:ext-tables:4.6.2")
     
     // llama.cpp Android wrapper (offline multimodal support)
     implementation("io.github.ljcamargo:llamacpp-kotlin:0.4.0")

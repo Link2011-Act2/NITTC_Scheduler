@@ -16,6 +16,13 @@ enum class LessonMode {
     ALTERNATING
 }
 
+enum class HolidaySpecialLabel {
+    MIDTERM,
+    FINAL,
+    SCHOOL_CLOSED,
+    EXCURSION
+}
+
 @Entity(tableName = "settings")
 data class SettingsEntity(
     @PrimaryKey val id: Int = 1,
@@ -39,6 +46,7 @@ data class SettingsEntity(
     val departureHour: Int = -1,
     val departureMinute: Int = -1,
     val unifyTaskPlanView: Boolean = false,
+    val showWeekdayOnDates: Boolean = false,
     val enableTlsSync: Boolean = false
 )
 
@@ -47,7 +55,8 @@ data class DayTypeEntity(
     @PrimaryKey val date: LocalDate,
     val dayType: DayType,
     val overrideLessonDayOfWeek: Int? = null,
-    val overrideLessonDayType: DayType? = null
+    val overrideLessonDayType: DayType? = null,
+    val holidaySpecialLabel: HolidaySpecialLabel? = null
 )
 
 @Entity(
@@ -57,6 +66,19 @@ data class DayTypeEntity(
 data class CancelledLessonEntity(
     val date: LocalDate,
     val slotIndex: Int,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(
+    tableName = "changed_lessons",
+    primaryKeys = ["date", "slotIndex"]
+)
+data class ChangedLessonEntity(
+    val date: LocalDate,
+    val slotIndex: Int,
+    val subject: String,
+    val teacher: String,
+    val location: String? = null,
     val createdAt: Long = System.currentTimeMillis()
 )
 
@@ -127,7 +149,12 @@ data class TaskEntity(
     val updatedAt: Long = 0L,
     val priority: Int = 0, // 0=通常, 1=重要, -1=低
     val useTeacherMatching: Boolean = false,
-    val calendarEventId: Long? = null
+    val calendarEventId: Long? = null,
+    val reminderEnabled: Boolean = false,
+    val reminderDate: LocalDate? = null,
+    val reminderHour: Int = 20,
+    val reminderMinute: Int = 0,
+    val reminderCalendarEventId: Long? = null
 )
 
 @Entity(
@@ -150,7 +177,12 @@ data class PlanEntity(
     val updatedAt: Long = 0L,
     val priority: Int = 0,
     val useTeacherMatching: Boolean = false,
-    val calendarEventId: Long? = null
+    val calendarEventId: Long? = null,
+    val reminderEnabled: Boolean = false,
+    val reminderDate: LocalDate? = null,
+    val reminderHour: Int = 20,
+    val reminderMinute: Int = 0,
+    val reminderCalendarEventId: Long? = null
 )
 
 @Entity(tableName = "sync_dataset_meta")

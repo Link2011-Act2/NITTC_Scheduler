@@ -1497,6 +1497,7 @@ class LocalSyncManager(
             SchedulerRepository.DATASET_DAY_TYPES -> "A/B表"
             SchedulerRepository.DATASET_LONG_BREAKS -> "長期休み"
             SchedulerRepository.DATASET_CANCELLED_LESSONS -> "休講情報"
+            SchedulerRepository.DATASET_CHANGED_LESSONS -> "授業変更"
             else -> key
         }
     }
