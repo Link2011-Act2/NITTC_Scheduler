@@ -3,6 +3,7 @@ package jp.linkserver.nittcsc.widget
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import jp.linkserver.nittcsc.reminder.LessonStartNotificationWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -27,6 +28,7 @@ class WidgetUpdateReceiver : BroadcastReceiver() {
                 val pendingResult = goAsync()
                 CoroutineScope(Dispatchers.IO).launch {
                     try {
+                        LessonStartNotificationWorker.rescheduleAll(appContext)
                         WidgetUpdater.updateAll(appContext)
                     } finally {
                         pendingResult.finish()

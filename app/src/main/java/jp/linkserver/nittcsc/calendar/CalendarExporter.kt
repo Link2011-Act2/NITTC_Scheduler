@@ -9,6 +9,77 @@ import java.time.ZoneId
 
 class CalendarExporter(private val context: Context) {
 
+    fun sync(lessons: List<GeneratedLesson>): ExportResult {
+        return try {
+            clearSyncedLessons()
+            if (lessons.isEmpty()) {
+                return ExportResult(0, 0, "同期対象の授業はありません。")
+            }
+
+            val calendarId = getWritableCalendarId()
+                ?: return ExportResult(0, lessons.size, "書き込み可能なカレンダーが見つかりませんでした。")
+            val resolver = context.contentResolver
+            val zoneId = ZoneId.systemDefault()
+            var added = 0
+
+            lessons.forEach { lesson ->
+                val startMillis = lesson.date.atTime(lesson.slot.start).atZone(zoneId).toInstant().toEpochMilli()
+                val endMillis = lesson.date.atTime(lesson.slot.end).atZone(zoneId).toInstant().toEpochMilli()
+                val values = ContentValues().apply {
+                    put(CalendarContract.Events.CALENDAR_ID, calendarId)
+                    put(CalendarContract.Events.TITLE, "${lesson.subject} (${lesson.slot.label})")
+                    put(
+                        CalendarContract.Events.DESCRIPTION,
+                        "$AUTO_SYNC_MARKER\nNITTC Scheduler\n担当: ${lesson.teacher}"
+                    )
+                    put(CalendarContract.Events.DTSTART, startMillis)
+                    put(CalendarContract.Events.DTEND, endMillis)
+                    put(CalendarContract.Events.EVENT_TIMEZONE, zoneId.id)
+                }
+                if (resolver.insert(CalendarContract.Events.CONTENT_URI, values) != null) {
+                    added++
+                }
+            }
+
+            ExportResult(
+                addedCount = added,
+                skippedCount = lessons.size - added,
+                message = "授業をカレンダーに${added}件同期しました。"
+            )
+        } catch (_: SecurityException) {
+            ExportResult(0, lessons.size, "カレンダー権限が不足しています。")
+        } catch (e: Exception) {
+            ExportResult(0, lessons.size, "カレンダー同期に失敗しました: ${e.message ?: "unknown error"}")
+        }
+    }
+
+    fun clearSyncedLessons(): Int {
+        return context.contentResolver.delete(
+            CalendarContract.Events.CONTENT_URI,
+            "${CalendarContract.Events.DESCRIPTION} LIKE ?",
+            arrayOf("$AUTO_SYNC_MARKER%")
+        )
+    }
+
+    fun clearAppCreatedLessonEvents(): Int {
+        val description = CalendarContract.Events.DESCRIPTION
+        return try {
+            context.contentResolver.delete(
+                CalendarContract.Events.CONTENT_URI,
+                LESSON_EVENT_SELECTION,
+                LESSON_EVENT_SELECTION_ARGS
+            )
+        } catch (_: SecurityException) {
+            0
+        } catch (_: Exception) {
+            0
+        }
+    }
+
+    fun countAppCreatedLessonEvents(): Int {
+        return countEvents(LESSON_EVENT_SELECTION, LESSON_EVENT_SELECTION_ARGS)
+    }
+
     fun export(lessons: List<GeneratedLesson>): ExportResult {
         return try {
             if (lessons.isEmpty()) {
@@ -107,5 +178,36 @@ class CalendarExporter(private val context: Context) {
         }
 
         return false
+    }
+
+    private fun countEvents(selection: String, selectionArgs: Array<String>): Int {
+        return try {
+            context.contentResolver.query(
+                CalendarContract.Events.CONTENT_URI,
+                arrayOf(CalendarContract.Events._ID),
+                selection,
+                selectionArgs,
+                null
+            )?.use { cursor ->
+                cursor.count
+            } ?: 0
+        } catch (_: SecurityException) {
+            0
+        } catch (_: Exception) {
+            0
+        }
+    }
+
+    companion object {
+        private const val AUTO_SYNC_MARKER = "[NITTC_SCHEDULER_TIMETABLE_AUTO_SYNC]"
+        private val LESSON_EVENT_SELECTION =
+            "${CalendarContract.Events.DESCRIPTION} LIKE ? OR " +
+                "${CalendarContract.Events.DESCRIPTION} LIKE ? OR " +
+                "${CalendarContract.Events.DESCRIPTION} LIKE ?"
+        private val LESSON_EVENT_SELECTION_ARGS = arrayOf(
+            "$AUTO_SYNC_MARKER%",
+            "NITTC Scheduler\\n担当:%",
+            "NITTC Scheduler\n担当:%"
+        )
     }
 }

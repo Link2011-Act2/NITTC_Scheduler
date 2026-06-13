@@ -1,6 +1,10 @@
 import java.io.File
 import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Date
 import java.util.Locale
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
@@ -16,6 +20,34 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp") version "2.3.6"
 }
+
+val buildNumberFiles = (
+    fileTree("src") {
+        exclude("**/build/**")
+    }.files + listOf(
+        project.file("build.gradle.kts"),
+        rootProject.file("build.gradle.kts"),
+        rootProject.file("settings.gradle.kts"),
+        rootProject.file("gradle/libs.versions.toml")
+    ).filter { it.isFile }
+).sortedBy { it.relativeTo(rootProject.projectDir).invariantSeparatorsPath }
+
+val appCodeName = "Elena" // トリッカルから取ります
+val appVersionName = "1.0.0-IntDev_rev6" // 1.0.0-RC0 にします
+val buildContentHash = MessageDigest.getInstance("SHA-256").run {
+    buildNumberFiles.forEach { file ->
+        update(file.relativeTo(rootProject.projectDir).invariantSeparatorsPath.toByteArray())
+        update(0)
+        update(file.readBytes())
+        update(0)
+    }
+    digest().joinToString("") { "%02x".format(it) }
+}
+val buildTimestamp = DateTimeFormatter.ofPattern("yyMMdd-HHmm")
+    .withZone(ZoneId.systemDefault())
+    .format(Instant.ofEpochMilli(buildNumberFiles.maxOf { it.lastModified() }))
+val generatedBuildNumber =
+    "$appCodeName-v${appVersionName.substringBefore('-')}-$buildTimestamp-${buildContentHash.take(3)}"
 
 // ── OSS ライセンス生成タスク ──────────────────────────────────────────────
 
@@ -260,7 +292,8 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 10
-        versionName = "0.9.7-IntDev_rev1"
+        versionName = appVersionName
+        buildConfigField("String", "BUILD_NUMBER", "\"$generatedBuildNumber\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -282,6 +315,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         resources {
@@ -300,7 +334,7 @@ kotlin {
 }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.16.0")
+    implementation("androidx.core:core-ktx:1.18.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.2")
     implementation("androidx.activity:activity-compose:1.9.0")

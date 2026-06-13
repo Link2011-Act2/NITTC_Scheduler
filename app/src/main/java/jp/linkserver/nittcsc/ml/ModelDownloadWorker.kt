@@ -218,30 +218,26 @@ class ModelDownloadWorker(
         }
 
         if (Build.VERSION.SDK_INT >= 36) {
-            // Android 16+: Notification.ProgressStyle で Live Updates として認識
-            val cancelAction = Notification.Action.Builder(
-                android.graphics.drawable.Icon.createWithResource(
-                    applicationContext, android.R.drawable.ic_menu_close_clear_cancel
-                ),
-                applicationContext.getString(jp.linkserver.nittcsc.R.string.notif_cancel_action),
-                cancelPendingIntent
-            ).build()
-
-            return Notification.Builder(applicationContext, CHANNEL_ID)
+            // Android 16+: NotificationCompat.ProgressStyle で Live Updates として認識
+            return NotificationCompat.Builder(applicationContext, CHANNEL_ID)
                 .setContentTitle(displayTitle)
                 .setContentText(contentText)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setStyle(
-                    Notification.ProgressStyle()
+                    NotificationCompat.ProgressStyle()
                         .setProgress(displayProgress)
                         .setStyledByProgress(true)
                 )
-                .addAction(cancelAction)
+                .addAction(
+                    android.R.drawable.ic_menu_close_clear_cancel,
+                    applicationContext.getString(jp.linkserver.nittcsc.R.string.notif_cancel_action),
+                    cancelPendingIntent
+                )
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
                 .setShortCriticalText("${displayProgress}%")
-                // FLAG_PROMOTED_ONGOING によりステータスバーチップとして表示
-                .setFlag(Notification.FLAG_PROMOTED_ONGOING, true)
+                // Promoted ongoing notification としてステータスバーチップ表示をリクエスト
+                .setRequestPromotedOngoing(true)
                 .build()
         } else {
             // Android 15以前: NotificationCompat + テキストプログレスバー

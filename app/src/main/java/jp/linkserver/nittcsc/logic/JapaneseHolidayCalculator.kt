@@ -3,6 +3,7 @@ package jp.linkserver.nittcsc.logic
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.Month
+import java.time.Year
 import java.time.temporal.TemporalAdjusters
 import kotlin.math.floor
 
@@ -148,6 +149,7 @@ object JapaneseHolidayCalculator {
         month: Month,
         day: Int
     ) {
+        if (day !in 1..month.length(Year.isLeap(year.toLong()))) return
         holidays += LocalDate.of(year, month, day)
     }
 

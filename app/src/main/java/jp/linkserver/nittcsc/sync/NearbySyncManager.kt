@@ -46,6 +46,7 @@ data class NearbyState(
     val message: String = "",
     val isError: Boolean = false,
     val pendingConflicts: List<SyncConflict> = emptyList(),
+    val autoNewerConflictPreview: Boolean = false,
     val pendingLocalPayload: String? = null,
     val pendingRemotePayload: String? = null
 )
@@ -304,13 +305,18 @@ class NearbySyncManager(
             val remotePayload = incoming.getJSONObject("payload")
             val conflicts = detectNearbyConflicts(localPayload, remotePayload)
 
-            if (conflicts.isNotEmpty() && !conflictAutoNewerFirst) {
+            if (conflicts.isNotEmpty()) {
                 if (isInitiator) {
-                    // 送信元のみユーザーに競合解決を委ねる
+                    // 送信元のみユーザーに競合解決または自動優先内容の確認を委ねる
                     _state.value = _state.value.copy(
                         phase = NearbyPhase.CONFLICT,
-                        message = "競合があります。",
+                        message = if (conflictAutoNewerFirst) {
+                            "新しいデータを優先する内容を確認してください。"
+                        } else {
+                            "競合があります。"
+                        },
                         pendingConflicts = conflicts,
+                        autoNewerConflictPreview = conflictAutoNewerFirst,
                         pendingLocalPayload = localPayload.toString(),
                         pendingRemotePayload = remotePayload.toString()
                     )
@@ -323,12 +329,7 @@ class NearbySyncManager(
                     applyMergedFromPeerAndVerify(endpointId)
                 }
             } else {
-                // 自動解決（競合なし or 新しい方優先設定）
-                val resolutions = conflicts.associate { conflict ->
-                    conflict.datasetKey to
-                        if (conflict.remoteUpdatedAt > conflict.localUpdatedAt) SyncChoice.REMOTE else SyncChoice.LOCAL
-                }
-                applySyncAndVerify(endpointId, localPayload, remotePayload, resolutions, sendMergedToPeer = false)
+                applySyncAndVerify(endpointId, localPayload, remotePayload, emptyMap(), sendMergedToPeer = false)
             }
         } catch (e: Exception) {
             _state.value = _state.value.copy(
@@ -428,6 +429,7 @@ class NearbySyncManager(
             phase = NearbyPhase.DONE,
             message = "同期が完了しました。",
             pendingConflicts = emptyList(),
+            autoNewerConflictPreview = false,
             pendingLocalPayload = null,
             pendingRemotePayload = null
         )
@@ -444,11 +446,11 @@ class NearbySyncManager(
     private val datasets = listOf(
         SchedulerRepository.DATASET_TASKS,
         SchedulerRepository.DATASET_PLANS,
-        SchedulerRepository.DATASET_SCHEDULE_SETTINGS,
         SchedulerRepository.DATASET_LESSONS,
         SchedulerRepository.DATASET_DAY_TYPES,
         SchedulerRepository.DATASET_LONG_BREAKS,
-        SchedulerRepository.DATASET_CANCELLED_LESSONS
+        SchedulerRepository.DATASET_CANCELLED_LESSONS,
+        SchedulerRepository.DATASET_CHANGED_LESSONS
     )
 
     private fun detectNearbyConflicts(local: JSONObject, remote: JSONObject): List<SyncConflict> {
@@ -461,8 +463,8 @@ class NearbySyncManager(
             val localContent = local.opt(key)?.toString() ?: ""
             val remoteContent = remote.opt(key)?.toString() ?: ""
             if (localContent == remoteContent) return@forEach
-            val localTs = localMeta.getJSONObject(key).optLong("updatedAt", 0L)
-            val remoteTs = remoteMeta.getJSONObject(key).optLong("updatedAt", 0L)
+            val localTs = localMeta.optJSONObject(key)?.optLong("updatedAt", 0L) ?: 0L
+            val remoteTs = remoteMeta.optJSONObject(key)?.optLong("updatedAt", 0L) ?: 0L
             // 手動解決モードでは、時刻判定より安全側で「内容差分があれば競合」にする。
             val shouldFlagConflict = if (!conflictAutoNewerFirst) true else (localTs > 0 && remoteTs > 0)
             if (shouldFlagConflict) {
@@ -471,10 +473,11 @@ class NearbySyncManager(
                     label = when (key) {
                         SchedulerRepository.DATASET_TASKS -> "課題"
                         SchedulerRepository.DATASET_PLANS -> "予定"
-                        SchedulerRepository.DATASET_SCHEDULE_SETTINGS -> "時間割設定"
                         SchedulerRepository.DATASET_LESSONS -> "時間割"
                         SchedulerRepository.DATASET_DAY_TYPES -> "A/B表"
                         SchedulerRepository.DATASET_LONG_BREAKS -> "長期休み"
+                        SchedulerRepository.DATASET_CANCELLED_LESSONS -> "休講情報"
+                        SchedulerRepository.DATASET_CHANGED_LESSONS -> "授業変更"
                         else -> key
                     },
                     localUpdatedAt = localTs,
@@ -497,8 +500,8 @@ class NearbySyncManager(
         val remoteMeta = remote.getJSONObject("metadata")
         val newMeta = JSONObject()
         datasets.forEach { key ->
-            val localTs = localMeta.getJSONObject(key).optLong("updatedAt", 0L)
-            val remoteTs = remoteMeta.getJSONObject(key).optLong("updatedAt", 0L)
+            val localTs = localMeta.optJSONObject(key)?.optLong("updatedAt", 0L) ?: 0L
+            val remoteTs = remoteMeta.optJSONObject(key)?.optLong("updatedAt", 0L) ?: 0L
             val useRemote = when (
                 resolutions[key]
                     ?: if (key == SchedulerRepository.DATASET_CANCELLED_LESSONS) resolutions[SchedulerRepository.DATASET_LESSONS] else null
@@ -507,11 +510,11 @@ class NearbySyncManager(
                 SyncChoice.LOCAL -> false
                 null -> remoteTs > localTs
             }
-            if (useRemote) {
+            if (useRemote && remote.has(key)) {
                 merged.put(key, remote.get(key))
-                newMeta.put(key, remoteMeta.getJSONObject(key))
+                newMeta.put(key, remoteMeta.optJSONObject(key) ?: JSONObject())
             } else {
-                newMeta.put(key, localMeta.getJSONObject(key))
+                newMeta.put(key, localMeta.optJSONObject(key) ?: JSONObject())
             }
         }
         merged.put("metadata", newMeta)

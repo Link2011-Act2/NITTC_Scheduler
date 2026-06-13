@@ -31,7 +31,11 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
+import androidx.glance.unit.ColorProvider
 import jp.linkserver.nittcsc.MainActivity
+import androidx.compose.ui.graphics.Color as ComposeColor
+
+private val WidgetPlanColor = ColorProvider(ComposeColor(0xFF2E86C1))
 
 class NextLessonWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -78,7 +82,7 @@ private fun Content(data: WidgetData) {
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "今日の授業は\n終わりました",
+                    text = "次の授業が\n見つかりません",
                     style = TextStyle(
                         color = GlanceTheme.colors.onBackground,
                         fontSize = 12.sp,
@@ -87,7 +91,11 @@ private fun Content(data: WidgetData) {
                 )
             }
         } else {
-            val (slot, lesson, tasks) = next
+            val slot = next.slot
+            val lesson = next.lesson
+            val tasks = next.tasks
+            val plans = next.plans
+            val dateLabel = WidgetDataHelper.formatNextLessonDate(next.date, data.today)
 
             Column(
                 modifier = GlanceModifier
@@ -106,7 +114,7 @@ private fun Content(data: WidgetData) {
                         .padding(horizontal = 8.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = slot.label,
+                        text = if (next.date == data.today) slot.label else "$dateLabel ${slot.label}",
                         style = TextStyle(
                             color = GlanceTheme.colors.onPrimaryContainer,
                             fontSize = 10.sp,
@@ -144,8 +152,8 @@ private fun Content(data: WidgetData) {
                     )
                 }
 
-                // 課題
-                if (tasks.isNotEmpty()) {
+                // 課題・予定
+                if (tasks.isNotEmpty() || plans.isNotEmpty()) {
                     Spacer(modifier = GlanceModifier.height(4.dp))
                     tasks.take(2).forEach { task ->
                         Row(
@@ -163,6 +171,30 @@ private fun Content(data: WidgetData) {
                                 text = " ${task.title}",
                                 style = TextStyle(
                                     color = GlanceTheme.colors.error,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                maxLines = 1,
+                                modifier = GlanceModifier.defaultWeight()
+                            )
+                        }
+                    }
+                    plans.take(2 - tasks.take(2).size).forEach { plan ->
+                        Row(
+                            modifier = GlanceModifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.Vertical.CenterVertically
+                        ) {
+                            Text(
+                                text = "●",
+                                style = TextStyle(
+                                    color = WidgetPlanColor,
+                                    fontSize = 8.sp
+                                )
+                            )
+                            Text(
+                                text = " ${plan.title}",
+                                style = TextStyle(
+                                    color = WidgetPlanColor,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold
                                 ),

@@ -223,7 +223,17 @@ private fun compareReleaseVersions(
     }
     val leftPriority = channelPriority(detectChannel(leftTag, leftIsPrerelease))
     val rightPriority = channelPriority(detectChannel(rightTag, rightIsPrerelease))
-    return leftPriority.compareTo(rightPriority)
+    if (leftPriority != rightPriority) return leftPriority.compareTo(rightPriority)
+
+    val leftChannelBuild = parseSimpleChannelBuild(leftTag)
+    val rightChannelBuild = parseSimpleChannelBuild(rightTag)
+    if (leftChannelBuild != null &&
+        rightChannelBuild != null &&
+        leftChannelBuild.channel == rightChannelBuild.channel
+    ) {
+        return leftChannelBuild.number.compareTo(rightChannelBuild.number)
+    }
+    return 0
 }
 
 private fun parseVersionNumbers(value: String): List<Int> {
@@ -242,6 +252,22 @@ private fun parseVersionNumbers(value: String): List<Int> {
         return compact.map { it.digitToInt() }
     }
     return Regex("""\d+""").findAll(normalized).mapNotNull { it.value.toIntOrNull() }.toList()
+}
+
+private data class ChannelBuild(val channel: String, val number: Long)
+
+private fun parseSimpleChannelBuild(value: String): ChannelBuild? {
+    val match = Regex(
+        """(?:^|[-_.])(intdev|internal|beta|alpha|rc|stable|release)(\d*)$""",
+        RegexOption.IGNORE_CASE
+    ).find(value.trim()) ?: return null
+    val channel = when (match.groupValues[1].lowercase(Locale.US)) {
+        "internal" -> "intdev"
+        else -> match.groupValues[1].lowercase(Locale.US)
+    }
+    val numberText = match.groupValues[2]
+    val number = if (numberText.isEmpty()) 0L else numberText.toLongOrNull() ?: return null
+    return ChannelBuild(channel = channel, number = number)
 }
 
 private fun detectChannel(value: String, isPrerelease: Boolean = false): String {

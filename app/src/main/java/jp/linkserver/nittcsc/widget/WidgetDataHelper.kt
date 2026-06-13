@@ -2,10 +2,12 @@ package jp.linkserver.nittcsc.widget
 
 import android.content.Context
 import jp.linkserver.nittcsc.data.AppDatabase
+import jp.linkserver.nittcsc.data.ChangedLessonEntity
 import jp.linkserver.nittcsc.data.DayType
 import jp.linkserver.nittcsc.data.DayTypeEntity
 import jp.linkserver.nittcsc.data.LessonEntity
 import jp.linkserver.nittcsc.data.LessonMode
+import jp.linkserver.nittcsc.data.PlanEntity
 import jp.linkserver.nittcsc.data.ResolvedLesson
 import jp.linkserver.nittcsc.data.SettingsEntity
 import jp.linkserver.nittcsc.data.TaskEntity
@@ -25,8 +27,18 @@ data class WidgetData(
     val dayTypeEntities: Map<LocalDate, DayTypeEntity>,
     val dayTypeMap: Map<LocalDate, DayType>,
     val cancelledLessons: Set<Pair<LocalDate, Int>>,
+    val changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity>,
     val lessons: Map<Pair<Int, Int>, LessonEntity>,
-    val incompleteTasks: List<TaskEntity>
+    val incompleteTasks: List<TaskEntity>,
+    val incompletePlans: List<PlanEntity>
+)
+
+data class NextLessonWidgetEntry(
+    val date: LocalDate,
+    val slot: ClassSlot,
+    val lesson: ResolvedLesson,
+    val tasks: List<TaskEntity>,
+    val plans: List<PlanEntity>
 )
 
 object WidgetDataHelper {
@@ -41,8 +53,10 @@ object WidgetDataHelper {
         val dayTypeEntities = dayTypes.associateBy { it.date }
         val dayTypeMap = dayTypes.associate { it.date to it.dayType }
         val cancelledLessons = dao.getCancelledLessonsOnce().map { it.date to it.slotIndex }.toSet()
+        val changedLessons = dao.getChangedLessonsOnce().associateBy { it.date to it.slotIndex }
         val lessons = dao.getLessonsOnce().associate { (it.dayOfWeek to it.slotIndex) to it }
         val incompleteTasks = dao.getIncompleteTasksOnce()
+        val incompletePlans = dao.getIncompletePlansOnce()
 
         val classSlots = if (settings != null) generateClassSlots(
             periodsPerDay = settings.periodsPerDay,
@@ -65,8 +79,10 @@ object WidgetDataHelper {
             dayTypeEntities = dayTypeEntities,
             dayTypeMap = dayTypeMap,
             cancelledLessons = cancelledLessons,
+            changedLessons = changedLessons,
             lessons = lessons,
-            incompleteTasks = incompleteTasks
+            incompleteTasks = incompleteTasks,
+            incompletePlans = incompletePlans
         )
     }
 
@@ -80,7 +96,8 @@ object WidgetDataHelper {
         slotIndex: Int,
         lessons: Map<Pair<Int, Int>, LessonEntity>,
         dayTypeEntities: Map<LocalDate, DayTypeEntity>,
-        dayTypeMap: Map<LocalDate, DayType>
+        dayTypeMap: Map<LocalDate, DayType>,
+        changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity> = emptyMap()
     ): ResolvedLesson? {
         if (date.dayOfWeek.value !in 1..5) return null
         val dayTypeEntity = dayTypeEntities[date]
@@ -91,7 +108,7 @@ object WidgetDataHelper {
         val lessonDayType = dayTypeEntity?.overrideLessonDayType ?: dayType
         val lesson = lessons[lessonDayOfWeek to slotIndex] ?: return null
 
-        return when (lesson.mode) {
+        val baseLesson = when (lesson.mode) {
             LessonMode.WEEKLY -> if (lesson.weeklySubject.isBlank()) null
             else ResolvedLesson(lesson.weeklySubject, lesson.weeklyTeacher, lesson.weeklyLocation)
 
@@ -103,31 +120,85 @@ object WidgetDataHelper {
                 DayType.HOLIDAY -> null
             }
         }
+        val changedLesson = changedLessons[date to slotIndex]
+        return if (baseLesson != null && changedLesson != null) {
+            ResolvedLesson(changedLesson.subject, changedLesson.teacher, changedLesson.location)
+        } else {
+            baseLesson
+        }
     }
 
-    /** 現時刻以降で最も近い授業を返す（授業中ならその授業を含む） */
-    fun findNextLesson(data: WidgetData): Triple<ClassSlot, ResolvedLesson, List<TaskEntity>>? {
+    /** 今日から先で最も近い授業を返す（授業中ならその授業を含む） */
+    fun findNextLesson(data: WidgetData): NextLessonWidgetEntry? {
         val now = LocalTime.now()
-        for (slot in data.classSlots) {
-            if (data.cancelledLessons.contains(data.today to slot.index)) continue
-            val lesson = resolveLesson(data.today, slot.index, data.lessons, data.dayTypeEntities, data.dayTypeMap)
-                ?: continue
-            if (slot.end.isAfter(now)) {
-                val tasks = tasksForSlot(data, lesson, slot)
-                return Triple(slot, lesson, tasks)
+        val nowMinuteOfDay = now.hour * 60 + now.minute
+        val todayEndMinute = effectiveSchoolEndMinuteOfDay(data)
+        for (dayOffset in 0..14) {
+            val date = data.today.plusDays(dayOffset.toLong())
+            if (date == data.today && nowMinuteOfDay >= todayEndMinute) continue
+            for (slot in data.classSlots) {
+                if (data.cancelledLessons.contains(date to slot.index)) continue
+                if (date == data.today && !slot.end.isAfter(now)) continue
+                val lesson = resolveLesson(
+                    date,
+                    slot.index,
+                    data.lessons,
+                    data.dayTypeEntities,
+                    data.dayTypeMap,
+                    data.changedLessons
+                ) ?: continue
+                return NextLessonWidgetEntry(
+                    date = date,
+                    slot = slot,
+                    lesson = lesson,
+                    tasks = tasksForSlot(data, date, lesson, slot),
+                    plans = plansForSlot(data, date, lesson, slot)
+                )
             }
         }
         return null
     }
 
+    private fun effectiveSchoolEndMinuteOfDay(data: WidgetData): Int {
+        val settings = data.settings
+        if (settings != null && settings.departureHour >= 0 && settings.departureMinute >= 0) {
+            return settings.departureHour.coerceIn(0, 23) * 60 +
+                settings.departureMinute.coerceIn(0, 59)
+        }
+        val lastEnd = data.classSlots.lastOrNull()?.end ?: return 24 * 60
+        val roundedEndHour = lastEnd.hour + if (lastEnd.minute > 0) 1 else 0
+        return roundedEndHour * 60
+    }
+
     /** 授業時間帯に提出期限がある未完了課題を返す */
-    fun tasksForSlot(data: WidgetData, lesson: ResolvedLesson, slot: ClassSlot): List<TaskEntity> {
+    fun tasksForSlot(
+        data: WidgetData,
+        date: LocalDate,
+        lesson: ResolvedLesson,
+        slot: ClassSlot
+    ): List<TaskEntity> {
         val slotStart = slot.start.hour * 60 + slot.start.minute
         val slotEnd = slot.end.hour * 60 + slot.end.minute
         return data.incompleteTasks.filter { task ->
-            task.dueDate == data.today &&
+            task.dueDate == date &&
                     task.subject.trim().equals(lesson.subject.trim(), ignoreCase = true) &&
                     (task.dueHour * 60 + task.dueMinute) in slotStart..slotEnd
+        }
+    }
+
+    /** 授業時間帯に時刻がある未完了予定を返す */
+    fun plansForSlot(
+        data: WidgetData,
+        date: LocalDate,
+        lesson: ResolvedLesson,
+        slot: ClassSlot
+    ): List<PlanEntity> {
+        val slotStart = slot.start.hour * 60 + slot.start.minute
+        val slotEnd = slot.end.hour * 60 + slot.end.minute
+        return data.incompletePlans.filter { plan ->
+            plan.dueDate == date &&
+                    plan.subject.trim().equals(lesson.subject.trim(), ignoreCase = true) &&
+                    (plan.dueHour * 60 + plan.dueMinute) in slotStart..slotEnd
         }
     }
 
@@ -149,12 +220,38 @@ object WidgetDataHelper {
         }
     }
 
+    /** 科目に一致する未完了予定が存在するか */
+    fun hasPlansForLesson(data: WidgetData, lesson: ResolvedLesson?): Boolean {
+        if (lesson == null) return false
+        return data.incompletePlans.any { plan ->
+            !plan.isCompleted &&
+                    plan.subject.trim().equals(lesson.subject.trim(), ignoreCase = true)
+        }
+    }
+
+    /** 特定日に科目が一致する未完了予定が存在するか */
+    fun hasPlansForDate(data: WidgetData, date: LocalDate, lesson: ResolvedLesson?): Boolean {
+        if (lesson == null) return false
+        return data.incompletePlans.any { plan ->
+            plan.dueDate == date &&
+                    plan.subject.trim().equals(lesson.subject.trim(), ignoreCase = true)
+        }
+    }
+
     fun formatDueDate(task: TaskEntity, today: LocalDate): String {
         val time = "${task.dueHour}:${task.dueMinute.toString().padStart(2, '0')}"
         return when (task.dueDate) {
             today -> "今日 $time"
             today.plusDays(1) -> "明日 $time"
             else -> "${task.dueDate.monthValue}/${task.dueDate.dayOfMonth} $time"
+        }
+    }
+
+    fun formatNextLessonDate(date: LocalDate, today: LocalDate): String {
+        return when (date) {
+            today -> "今日"
+            today.plusDays(1) -> "明日"
+            else -> "${date.monthValue}/${date.dayOfMonth}(${dayLabel(date.dayOfWeek.value)})"
         }
     }
 

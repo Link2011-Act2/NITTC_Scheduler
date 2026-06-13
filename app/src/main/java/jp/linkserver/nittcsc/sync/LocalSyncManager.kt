@@ -12,6 +12,7 @@ import jp.linkserver.nittcsc.data.SchedulerRepository
 import jp.linkserver.nittcsc.data.SyncProfileEntity
 import jp.linkserver.nittcsc.data.SyncRegisteredDeviceEntity
 import jp.linkserver.nittcsc.data.SyncTrustedPeerEntity
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -43,6 +44,7 @@ import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.SocketTimeoutException
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.MessageDigest
@@ -357,12 +359,19 @@ class LocalSyncManager(
     suspend fun registerTrustedDevice(device: DiscoveredSyncDevice, password: String): SyncResult = withContext(Dispatchers.IO) {
         initialize()
         val localProfile = ensureProfile()
+        val reverseTrustToken = dao.getSyncTrustedPeerByDeviceId(device.deviceId)
+            ?.trustToken
+            ?.takeIf { it.isNotBlank() }
+            ?: UUID.randomUUID().toString()
         val request = JSONObject().also {
             it.put("type", "register")
             it.put("passwordHash", hashPassword(password))
             it.put("peerDeviceId", localProfile.deviceId)
             it.put("peerUserNickname", localProfile.userNickname)
             it.put("peerDeviceName", localProfile.deviceName)
+            it.put("peerPort", tcpPort)
+            it.put("peerTrustToken", reverseTrustToken)
+            it.put("peerCertFingerprint", getLocalCertFingerprint())
         }
         var targetHost = device.host
         var targetPort = device.port
@@ -387,8 +396,29 @@ class LocalSyncManager(
             return@withContext SyncResult(false, "信頼トークンを取得できませんでした。")
         }
         val now = System.currentTimeMillis()
+        if (response.optBoolean("mutualRegistered", false)) {
+            dao.upsertSyncTrustedPeer(
+                SyncTrustedPeerEntity(
+                    peerDeviceId = device.deviceId,
+                    peerUserNickname = device.userNickname,
+                    peerDeviceName = device.deviceName,
+                    trustToken = reverseTrustToken,
+                    issuedAt = now,
+                    lastUsedAt = now
+                )
+            )
+        }
+        val existing = dao.getSyncRegisteredDevice(device.deviceId)
         dao.upsertSyncRegisteredDevice(
-            SyncRegisteredDeviceEntity(
+            existing?.copy(
+                userNickname = device.userNickname,
+                deviceName = device.deviceName,
+                host = targetHost,
+                port = targetPort,
+                trustToken = token,
+                serverCertFingerprint = certFingerprint,
+                lastSeenAt = now
+            ) ?: SyncRegisteredDeviceEntity(
                 deviceId = device.deviceId,
                 userNickname = device.userNickname,
                 deviceName = device.deviceName,
@@ -400,7 +430,14 @@ class LocalSyncManager(
                 lastSeenAt = now
             )
         )
-        SyncResult(true, "自分のデバイスとして登録しました。")
+        SyncResult(
+            true,
+            if (response.optBoolean("mutualRegistered", false)) {
+                "双方の登録済みデバイスに追加しました。"
+            } else {
+                "自分のデバイスとして登録しました。"
+            }
+        )
     }
 
     suspend fun removeTrustedDevice(deviceId: String): SyncResult = withContext(Dispatchers.IO) {
@@ -769,18 +806,18 @@ class LocalSyncManager(
         listOf(
             SchedulerRepository.DATASET_TASKS,
             SchedulerRepository.DATASET_PLANS,
-            SchedulerRepository.DATASET_SCHEDULE_SETTINGS,
             SchedulerRepository.DATASET_LESSONS,
             SchedulerRepository.DATASET_DAY_TYPES,
             SchedulerRepository.DATASET_LONG_BREAKS,
-            SchedulerRepository.DATASET_CANCELLED_LESSONS
+            SchedulerRepository.DATASET_CANCELLED_LESSONS,
+            SchedulerRepository.DATASET_CHANGED_LESSONS
         ).forEach { key ->
             val localContent = localPayload.opt(key)?.toString() ?: ""
             val remoteContent = remotePayload.opt(key)?.toString() ?: ""
             if (localContent == remoteContent) return@forEach
 
-            val localUpdatedAt = localPayload.getJSONObject("metadata").getJSONObject(key).optLong("updatedAt", 0L)
-            val remoteUpdatedAt = remotePayload.getJSONObject("metadata").getJSONObject(key).optLong("updatedAt", 0L)
+            val localUpdatedAt = localPayload.getJSONObject("metadata").optJSONObject(key)?.optLong("updatedAt", 0L) ?: 0L
+            val remoteUpdatedAt = remotePayload.getJSONObject("metadata").optJSONObject(key)?.optLong("updatedAt", 0L) ?: 0L
             if (forceConflictOnDifference) {
                 conflicts += SyncConflict(
                     datasetKey = key,
@@ -796,11 +833,11 @@ class LocalSyncManager(
                 when (key) {
                     SchedulerRepository.DATASET_TASKS -> it.lastTasksSyncAt
                     SchedulerRepository.DATASET_PLANS -> it.lastPlansSyncAt
-                    SchedulerRepository.DATASET_SCHEDULE_SETTINGS -> it.lastScheduleSettingsSyncAt
                     SchedulerRepository.DATASET_LESSONS -> it.lastLessonsSyncAt
                     SchedulerRepository.DATASET_DAY_TYPES -> it.lastDayTypesSyncAt
                     SchedulerRepository.DATASET_LONG_BREAKS -> it.lastLongBreaksSyncAt
                     SchedulerRepository.DATASET_CANCELLED_LESSONS -> it.lastCancelledLessonsSyncAt
+                    SchedulerRepository.DATASET_CHANGED_LESSONS -> it.lastChangedLessonsSyncAt
                     else -> 0L
                 }
             } ?: 0L
@@ -835,25 +872,25 @@ class LocalSyncManager(
         listOf(
             SchedulerRepository.DATASET_TASKS,
             SchedulerRepository.DATASET_PLANS,
-            SchedulerRepository.DATASET_SCHEDULE_SETTINGS,
             SchedulerRepository.DATASET_LESSONS,
             SchedulerRepository.DATASET_DAY_TYPES,
             SchedulerRepository.DATASET_LONG_BREAKS,
-            SchedulerRepository.DATASET_CANCELLED_LESSONS
+            SchedulerRepository.DATASET_CANCELLED_LESSONS,
+            SchedulerRepository.DATASET_CHANGED_LESSONS
         ).forEach { key ->
-            val localUpdatedAt = localMeta.getJSONObject(key).optLong("updatedAt", 0L)
-            val remoteUpdatedAt = remoteMeta.getJSONObject(key).optLong("updatedAt", 0L)
+            val localUpdatedAt = localMeta.optJSONObject(key)?.optLong("updatedAt", 0L) ?: 0L
+            val remoteUpdatedAt = remoteMeta.optJSONObject(key)?.optLong("updatedAt", 0L) ?: 0L
             val choice = (resolutions[key]
                 ?: if (key == SchedulerRepository.DATASET_CANCELLED_LESSONS) resolutions[SchedulerRepository.DATASET_LESSONS] else null)
                 ?: if (remoteUpdatedAt > localUpdatedAt) SyncChoice.REMOTE else SyncChoice.LOCAL
-            val sourcePayload = if (choice == SyncChoice.LOCAL) localPayload else remotePayload
-            val sourceMeta = if (choice == SyncChoice.LOCAL) localMeta else remoteMeta
+            val sourcePayload = if (choice == SyncChoice.LOCAL || !remotePayload.has(key)) localPayload else remotePayload
+            val sourceMeta = if (sourcePayload === localPayload) localMeta else remoteMeta
             merged.put(key, sourcePayload.get(key))
             metadata.put(
                 key,
                 JSONObject().also { obj ->
-                    obj.put("updatedAt", maxOf(now, sourceMeta.getJSONObject(key).optLong("updatedAt", 0L)))
-                    obj.put("updatedByDeviceId", sourceMeta.getJSONObject(key).optString("updatedByDeviceId", if (choice == SyncChoice.LOCAL) "" else target.deviceId))
+                    obj.put("updatedAt", maxOf(now, sourceMeta.optJSONObject(key)?.optLong("updatedAt", 0L) ?: 0L))
+                    obj.put("updatedByDeviceId", sourceMeta.optJSONObject(key)?.optString("updatedByDeviceId", if (sourcePayload === localPayload) "" else target.deviceId) ?: "")
                 }
             )
         }
@@ -874,11 +911,11 @@ class LocalSyncManager(
                 lastSeenAt = System.currentTimeMillis(),
                 lastTasksSyncAt = meta.getJSONObject(SchedulerRepository.DATASET_TASKS).optLong("updatedAt", existing.lastTasksSyncAt),
                 lastPlansSyncAt = meta.getJSONObject(SchedulerRepository.DATASET_PLANS).optLong("updatedAt", existing.lastPlansSyncAt),
-                lastScheduleSettingsSyncAt = meta.getJSONObject(SchedulerRepository.DATASET_SCHEDULE_SETTINGS).optLong("updatedAt", existing.lastScheduleSettingsSyncAt),
                 lastLessonsSyncAt = meta.getJSONObject(SchedulerRepository.DATASET_LESSONS).optLong("updatedAt", existing.lastLessonsSyncAt),
                 lastDayTypesSyncAt = meta.getJSONObject(SchedulerRepository.DATASET_DAY_TYPES).optLong("updatedAt", existing.lastDayTypesSyncAt),
                 lastLongBreaksSyncAt = meta.getJSONObject(SchedulerRepository.DATASET_LONG_BREAKS).optLong("updatedAt", existing.lastLongBreaksSyncAt),
-                lastCancelledLessonsSyncAt = meta.getJSONObject(SchedulerRepository.DATASET_CANCELLED_LESSONS).optLong("updatedAt", existing.lastCancelledLessonsSyncAt)
+                lastCancelledLessonsSyncAt = meta.getJSONObject(SchedulerRepository.DATASET_CANCELLED_LESSONS).optLong("updatedAt", existing.lastCancelledLessonsSyncAt),
+                lastChangedLessonsSyncAt = meta.getJSONObject(SchedulerRepository.DATASET_CHANGED_LESSONS).optLong("updatedAt", existing.lastChangedLessonsSyncAt)
             )
         )
     }
@@ -907,7 +944,20 @@ class LocalSyncManager(
             while (isActive) {
                 val client = runCatching { socket.accept() }.getOrNull() ?: break
                 appendLog("着信を受け付けました: ${client.inetAddress.hostAddress}")
-                launch { handleClient(client) }
+                launch {
+                    try {
+                        handleClient(client)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        runCatching { client.close() }
+                        appendLog(
+                            "クライアント接続を終了しました: " +
+                                "${client.inetAddress?.hostAddress ?: "unknown"} " +
+                                "(${e.javaClass.simpleName}: ${e.message ?: "不明なエラー"})"
+                        )
+                    }
+                }
             }
         }
 
@@ -954,7 +1004,12 @@ class LocalSyncManager(
 
             client.soTimeout = 3_000
             val remoteAddress = client.inetAddress?.hostAddress ?: "unknown"
-            val requestText = BufferedReader(InputStreamReader(client.getInputStream(), UTF_8)).readLine().orEmpty()
+            val requestText = try {
+                BufferedReader(InputStreamReader(client.getInputStream(), UTF_8)).readLine().orEmpty()
+            } catch (_: SocketTimeoutException) {
+                appendLog("受信タイムアウトのため接続を終了しました: $remoteAddress")
+                return
+            }
             if (!requestText.trimStart().startsWith("{")) {
                 appendLog("非JSONリクエストを無視: $remoteAddress head=${requestText.take(16)}")
                 return
@@ -1065,17 +1120,56 @@ class LocalSyncManager(
                 } else {
                     val token = UUID.randomUUID().toString()
                     val now = System.currentTimeMillis()
+                    val peerDeviceId = request.optString("peerDeviceId")
+                    val peerUserNickname = request.optString("peerUserNickname")
+                    val peerDeviceName = request.optString("peerDeviceName")
                     dao.upsertSyncTrustedPeer(
                         SyncTrustedPeerEntity(
-                            peerDeviceId = request.optString("peerDeviceId"),
-                            peerUserNickname = request.optString("peerUserNickname"),
-                            peerDeviceName = request.optString("peerDeviceName"),
+                            peerDeviceId = peerDeviceId,
+                            peerUserNickname = peerUserNickname,
+                            peerDeviceName = peerDeviceName,
                             trustToken = token,
                             issuedAt = now,
                             lastUsedAt = now
                         )
                     )
-                    JSONObject().put("ok", true).put("trustToken", token)
+                    val peerPort = request.optInt("peerPort", 0)
+                    val peerTrustToken = request.optString("peerTrustToken")
+                    val canRegisterMutually =
+                        peerDeviceId.isNotBlank() &&
+                            peerDeviceId != profile.deviceId &&
+                            remoteAddress.isNotBlank() &&
+                            remoteAddress != "unknown" &&
+                            peerPort in 1..65535 &&
+                            peerTrustToken.isNotBlank()
+                    if (canRegisterMutually) {
+                        val existing = dao.getSyncRegisteredDevice(peerDeviceId)
+                        dao.upsertSyncRegisteredDevice(
+                            existing?.copy(
+                                userNickname = peerUserNickname,
+                                deviceName = peerDeviceName,
+                                host = remoteAddress,
+                                port = peerPort,
+                                trustToken = peerTrustToken,
+                                serverCertFingerprint = request.optString("peerCertFingerprint"),
+                                lastSeenAt = now
+                            ) ?: SyncRegisteredDeviceEntity(
+                                deviceId = peerDeviceId,
+                                userNickname = peerUserNickname,
+                                deviceName = peerDeviceName,
+                                host = remoteAddress,
+                                port = peerPort,
+                                trustToken = peerTrustToken,
+                                addedAt = now,
+                                lastSeenAt = now,
+                                serverCertFingerprint = request.optString("peerCertFingerprint")
+                            )
+                        )
+                    }
+                    JSONObject()
+                        .put("ok", true)
+                        .put("trustToken", token)
+                        .put("mutualRegistered", canRegisterMutually)
                 }
             }
 
@@ -1492,7 +1586,6 @@ class LocalSyncManager(
         return when (key) {
             SchedulerRepository.DATASET_TASKS -> "課題"
             SchedulerRepository.DATASET_PLANS -> "予定"
-            SchedulerRepository.DATASET_SCHEDULE_SETTINGS -> "時間割設定"
             SchedulerRepository.DATASET_LESSONS -> "時間割"
             SchedulerRepository.DATASET_DAY_TYPES -> "A/B表"
             SchedulerRepository.DATASET_LONG_BREAKS -> "長期休み"

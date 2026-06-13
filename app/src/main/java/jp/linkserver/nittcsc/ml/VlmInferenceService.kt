@@ -97,7 +97,7 @@ class VlmInferenceService : Service() {
             val detailedText = "$progressBar $chipText\n$status"
             val titleText = getString(R.string.notif_ai_processing_title)
 
-            Notification.Builder(this, CHANNEL_ID)
+            NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle(titleText)
                 .setContentText(status)
                 .setSmallIcon(android.R.drawable.ic_menu_info_details)
@@ -111,10 +111,10 @@ class VlmInferenceService : Service() {
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
                 .setAutoCancel(false)
-                .setStyle(Notification.BigTextStyle().bigText(detailedText))
+                .setStyle(NotificationCompat.BigTextStyle().bigText(detailedText))
                 .setShortCriticalText(chipText)
-                // FLAG_PROMOTED_ONGOING によりステータスバーチップとして表示
-                .setFlag(Notification.FLAG_PROMOTED_ONGOING, true)
+                // Promoted ongoing notification としてステータスバーチップ表示をリクエスト
+                .setRequestPromotedOngoing(true)
                 .build()
         } else {
             // Android 15以下は NotificationCompat で統一

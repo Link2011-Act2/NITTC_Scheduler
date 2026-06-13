@@ -48,7 +48,14 @@ data class SettingsEntity(
     val unifyTaskPlanView: Boolean = false,
     val showWeekdayOnDates: Boolean = false,
     val enableTlsSync: Boolean = false,
-    val useAdvancedTimeSettingsUi: Boolean = false
+    val useAdvancedTimeSettingsUi: Boolean = false,
+    val lessonStartNotificationEnabled: Boolean = false,
+    val lessonStartNotificationMinutesBefore: Int = 10,
+    val lessonStartNotificationLiveUpdatesEnabled: Boolean = true,
+    val lessonStartNotificationProgressCountsDown: Boolean = false,
+    val syncLessonsToCalendar: Boolean = false,
+    val lessonCalendarSyncStart: LocalDate? = null,
+    val lessonCalendarSyncEnd: LocalDate? = null
 )
 
 @Entity(tableName = "day_types")
@@ -80,6 +87,15 @@ data class ChangedLessonEntity(
     val subject: String,
     val teacher: String,
     val location: String? = null,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "lesson_notification_exclusions")
+data class LessonNotificationExclusionEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val subject: String,
+    val teacher: String? = null,
+    val matchTeacher: Boolean = false,
     val createdAt: Long = System.currentTimeMillis()
 )
 
@@ -223,6 +239,7 @@ data class SyncRegisteredDeviceEntity(
     val lastDayTypesSyncAt: Long = 0L,
     val lastLongBreaksSyncAt: Long = 0L,
     val lastCancelledLessonsSyncAt: Long = 0L,
+    val lastChangedLessonsSyncAt: Long = 0L,
     val serverCertFingerprint: String = ""
 )
 

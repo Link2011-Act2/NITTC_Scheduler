@@ -30,11 +30,16 @@ import androidx.glance.layout.width
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
+import androidx.glance.text.TextDecoration
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import jp.linkserver.nittcsc.MainActivity
 import java.time.DayOfWeek
 import androidx.compose.ui.graphics.Color as ComposeColor
+
+private val WidgetTaskDotColor = ColorProvider(ComposeColor(0xFFBA1A1A))
+private val WidgetPlanDotColor = ColorProvider(ComposeColor(0xFF2E86C1))
+private val WidgetCancelledTextColor = ColorProvider(ComposeColor(0xFF8A949B))
 
 class TimetableHugeWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -175,9 +180,12 @@ private fun Content(data: WidgetData) {
                         slot.index,
                         data.lessons,
                         data.dayTypeEntities,
-                        data.dayTypeMap
+                        data.dayTypeMap,
+                        data.changedLessons
                     )
+                    val isCancelled = data.cancelledLessons.contains(date to slot.index)
                     val hasTasks = WidgetDataHelper.hasTasksForDate(data, date, lesson)
+                    val hasPlans = WidgetDataHelper.hasPlansForDate(data, date, lesson)
                     val cellBg = if (lesson != null) GlanceTheme.colors.surfaceVariant else GlanceTheme.colors.background
 
                     Box(
@@ -207,9 +215,10 @@ private fun Content(data: WidgetData) {
                                 Text(
                                     text = lesson.subject,
                                     style = TextStyle(
-                                        color = GlanceTheme.colors.onBackground,
+                                        color = if (isCancelled) WidgetCancelledTextColor else GlanceTheme.colors.onBackground,
                                         fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = if (isCancelled) FontWeight.Normal else FontWeight.Bold,
+                                        textDecoration = if (isCancelled) TextDecoration.LineThrough else null
                                     ),
                                     maxLines = 2
                                 )
@@ -218,7 +227,17 @@ private fun Content(data: WidgetData) {
                                     Text(
                                         text = "●",
                                         style = TextStyle(
-                                            color = ColorProvider(ComposeColor(0xFFBA1A1A)),
+                                            color = WidgetTaskDotColor,
+                                            fontSize = 7.sp
+                                        )
+                                    )
+                                }
+
+                                if (hasPlans) {
+                                    Text(
+                                        text = "●",
+                                        style = TextStyle(
+                                            color = WidgetPlanDotColor,
                                             fontSize = 7.sp
                                         )
                                     )
@@ -230,7 +249,7 @@ private fun Content(data: WidgetData) {
                                     Text(
                                         text = lesson.teacher,
                                         style = TextStyle(
-                                            color = GlanceTheme.colors.onBackground,
+                                            color = if (isCancelled) WidgetCancelledTextColor else GlanceTheme.colors.onBackground,
                                             fontSize = 8.sp
                                         ),
                                         maxLines = 1
@@ -240,7 +259,7 @@ private fun Content(data: WidgetData) {
                                     Text(
                                         text = lesson.location,
                                         style = TextStyle(
-                                            color = GlanceTheme.colors.onBackground,
+                                            color = if (isCancelled) WidgetCancelledTextColor else GlanceTheme.colors.onBackground,
                                             fontSize = 7.sp
                                         ),
                                         maxLines = 1

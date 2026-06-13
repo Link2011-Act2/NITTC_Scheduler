@@ -156,6 +156,7 @@ fun SyncScreen(
     var deleteConfirmDeviceId by remember { mutableStateOf<String?>(null) }
     var pendingSession by remember { mutableStateOf<PreparedSyncSession?>(null) }
     var pendingConflicts by remember { mutableStateOf<List<SyncConflict>>(emptyList()) }
+    var autoNewerConflictPreview by remember { mutableStateOf(false) }
     val pendingSyncQueue = remember { mutableStateListOf<String>() }
     val selectedDeviceIds = remember { mutableStateListOf<String>() }
     var syncQueueProcessing by remember { mutableStateOf(false) }
@@ -333,30 +334,20 @@ fun SyncScreen(
                         }
                     }
                     result.ok && result.session != null && result.conflicts.isNotEmpty() && conflictAutoNewerFirst -> {
-                        val resolutions = result.conflicts.associate { conflict ->
-                            conflict.datasetKey to if (conflict.remoteUpdatedAt > conflict.localUpdatedAt) SyncChoice.REMOTE else SyncChoice.LOCAL
-                        }
+                        pendingSession = result.session
+                        pendingConflicts = result.conflicts
+                        autoNewerConflictPreview = true
                         syncStatusByDeviceId[deviceId] = WifiSyncStatus(
-                            phase = WifiSyncPhase.APPLYING,
-                            message = "競合を自動解決して同期中..."
+                            phase = WifiSyncPhase.CONFLICT,
+                            message = "新しいデータを優先する内容を確認してください。"
                         )
-                        val applied = runCatching { onApplyPreparedSync(result.session, resolutions) }.getOrElse { e ->
-                            SyncResult(false, e.message ?: "同期の適用中にエラーが発生しました。")
-                        }
-                        syncStatusByDeviceId[deviceId] = WifiSyncStatus(
-                            phase = if (applied.ok) WifiSyncPhase.DONE else WifiSyncPhase.ERROR,
-                            message = applied.message
-                        )
-                        if (applied.ok && batchResultTargetDeviceIds.contains(deviceId)) {
-                            val successName = state.registeredDevices.firstOrNull { it.deviceId == deviceId }?.deviceName
-                            if (!successName.isNullOrBlank() && !batchSuccessDeviceNames.contains(successName)) {
-                                batchSuccessDeviceNames.add(successName)
-                            }
-                        }
+                        pausedByConflict = true
+                        break
                     }
                     result.ok && result.session != null && result.conflicts.isNotEmpty() -> {
                         pendingSession = result.session
                         pendingConflicts = result.conflicts
+                        autoNewerConflictPreview = false
                         result.conflicts.forEach { conflictChoices[it.datasetKey] = SyncChoice.LOCAL }
                         syncStatusByDeviceId[deviceId] = WifiSyncStatus(
                             phase = WifiSyncPhase.CONFLICT,
@@ -928,11 +919,63 @@ fun SyncScreen(
         )
     }
 
-    if (pendingSession != null && pendingConflicts.isNotEmpty()) {
+    if (pendingSession != null && pendingConflicts.isNotEmpty() && autoNewerConflictPreview) {
+        AutoNewerConflictDialog(
+            conflicts = pendingConflicts,
+            formatTimestamp = formatTimestamp,
+            onApprove = {
+                val session = pendingSession ?: return@AutoNewerConflictDialog
+                val resolutions = pendingConflicts.associate { conflict ->
+                    conflict.datasetKey to
+                        if (conflict.remoteUpdatedAt > conflict.localUpdatedAt) SyncChoice.REMOTE else SyncChoice.LOCAL
+                }
+                val targetDeviceId = session.target.deviceId
+                pendingSession = null
+                pendingConflicts = emptyList()
+                autoNewerConflictPreview = false
+                activeSyncDeviceId = targetDeviceId
+                syncStatusByDeviceId[targetDeviceId] = WifiSyncStatus(
+                    phase = WifiSyncPhase.APPLYING,
+                    message = "新しいデータを優先して同期中..."
+                )
+                scope.launch {
+                    val result = runCatching { onApplyPreparedSync(session, resolutions) }
+                        .getOrElse { e -> SyncResult(false, e.message ?: "同期エラー") }
+                    syncStatusByDeviceId[targetDeviceId] = WifiSyncStatus(
+                        phase = if (result.ok) WifiSyncPhase.DONE else WifiSyncPhase.ERROR,
+                        message = result.message
+                    )
+                    if (result.ok && batchResultTargetDeviceIds.contains(targetDeviceId)) {
+                        val successName = state.registeredDevices.firstOrNull { it.deviceId == targetDeviceId }?.deviceName
+                        if (!successName.isNullOrBlank() && !batchSuccessDeviceNames.contains(successName)) {
+                            batchSuccessDeviceNames.add(successName)
+                        }
+                    }
+                    startQueuedSyncIfNeeded()
+                }
+            },
+            onCancel = {
+                val targetDeviceId = pendingSession?.target?.deviceId
+                pendingSession = null
+                pendingConflicts = emptyList()
+                autoNewerConflictPreview = false
+                if (targetDeviceId != null) {
+                    syncStatusByDeviceId[targetDeviceId] = WifiSyncStatus(
+                        phase = WifiSyncPhase.ERROR,
+                        message = "同期をキャンセルしました。"
+                    )
+                }
+                startQueuedSyncIfNeeded()
+            }
+        )
+    }
+
+    if (pendingSession != null && pendingConflicts.isNotEmpty() && !autoNewerConflictPreview) {
         AlertDialog(
             onDismissRequest = {
                 pendingSession = null
                 pendingConflicts = emptyList()
+                autoNewerConflictPreview = false
                 conflictChoices.clear()
             },
             title = { Text(stringResource(R.string.sync_dialog_conflict_title)) },
@@ -1007,6 +1050,7 @@ fun SyncScreen(
                         val targetDeviceId = session.target.deviceId
                         pendingSession = null
                         pendingConflicts = emptyList()
+                        autoNewerConflictPreview = false
                         conflictChoices.clear()
                         activeSyncDeviceId = targetDeviceId
                         syncStatusByDeviceId[targetDeviceId] = WifiSyncStatus(
@@ -1038,6 +1082,7 @@ fun SyncScreen(
                     val targetDeviceId = pendingSession?.target?.deviceId
                     pendingSession = null
                     pendingConflicts = emptyList()
+                    autoNewerConflictPreview = false
                     conflictChoices.clear()
                     if (targetDeviceId != null) {
                         syncStatusByDeviceId[targetDeviceId] = WifiSyncStatus(
@@ -1160,4 +1205,3 @@ private fun WifiSyncStatusHero(status: WifiSyncStatus) {
         }
     }
 }
-

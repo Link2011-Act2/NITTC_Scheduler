@@ -80,6 +80,7 @@ private enum class WifiSyncFullScreenPhase { PREPARING, APPLYING, DONE, ERROR }
 @Composable
 fun SyncDeviceDiscoveryScreen(
     registeredDevices: List<SyncRegisteredDeviceEntity>,
+    conflictAutoNewerFirst: Boolean,
     localListeningPort: Int,
     diagnostics: SyncDiagnostics,
     onBack: () -> Unit,
@@ -105,6 +106,7 @@ fun SyncDeviceDiscoveryScreen(
     var promptPassword by remember { mutableStateOf("") }
     var pendingSession by remember { mutableStateOf<PreparedSyncSession?>(null) }
     var pendingConflicts by remember { mutableStateOf<List<SyncConflict>>(emptyList()) }
+    var autoNewerConflictPreview by remember { mutableStateOf(false) }
     var syncingFullScreenVisible by remember { mutableStateOf(false) }
     var syncingFullScreenPhase by remember { mutableStateOf(WifiSyncFullScreenPhase.PREPARING) }
     var syncingFullScreenMessage by remember { mutableStateOf("") }
@@ -129,6 +131,7 @@ fun SyncDeviceDiscoveryScreen(
             syncingFullScreenVisible = false
             pendingSession = result.session
             pendingConflicts = result.conflicts
+            autoNewerConflictPreview = conflictAutoNewerFirst
             result.conflicts.forEach { conflictChoices[it.datasetKey] = SyncChoice.LOCAL }
             setMessage(result.message)
             return
@@ -352,12 +355,48 @@ fun SyncDeviceDiscoveryScreen(
         )
     }
 
+    if (pendingSession != null && pendingConflicts.isNotEmpty() && autoNewerConflictPreview) {
+        AutoNewerConflictDialog(
+            conflicts = pendingConflicts,
+            formatTimestamp = formatTimestamp,
+            onApprove = {
+                val session = pendingSession ?: return@AutoNewerConflictDialog
+                val resolutions = pendingConflicts.associate { conflict ->
+                    conflict.datasetKey to
+                        if (conflict.remoteUpdatedAt > conflict.localUpdatedAt) SyncChoice.REMOTE else SyncChoice.LOCAL
+                }
+                pendingSession = null
+                pendingConflicts = emptyList()
+                autoNewerConflictPreview = false
+                busy = true
+                syncingFullScreenVisible = true
+                syncingFullScreenPhase = WifiSyncFullScreenPhase.APPLYING
+                syncingFullScreenMessage = "新しいデータを優先して同期中..."
+                scope.launch {
+                    val result = onApplyPreparedSync(session, resolutions)
+                    setMessage(result.message, error = !result.ok)
+                    syncingFullScreenPhase = if (result.ok) WifiSyncFullScreenPhase.DONE else WifiSyncFullScreenPhase.ERROR
+                    syncingFullScreenMessage = result.message
+                    busy = false
+                }
+            },
+            onCancel = {
+                pendingSession = null
+                pendingConflicts = emptyList()
+                autoNewerConflictPreview = false
+                conflictChoices.clear()
+                setMessage("同期をキャンセルしました。")
+            }
+        )
+    }
+
     // 競合解決ダイアログ
-    if (pendingSession != null && pendingConflicts.isNotEmpty()) {
+    if (pendingSession != null && pendingConflicts.isNotEmpty() && !autoNewerConflictPreview) {
         AlertDialog(
             onDismissRequest = {
                 pendingSession = null
                 pendingConflicts = emptyList()
+                autoNewerConflictPreview = false
                 conflictChoices.clear()
             },
             title = { Text(stringResource(R.string.sync_dialog_conflict_title)) },
@@ -431,6 +470,7 @@ fun SyncDeviceDiscoveryScreen(
                         }
                         pendingSession = null
                         pendingConflicts = emptyList()
+                        autoNewerConflictPreview = false
                         conflictChoices.clear()
                         busy = true
                         syncingFullScreenVisible = true
@@ -453,6 +493,7 @@ fun SyncDeviceDiscoveryScreen(
                 TextButton(onClick = {
                     pendingSession = null
                     pendingConflicts = emptyList()
+                    autoNewerConflictPreview = false
                     conflictChoices.clear()
                 }) {
                     Text(stringResource(R.string.btn_cancel))

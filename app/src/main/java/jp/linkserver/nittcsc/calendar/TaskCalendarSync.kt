@@ -149,6 +149,46 @@ class TaskCalendarSync(private val context: Context) {
 
     fun deletePlanEvent(calendarEventId: Long): Boolean = deleteTaskEvent(calendarEventId)
 
+    fun clearDeadlineEvents(): Int {
+        return try {
+            context.contentResolver.delete(
+                CalendarContract.Events.CONTENT_URI,
+                DEADLINE_EVENT_SELECTION,
+                DEADLINE_EVENT_SELECTION_ARGS
+            )
+        } catch (_: SecurityException) {
+            0
+        } catch (_: Exception) {
+            0
+        }
+    }
+
+    fun clearReminderEvents(): Int {
+        return try {
+            context.contentResolver.delete(
+                CalendarContract.Events.CONTENT_URI,
+                REMINDER_EVENT_SELECTION,
+                REMINDER_EVENT_SELECTION_ARGS
+            )
+        } catch (_: SecurityException) {
+            0
+        } catch (_: Exception) {
+            0
+        }
+    }
+
+    fun countDeadlineEvents(): Int {
+        return countEvents(DEADLINE_EVENT_SELECTION, DEADLINE_EVENT_SELECTION_ARGS)
+    }
+
+    fun countReminderEvents(): Int {
+        return countEvents(REMINDER_EVENT_SELECTION, REMINDER_EVENT_SELECTION_ARGS)
+    }
+
+    fun clearAppCreatedEvents(): Int {
+        return clearDeadlineEvents() + clearReminderEvents()
+    }
+
     private fun buildReminderDescription(task: TaskEntity): String {
         return buildString {
             append("NITTC Scheduler - 課題リマインド")
@@ -202,5 +242,52 @@ class TaskCalendarSync(private val context: Context) {
         }
 
         return null
+    }
+
+    private fun countEvents(selection: String, selectionArgs: Array<String>): Int {
+        return try {
+            context.contentResolver.query(
+                CalendarContract.Events.CONTENT_URI,
+                arrayOf(CalendarContract.Events._ID),
+                selection,
+                selectionArgs,
+                null
+            )?.use { cursor ->
+                cursor.count
+            } ?: 0
+        } catch (_: SecurityException) {
+            0
+        } catch (_: Exception) {
+            0
+        }
+    }
+
+    companion object {
+        private const val TASK_DEADLINE_DESCRIPTION = "NITTC Scheduler - 課題"
+        private const val PLAN_DEADLINE_DESCRIPTION = "NITTC Scheduler - 予定"
+        private const val TASK_REMINDER_DESCRIPTION = "NITTC Scheduler - 課題リマインド"
+        private const val PLAN_REMINDER_DESCRIPTION = "NITTC Scheduler - 予定リマインド"
+        private val DEADLINE_EVENT_SELECTION =
+            "${CalendarContract.Events.DESCRIPTION} = ? OR " +
+                "${CalendarContract.Events.DESCRIPTION} LIKE ? OR " +
+                "${CalendarContract.Events.DESCRIPTION} = ? OR " +
+                "${CalendarContract.Events.DESCRIPTION} LIKE ?"
+        private val DEADLINE_EVENT_SELECTION_ARGS = arrayOf(
+            TASK_DEADLINE_DESCRIPTION,
+            "$TASK_DEADLINE_DESCRIPTION\n%",
+            PLAN_DEADLINE_DESCRIPTION,
+            "$PLAN_DEADLINE_DESCRIPTION\n%"
+        )
+        private val REMINDER_EVENT_SELECTION =
+            "${CalendarContract.Events.DESCRIPTION} = ? OR " +
+                "${CalendarContract.Events.DESCRIPTION} LIKE ? OR " +
+                "${CalendarContract.Events.DESCRIPTION} = ? OR " +
+                "${CalendarContract.Events.DESCRIPTION} LIKE ?"
+        private val REMINDER_EVENT_SELECTION_ARGS = arrayOf(
+            TASK_REMINDER_DESCRIPTION,
+            "$TASK_REMINDER_DESCRIPTION\n%",
+            PLAN_REMINDER_DESCRIPTION,
+            "$PLAN_REMINDER_DESCRIPTION\n%"
+        )
     }
 }

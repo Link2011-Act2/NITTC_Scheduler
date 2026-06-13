@@ -30,11 +30,16 @@ import androidx.glance.layout.width
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
+import androidx.glance.text.TextDecoration
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import jp.linkserver.nittcsc.MainActivity
 import jp.linkserver.nittcsc.data.DayType
 import androidx.compose.ui.graphics.Color as ComposeColor
+
+private val WidgetTaskDotColor = ColorProvider(ComposeColor(0xFFBA1A1A))
+private val WidgetPlanDotColor = ColorProvider(ComposeColor(0xFF2E86C1))
+private val WidgetCancelledTextColor = ColorProvider(ComposeColor(0xFF8A949B))
 
 class TimetableSmallWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -147,9 +152,12 @@ private fun Content(data: WidgetData) {
                     slot.index,
                     data.lessons,
                     data.dayTypeEntities,
-                    data.dayTypeMap
+                    data.dayTypeMap,
+                    data.changedLessons
                 )
+                val isCancelled = data.cancelledLessons.contains(data.today to slot.index)
                 val hasTasks = WidgetDataHelper.hasTasksForLesson(data, lesson)
+                val hasPlans = WidgetDataHelper.hasPlansForLesson(data, lesson)
 
                 Row(
                     modifier = GlanceModifier
@@ -170,9 +178,10 @@ private fun Content(data: WidgetData) {
                     Text(
                         text = lesson?.subject?.take(10) ?: "—",
                         style = TextStyle(
-                            color = GlanceTheme.colors.onBackground,
+                            color = if (isCancelled) WidgetCancelledTextColor else GlanceTheme.colors.onBackground,
                             fontSize = bodySize,
-                            fontWeight = if (lesson != null) FontWeight.Medium else FontWeight.Normal
+                            fontWeight = if (lesson != null && !isCancelled) FontWeight.Medium else FontWeight.Normal,
+                            textDecoration = if (isCancelled) TextDecoration.LineThrough else null
                         ),
                         modifier = GlanceModifier.defaultWeight(),
                         maxLines = 1
@@ -181,7 +190,16 @@ private fun Content(data: WidgetData) {
                         Text(
                             text = "●",
                             style = TextStyle(
-                                color = ColorProvider(ComposeColor(0xFFBA1A1A)),
+                                color = WidgetTaskDotColor,
+                                fontSize = dotSize
+                            )
+                        )
+                    }
+                    if (hasPlans) {
+                        Text(
+                            text = "●",
+                            style = TextStyle(
+                                color = WidgetPlanDotColor,
                                 fontSize = dotSize
                             )
                         )

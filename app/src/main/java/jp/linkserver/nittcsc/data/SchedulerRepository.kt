@@ -19,12 +19,11 @@ class SchedulerRepository(private val db: AppDatabase) {
     private val dao: SchedulerDao = db.schedulerDao()
 
     companion object {
-        private const val CURRENT_EXPORT_VERSION = 6
+        private const val CURRENT_EXPORT_VERSION = 7
         private const val MIN_SUPPORTED_IMPORT_VERSION = 1
         private const val MAX_FUTURE_META_DRIFT_MS = 5 * 60 * 1000L
         const val DATASET_TASKS = "tasks"
         const val DATASET_PLANS = "plans"
-        const val DATASET_SCHEDULE_SETTINGS = "scheduleSettings"
         const val DATASET_LESSONS = "lessons"
         const val DATASET_DAY_TYPES = "dayTypes"
         const val DATASET_LONG_BREAKS = "longBreaks"
@@ -33,7 +32,6 @@ class SchedulerRepository(private val db: AppDatabase) {
         val SYNC_DATASET_KEYS = listOf(
             DATASET_TASKS,
             DATASET_PLANS,
-            DATASET_SCHEDULE_SETTINGS,
             DATASET_LESSONS,
             DATASET_DAY_TYPES,
             DATASET_LONG_BREAKS,
@@ -46,6 +44,7 @@ class SchedulerRepository(private val db: AppDatabase) {
     val dayTypesFlow: Flow<List<DayTypeEntity>> = dao.observeDayTypes()
     val cancelledLessonsFlow: Flow<List<CancelledLessonEntity>> = dao.observeCancelledLessons()
     val changedLessonsFlow: Flow<List<ChangedLessonEntity>> = dao.observeChangedLessons()
+    val lessonNotificationExclusionsFlow: Flow<List<LessonNotificationExclusionEntity>> = dao.observeLessonNotificationExclusions()
     val longBreaksFlow: Flow<List<LongBreakEntity>> = dao.observeLongBreaks()
     val lessonsFlow: Flow<List<LessonEntity>> = dao.observeLessons()
     val tasksFlow: Flow<List<TaskEntity>> = dao.observeTasks()
@@ -68,7 +67,7 @@ class SchedulerRepository(private val db: AppDatabase) {
             val settings = defaultSettings(today)
             dao.upsertSettings(settings)
             syncDayTypes()
-            touchSyncDatasetMeta(DATASET_SCHEDULE_SETTINGS, DATASET_DAY_TYPES)
+            touchSyncDatasetMeta(DATASET_DAY_TYPES)
         }
     }
 
@@ -82,7 +81,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                 )
             )
             syncDayTypes()
-            touchSyncDatasetMeta(DATASET_SCHEDULE_SETTINGS, DATASET_DAY_TYPES)
+            touchSyncDatasetMeta(DATASET_DAY_TYPES)
         }
     }
 
@@ -119,7 +118,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                 )
             )
             ensureLessonRows()
-            touchSyncDatasetMeta(DATASET_SCHEDULE_SETTINGS, DATASET_LESSONS)
+            touchSyncDatasetMeta(DATASET_LESSONS)
         }
     }
 
@@ -136,6 +135,36 @@ class SchedulerRepository(private val db: AppDatabase) {
     suspend fun toggleAddTasksToCalendar(enabled: Boolean) {
         val current = dao.getSettings() ?: return
         dao.upsertSettings(current.copy(addTasksToCalendar = enabled))
+    }
+
+    suspend fun toggleSyncLessonsToCalendar(enabled: Boolean) {
+        val current = dao.getSettings() ?: return
+        dao.upsertSettings(current.copy(syncLessonsToCalendar = enabled))
+    }
+
+    suspend fun enableSyncLessonsToCalendar(start: LocalDate, end: LocalDate) {
+        val current = dao.getSettings() ?: return
+        val normalizedStart = minOf(start, end)
+        val normalizedEnd = maxOf(start, end)
+        dao.upsertSettings(
+            current.copy(
+                syncLessonsToCalendar = true,
+                lessonCalendarSyncStart = normalizedStart,
+                lessonCalendarSyncEnd = normalizedEnd
+            )
+        )
+    }
+
+    suspend fun updateLessonCalendarSyncRange(start: LocalDate, end: LocalDate) {
+        val current = dao.getSettings() ?: return
+        val normalizedStart = minOf(start, end)
+        val normalizedEnd = maxOf(start, end)
+        dao.upsertSettings(
+            current.copy(
+                lessonCalendarSyncStart = normalizedStart,
+                lessonCalendarSyncEnd = normalizedEnd
+            )
+        )
     }
 
     suspend fun toggleCurrentTimeMarker(enabled: Boolean) {
@@ -161,6 +190,50 @@ class SchedulerRepository(private val db: AppDatabase) {
     suspend fun toggleAdvancedTimeSettingsUi(enabled: Boolean) {
         val current = dao.getSettings() ?: return
         dao.upsertSettings(current.copy(useAdvancedTimeSettingsUi = enabled))
+    }
+
+    suspend fun toggleLessonStartNotifications(enabled: Boolean) {
+        val current = dao.getSettings() ?: return
+        dao.upsertSettings(current.copy(lessonStartNotificationEnabled = enabled))
+    }
+
+    suspend fun updateLessonStartNotificationMinutesBefore(minutesBefore: Int) {
+        val current = dao.getSettings() ?: return
+        dao.upsertSettings(
+            current.copy(
+                lessonStartNotificationMinutesBefore = minutesBefore.coerceIn(0, 360)
+            )
+        )
+    }
+
+    suspend fun toggleLessonStartNotificationLiveUpdates(enabled: Boolean) {
+        val current = dao.getSettings() ?: return
+        dao.upsertSettings(current.copy(lessonStartNotificationLiveUpdatesEnabled = enabled))
+    }
+
+    suspend fun toggleLessonStartNotificationProgressCountsDown(enabled: Boolean) {
+        val current = dao.getSettings() ?: return
+        dao.upsertSettings(current.copy(lessonStartNotificationProgressCountsDown = enabled))
+    }
+
+    suspend fun upsertLessonNotificationExclusion(
+        subject: String,
+        teacher: String?,
+        matchTeacher: Boolean
+    ) {
+        val normalizedSubject = subject.trim()
+        if (normalizedSubject.isBlank()) return
+        dao.upsertLessonNotificationExclusion(
+            LessonNotificationExclusionEntity(
+                subject = normalizedSubject,
+                teacher = teacher?.trim()?.takeIf { it.isNotEmpty() },
+                matchTeacher = matchTeacher && !teacher.isNullOrBlank()
+            )
+        )
+    }
+
+    suspend fun deleteLessonNotificationExclusion(exclusionId: Long) {
+        dao.deleteLessonNotificationExclusion(exclusionId)
     }
 
     suspend fun updateHfToken(token: String?) {
@@ -418,6 +491,8 @@ class SchedulerRepository(private val db: AppDatabase) {
         val settings = dao.getSettings() ?: return emptyList()
         val dayTypeMap = dao.getDayTypesOnce().associateBy { it.date }
         val lessons = dao.getLessonsOnce().associateBy { it.dayOfWeek to it.slotIndex }
+        val cancelledLessons = dao.getCancelledLessonsOnce()
+            .mapTo(mutableSetOf()) { it.date to it.slotIndex }
 
         val dateBounds = when (range) {
             is ExportRange.Custom -> range.start..range.end
@@ -452,6 +527,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                     settings.useKosenMode, settings.lunchAfterPeriod
                 )
                 for (slot in slots) {
+                    if ((date to slot.index) in cancelledLessons) continue
                     val lesson = lessons[dayKey to slot.index] ?: continue
                     val resolved = dao.getChangedLesson(date, slot.index)?.let {
                         ResolvedLesson(it.subject, it.teacher, it.location)
@@ -1004,6 +1080,7 @@ class SchedulerRepository(private val db: AppDatabase) {
         val plans = dao.getPlansOnce()
         val cancelledLessons = dao.getCancelledLessonsOnce()
         val changedLessons = dao.getChangedLessonsOnce()
+        val lessonNotificationExclusions = dao.getLessonNotificationExclusionsOnce()
 
         val root = org.json.JSONObject()
         root.put("version", CURRENT_EXPORT_VERSION)
@@ -1035,6 +1112,13 @@ class SchedulerRepository(private val db: AppDatabase) {
                 s.put("showWeekdayOnDates", settings.showWeekdayOnDates)
                 s.put("enableTlsSync", settings.enableTlsSync)
                 s.put("useAdvancedTimeSettingsUi", settings.useAdvancedTimeSettingsUi)
+                s.put("lessonStartNotificationEnabled", settings.lessonStartNotificationEnabled)
+                s.put("lessonStartNotificationMinutesBefore", settings.lessonStartNotificationMinutesBefore)
+                s.put("lessonStartNotificationLiveUpdatesEnabled", settings.lessonStartNotificationLiveUpdatesEnabled)
+                s.put("lessonStartNotificationProgressCountsDown", settings.lessonStartNotificationProgressCountsDown)
+                s.put("syncLessonsToCalendar", settings.syncLessonsToCalendar)
+                if (settings.lessonCalendarSyncStart != null) s.put("lessonCalendarSyncStart", settings.lessonCalendarSyncStart.toString())
+                if (settings.lessonCalendarSyncEnd != null) s.put("lessonCalendarSyncEnd", settings.lessonCalendarSyncEnd.toString())
             })
         }
 
@@ -1154,11 +1238,21 @@ class SchedulerRepository(private val db: AppDatabase) {
             }
         })
 
+        root.put("lessonNotificationExclusions", org.json.JSONArray().also { arr ->
+            lessonNotificationExclusions.forEach { exclusion ->
+                arr.put(org.json.JSONObject().also { obj ->
+                    obj.put("subject", exclusion.subject)
+                    if (exclusion.teacher != null) obj.put("teacher", exclusion.teacher)
+                    obj.put("matchTeacher", exclusion.matchTeacher)
+                    obj.put("createdAt", exclusion.createdAt)
+                })
+            }
+        })
+
         return root.toString(2)
     }
 
     suspend fun exportSyncPayload(): org.json.JSONObject {
-        val settings = dao.getSettings()
         val lessons = dao.getLessonsOnce()
         val longBreaks = dao.getLongBreaksOnce()
         val dayTypes = dao.getDayTypesOnce()
@@ -1184,26 +1278,6 @@ class SchedulerRepository(private val db: AppDatabase) {
             })
         }
         root.put("metadata", meta)
-
-        if (settings != null) {
-            root.put(DATASET_SCHEDULE_SETTINGS, org.json.JSONObject().also { s ->
-                s.put("termStart", settings.termStart.toString())
-                s.put("termEnd", settings.termEnd.toString())
-                s.put("periodsPerDay", settings.periodsPerDay)
-                s.put("periodDurationMin", settings.periodDurationMin)
-                s.put("breakBetweenPeriodsMin", settings.breakBetweenPeriodsMin)
-                s.put("lunchBreakMin", settings.lunchBreakMin)
-                s.put("lunchAfterPeriod", settings.lunchAfterPeriod)
-                s.put("firstPeriodStartHour", settings.firstPeriodStartHour)
-                s.put("firstPeriodStartMinute", settings.firstPeriodStartMinute)
-                s.put("useKosenMode", settings.useKosenMode)
-                s.put("arrivalHour", settings.arrivalHour)
-                s.put("arrivalMinute", settings.arrivalMinute)
-                s.put("departureHour", settings.departureHour)
-                s.put("departureMinute", settings.departureMinute)
-                s.put("useAdvancedTimeSettingsUi", settings.useAdvancedTimeSettingsUi)
-            })
-        }
 
         root.put(DATASET_LESSONS, org.json.JSONArray().also { arr ->
             lessons.forEach { lesson ->
@@ -1322,30 +1396,7 @@ class SchedulerRepository(private val db: AppDatabase) {
     }
 
     suspend fun applySyncPayload(payload: org.json.JSONObject) {
-        val settings = dao.getSettings()
         val touchedDatasets = mutableSetOf<String>()
-
-        payload.optJSONObject(DATASET_SCHEDULE_SETTINGS)?.let { s ->
-            touchedDatasets += DATASET_SCHEDULE_SETTINGS
-            val base = settings ?: defaultSettings(LocalDate.now())
-            dao.upsertSettings(base.copy(
-                termStart = runCatching { java.time.LocalDate.parse(s.optString("termStart")) }.getOrElse { base.termStart },
-                termEnd = runCatching { java.time.LocalDate.parse(s.optString("termEnd")) }.getOrElse { base.termEnd },
-                periodsPerDay = if (s.has("periodsPerDay")) s.optInt("periodsPerDay", base.periodsPerDay) else base.periodsPerDay,
-                periodDurationMin = if (s.has("periodDurationMin")) s.optInt("periodDurationMin", base.periodDurationMin) else base.periodDurationMin,
-                breakBetweenPeriodsMin = if (s.has("breakBetweenPeriodsMin")) s.optInt("breakBetweenPeriodsMin", base.breakBetweenPeriodsMin) else base.breakBetweenPeriodsMin,
-                lunchBreakMin = if (s.has("lunchBreakMin")) s.optInt("lunchBreakMin", base.lunchBreakMin) else base.lunchBreakMin,
-                lunchAfterPeriod = if (s.has("lunchAfterPeriod")) s.optInt("lunchAfterPeriod", base.lunchAfterPeriod) else base.lunchAfterPeriod,
-                firstPeriodStartHour = if (s.has("firstPeriodStartHour")) s.optInt("firstPeriodStartHour", base.firstPeriodStartHour) else base.firstPeriodStartHour,
-                firstPeriodStartMinute = if (s.has("firstPeriodStartMinute")) s.optInt("firstPeriodStartMinute", base.firstPeriodStartMinute) else base.firstPeriodStartMinute,
-                useKosenMode = if (s.has("useKosenMode")) s.optBoolean("useKosenMode", base.useKosenMode) else base.useKosenMode,
-                arrivalHour = if (s.has("arrivalHour")) s.optInt("arrivalHour", base.arrivalHour) else base.arrivalHour,
-                arrivalMinute = if (s.has("arrivalMinute")) s.optInt("arrivalMinute", base.arrivalMinute) else base.arrivalMinute,
-                departureHour = if (s.has("departureHour")) s.optInt("departureHour", base.departureHour) else base.departureHour,
-                departureMinute = if (s.has("departureMinute")) s.optInt("departureMinute", base.departureMinute) else base.departureMinute,
-                useAdvancedTimeSettingsUi = if (s.has("useAdvancedTimeSettingsUi")) s.optBoolean("useAdvancedTimeSettingsUi", base.useAdvancedTimeSettingsUi) else base.useAdvancedTimeSettingsUi
-            ))
-        }
 
         payload.optJSONArray(DATASET_LESSONS)?.let { arr ->
             touchedDatasets += DATASET_LESSONS
@@ -1569,7 +1620,14 @@ class SchedulerRepository(private val db: AppDatabase) {
                 unifyTaskPlanView = s.optBoolean("unifyTaskPlanView", false),
                 showWeekdayOnDates = s.optBoolean("showWeekdayOnDates", false),
                 enableTlsSync = s.optBoolean("enableTlsSync", false),
-                useAdvancedTimeSettingsUi = s.optBoolean("useAdvancedTimeSettingsUi", false)
+                useAdvancedTimeSettingsUi = s.optBoolean("useAdvancedTimeSettingsUi", false),
+                lessonStartNotificationEnabled = s.optBoolean("lessonStartNotificationEnabled", false),
+                lessonStartNotificationMinutesBefore = s.optInt("lessonStartNotificationMinutesBefore", 10),
+                lessonStartNotificationLiveUpdatesEnabled = s.optBoolean("lessonStartNotificationLiveUpdatesEnabled", true),
+                lessonStartNotificationProgressCountsDown = s.optBoolean("lessonStartNotificationProgressCountsDown", false),
+                syncLessonsToCalendar = s.optBoolean("syncLessonsToCalendar", false),
+                lessonCalendarSyncStart = s.optString("lessonCalendarSyncStart", "").takeIf { it.isNotBlank() }?.let(LocalDate::parse),
+                lessonCalendarSyncEnd = s.optString("lessonCalendarSyncEnd", "").takeIf { it.isNotBlank() }?.let(LocalDate::parse)
             )
         }
 
@@ -1732,6 +1790,21 @@ class SchedulerRepository(private val db: AppDatabase) {
             }
         }
 
+        val lessonNotificationExclusionEntities = mutableListOf<LessonNotificationExclusionEntity>()
+        normalizedRoot.optJSONArray("lessonNotificationExclusions")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val subject = obj.optString("subject", "").trim()
+                if (subject.isBlank()) continue
+                lessonNotificationExclusionEntities += LessonNotificationExclusionEntity(
+                    subject = subject,
+                    teacher = obj.optString("teacher", "").trim().takeIf { it.isNotBlank() },
+                    matchTeacher = obj.optBoolean("matchTeacher", false),
+                    createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+                )
+            }
+        }
+
         db.withTransaction {
             settingsEntity?.let { dao.upsertSettings(it) }
 
@@ -1765,9 +1838,13 @@ class SchedulerRepository(private val db: AppDatabase) {
                 changedLessonEntities.forEach { dao.upsertChangedLesson(it) }
             }
 
+            dao.deleteAllLessonNotificationExclusions()
+            if (lessonNotificationExclusionEntities.isNotEmpty()) {
+                lessonNotificationExclusionEntities.forEach { dao.upsertLessonNotificationExclusion(it) }
+            }
+
             syncDayTypes()
             touchSyncDatasetMeta(
-                DATASET_SCHEDULE_SETTINGS,
                 DATASET_LESSONS,
                 DATASET_LONG_BREAKS,
                 DATASET_DAY_TYPES,
@@ -1808,6 +1885,21 @@ class SchedulerRepository(private val db: AppDatabase) {
             }
             if (!s.has("useAdvancedTimeSettingsUi")) {
                 s.put("useAdvancedTimeSettingsUi", false)
+            }
+            if (!s.has("lessonStartNotificationEnabled")) {
+                s.put("lessonStartNotificationEnabled", false)
+            }
+            if (!s.has("lessonStartNotificationMinutesBefore")) {
+                s.put("lessonStartNotificationMinutesBefore", 10)
+            }
+            if (!s.has("lessonStartNotificationLiveUpdatesEnabled")) {
+                s.put("lessonStartNotificationLiveUpdatesEnabled", true)
+            }
+            if (!s.has("lessonStartNotificationProgressCountsDown")) {
+                s.put("lessonStartNotificationProgressCountsDown", false)
+            }
+            if (!s.has("syncLessonsToCalendar")) {
+                s.put("syncLessonsToCalendar", false)
             }
         }
 
@@ -1855,6 +1947,9 @@ class SchedulerRepository(private val db: AppDatabase) {
 
         if (!root.has("plans")) {
             root.put("plans", org.json.JSONArray())
+        }
+        if (!root.has("lessonNotificationExclusions")) {
+            root.put("lessonNotificationExclusions", org.json.JSONArray())
         }
     }
 }

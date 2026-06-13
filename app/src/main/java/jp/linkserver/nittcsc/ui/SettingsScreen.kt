@@ -2,6 +2,7 @@ package jp.linkserver.nittcsc.ui
 
 import android.content.Intent
 import android.os.Build
+import android.provider.Settings
 import android.widget.Toast
 import androidx.annotation.StringRes
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -9,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import jp.linkserver.nittcsc.R
@@ -26,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.animation.animateColorAsState
@@ -36,8 +39,14 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Button
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -50,7 +59,9 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -65,12 +76,17 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.content.FileProvider
+import androidx.core.app.NotificationManagerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import jp.linkserver.nittcsc.data.LessonNotificationExclusionEntity
 import jp.linkserver.nittcsc.logic.generateClassSlots
 import jp.linkserver.nittcsc.update.clearDismissedUpdateNotification
 import jp.linkserver.nittcsc.update.isIntDevBuild
@@ -82,6 +98,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -97,10 +114,22 @@ fun SettingsScreen(
     onToggleLocalAi: (Boolean) -> Unit,
     onToggleDrawerNavigation: (Boolean) -> Unit,
     onToggleAddTasksToCalendar: (Boolean) -> Unit,
+    onToggleSyncLessonsToCalendar: (Boolean) -> Unit = {},
+    onEnableSyncLessonsToCalendar: (LocalDate, LocalDate) -> Unit = { _, _ -> },
+    onUpdateLessonCalendarSyncRange: (LocalDate, LocalDate) -> Unit = { _, _ -> },
+    onClearAppCalendarEvents: (Boolean, Boolean, Boolean) -> Unit = { _, _, _ -> },
     onToggleCurrentTimeMarker: (Boolean) -> Unit,
     onToggleUnifyTaskPlanView: (Boolean) -> Unit,
     onToggleShowWeekdayOnDates: (Boolean) -> Unit,
     onToggleAdvancedTimeSettingsUi: (Boolean) -> Unit,
+    subjectSuggestions: List<String> = emptyList(),
+    subjectTeacherCandidates: Map<String, List<String>> = emptyMap(),
+    onToggleLessonStartNotifications: (Boolean) -> Unit = {},
+    onUpdateLessonStartNotificationMinutesBefore: (Int) -> Unit = {},
+    onToggleLessonStartNotificationLiveUpdates: (Boolean) -> Unit = {},
+    onToggleLessonStartNotificationProgressCountsDown: (Boolean) -> Unit = {},
+    onAddLessonNotificationExclusion: (String, String?, Boolean) -> Unit = { _, _, _ -> },
+    onDeleteLessonNotificationExclusion: (LessonNotificationExclusionEntity) -> Unit = {},
     onUpdateScheduleSettings: (periodsPerDay: Int, periodDurationMin: Int, breakBetweenPeriodsMin: Int, lunchBreakMin: Int, lunchAfterPeriod: Int, startHour: Int, startMinute: Int, useKosenMode: Boolean, arrivalHour: Int, arrivalMinute: Int, departureHour: Int, departureMinute: Int) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _ -> },
     onExportAllAsJson: suspend () -> String = { "{}" },
     onImportAllFromJson: (String) -> Unit = {}
@@ -108,13 +137,38 @@ fun SettingsScreen(
     val enabledLocalAi = state.settings?.enableLocalAi ?: false
     val enabledDrawerNavigation = state.settings?.useDrawerNavigation ?: false
     val enabledTaskCalendarSync = state.settings?.addTasksToCalendar ?: false
+    val enabledLessonCalendarSync = state.settings?.syncLessonsToCalendar ?: false
     val enabledCurrentTimeMarker = state.settings?.showCurrentTimeMarker ?: false
     val enabledUnifyTaskPlanView = state.settings?.unifyTaskPlanView ?: false
     val enabledShowWeekdayOnDates = state.settings?.showWeekdayOnDates ?: false
     val enabledAdvancedTimeSettingsUi = state.settings?.useAdvancedTimeSettingsUi ?: false
+    val enabledLessonStartNotifications = state.settings?.lessonStartNotificationEnabled ?: false
+    val supportsLessonStartLiveUpdates = Build.VERSION.SDK_INT >= 36
+    val enabledLessonStartLiveUpdates = supportsLessonStartLiveUpdates &&
+        (state.settings?.lessonStartNotificationLiveUpdatesEnabled ?: true)
+    val enabledLessonStartProgressCountsDown =
+        state.settings?.lessonStartNotificationProgressCountsDown ?: false
     var expandTimetableSettings by rememberSaveable { mutableStateOf(true) }
     var showLocalAiWarningDialog by remember { mutableStateOf(false) }
     val s = state.settings
+    val lessonCalendarSyncStart = s?.lessonCalendarSyncStart ?: s?.termStart ?: LocalDate.now()
+    val lessonCalendarSyncEnd = s?.lessonCalendarSyncEnd ?: s?.termEnd ?: lessonCalendarSyncStart
+    var lessonCalendarDatePickerTarget by rememberSaveable { mutableStateOf<String?>(null) }
+    var showLessonCalendarSyncWizard by rememberSaveable { mutableStateOf(false) }
+    var lessonCalendarWizardStartEpoch by rememberSaveable { mutableStateOf(lessonCalendarSyncStart.toEpochDay()) }
+    var lessonCalendarWizardEndEpoch by rememberSaveable { mutableStateOf(lessonCalendarSyncEnd.toEpochDay()) }
+    var showClearAppCalendarEventsDialog by rememberSaveable { mutableStateOf(false) }
+    var clearLessonCalendarEvents by rememberSaveable { mutableStateOf(true) }
+    var clearDeadlineCalendarEvents by rememberSaveable { mutableStateOf(true) }
+    var clearReminderCalendarEvents by rememberSaveable { mutableStateOf(true) }
+    val lessonCalendarWizardStart = LocalDate.ofEpochDay(lessonCalendarWizardStartEpoch)
+    val lessonCalendarWizardEnd = LocalDate.ofEpochDay(lessonCalendarWizardEndEpoch)
+
+    fun openLessonCalendarSyncWizard() {
+        lessonCalendarWizardStartEpoch = lessonCalendarSyncStart.toEpochDay()
+        lessonCalendarWizardEndEpoch = lessonCalendarSyncEnd.toEpochDay()
+        showLessonCalendarSyncWizard = true
+    }
 
     // 時間割設定ローカル状態
     var periodsPerDay by remember(s) { mutableStateOf(s?.periodsPerDay?.toString() ?: "4") }
@@ -130,6 +184,9 @@ fun SettingsScreen(
     var arrivalMinute by remember(s) { mutableStateOf(if ((s?.arrivalMinute ?: -1) >= 0) s!!.arrivalMinute.toString().padStart(2,'0') else "") }
     var departureHour by remember(s) { mutableStateOf(if ((s?.departureHour ?: -1) >= 0) s!!.departureHour.toString() else "") }
     var departureMinute by remember(s) { mutableStateOf(if ((s?.departureMinute ?: -1) >= 0) s!!.departureMinute.toString().padStart(2,'0') else "") }
+    var lessonStartNotificationMinutesBefore by remember(s?.lessonStartNotificationMinutesBefore) {
+        mutableStateOf((s?.lessonStartNotificationMinutesBefore ?: 10).toString())
+    }
     var advancedPeriodCount by remember(enabledAdvancedTimeSettingsUi) { mutableStateOf(s?.periodsPerDay?.toString() ?: "4") }
     var advancedLunchAfterPeriod by remember(enabledAdvancedTimeSettingsUi) { mutableStateOf(s?.lunchAfterPeriod ?: 2) }
     var advancedPeriodRanges by remember(enabledAdvancedTimeSettingsUi) { mutableStateOf(emptyList<TimeRangeDraft>()) }
@@ -139,6 +196,26 @@ fun SettingsScreen(
     var isDraggingLunch by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var notificationsEnabled by remember {
+        mutableStateOf(NotificationManagerCompat.from(context).areNotificationsEnabled())
+    }
+    var promotedNotificationsEnabled by remember {
+        mutableStateOf(
+            supportsLessonStartLiveUpdates &&
+                runCatching {
+                    NotificationManagerCompat.from(context).canPostPromotedNotifications()
+                }.getOrDefault(false)
+        )
+    }
+    fun refreshNotificationStates() {
+        val notificationManager = NotificationManagerCompat.from(context)
+        notificationsEnabled = notificationManager.areNotificationsEnabled()
+        promotedNotificationsEnabled = supportsLessonStartLiveUpdates &&
+            runCatching {
+                notificationManager.canPostPromotedNotifications()
+            }.getOrDefault(false)
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
     val settingsScrollState = rememberScrollState()
     var showImportConfirmDialog by remember { mutableStateOf(false) }
     var pendingImportJson by remember { mutableStateOf<String?>(null) }
@@ -292,6 +369,30 @@ fun SettingsScreen(
         }
     }
 
+    LaunchedEffect(lessonStartNotificationMinutesBefore, s?.lessonStartNotificationMinutesBefore) {
+        delay(500)
+        val minutes = lessonStartNotificationMinutesBefore.toIntOrNull()?.coerceIn(0, 360) ?: return@LaunchedEffect
+        if (minutes != (s?.lessonStartNotificationMinutesBefore ?: 10)) {
+            onUpdateLessonStartNotificationMinutesBefore(minutes)
+        }
+    }
+
+    LaunchedEffect(enabledLessonStartNotifications) {
+        refreshNotificationStates()
+    }
+
+    DisposableEffect(lifecycleOwner, supportsLessonStartLiveUpdates) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                refreshNotificationStates()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     val importJsonLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -308,6 +409,160 @@ fun SettingsScreen(
         }.onFailure {
             Toast.makeText(context, context.getString(R.string.msg_import_read_failed), Toast.LENGTH_SHORT).show()
         }
+    }
+
+    lessonCalendarDatePickerTarget?.let { target ->
+        val initialDate = when (target) {
+            "wizardStart" -> lessonCalendarWizardStart
+            "wizardEnd" -> lessonCalendarWizardEnd
+            "start" -> lessonCalendarSyncStart
+            else -> lessonCalendarSyncEnd
+        }
+        key(target, initialDate) {
+            val pickerState = rememberDatePickerState(
+                initialSelectedDateMillis = initialDate.toEpochDay() * 86_400_000L
+            )
+            DatePickerDialog(
+                onDismissRequest = { lessonCalendarDatePickerTarget = null },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            pickerState.selectedDateMillis?.let { selectedMillis ->
+                                val selectedDate = LocalDate.ofEpochDay(selectedMillis / 86_400_000L)
+                                when (target) {
+                                    "start" -> onUpdateLessonCalendarSyncRange(
+                                        selectedDate,
+                                        maxOf(selectedDate, lessonCalendarSyncEnd)
+                                    )
+                                    "end" -> onUpdateLessonCalendarSyncRange(
+                                        minOf(lessonCalendarSyncStart, selectedDate),
+                                        selectedDate
+                                    )
+                                    "wizardStart" -> {
+                                        lessonCalendarWizardStartEpoch = selectedDate.toEpochDay()
+                                        if (lessonCalendarWizardEndEpoch < lessonCalendarWizardStartEpoch) {
+                                            lessonCalendarWizardEndEpoch = lessonCalendarWizardStartEpoch
+                                        }
+                                    }
+                                    "wizardEnd" -> {
+                                        lessonCalendarWizardEndEpoch = selectedDate.toEpochDay()
+                                        if (lessonCalendarWizardStartEpoch > lessonCalendarWizardEndEpoch) {
+                                            lessonCalendarWizardStartEpoch = lessonCalendarWizardEndEpoch
+                                        }
+                                    }
+                                }
+                            }
+                            lessonCalendarDatePickerTarget = null
+                        }
+                    ) {
+                        Text(stringResource(R.string.btn_save))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { lessonCalendarDatePickerTarget = null }) {
+                        Text(stringResource(R.string.btn_cancel))
+                    }
+                }
+            ) {
+                DatePicker(state = pickerState)
+            }
+        }
+    }
+
+    if (showLessonCalendarSyncWizard) {
+        AlertDialog(
+            onDismissRequest = { showLessonCalendarSyncWizard = false },
+            title = { Text(stringResource(R.string.dialog_lesson_calendar_sync_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = stringResource(R.string.dialog_lesson_calendar_sync_message),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    LessonCalendarSyncDateRow(
+                        label = stringResource(R.string.label_lesson_calendar_sync_start),
+                        date = lessonCalendarWizardStart,
+                        onClick = { lessonCalendarDatePickerTarget = "wizardStart" }
+                    )
+                    LessonCalendarSyncDateRow(
+                        label = stringResource(R.string.label_lesson_calendar_sync_end),
+                        date = lessonCalendarWizardEnd,
+                        onClick = { lessonCalendarDatePickerTarget = "wizardEnd" }
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onEnableSyncLessonsToCalendar(
+                            minOf(lessonCalendarWizardStart, lessonCalendarWizardEnd),
+                            maxOf(lessonCalendarWizardStart, lessonCalendarWizardEnd)
+                        )
+                        showLessonCalendarSyncWizard = false
+                    }
+                ) {
+                    Text(stringResource(R.string.btn_enable_sync))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLessonCalendarSyncWizard = false }) {
+                    Text(stringResource(R.string.btn_cancel))
+                }
+            }
+        )
+    }
+
+    if (showClearAppCalendarEventsDialog) {
+        val hasClearSelection = clearLessonCalendarEvents ||
+            clearDeadlineCalendarEvents ||
+            clearReminderCalendarEvents
+        AlertDialog(
+            onDismissRequest = { showClearAppCalendarEventsDialog = false },
+            title = { Text(stringResource(R.string.dialog_clear_app_calendar_events_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = stringResource(R.string.dialog_clear_app_calendar_events_message),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    CalendarDeleteCategoryRow(
+                        title = stringResource(R.string.label_clear_calendar_lessons),
+                        checked = clearLessonCalendarEvents,
+                        onCheckedChange = { clearLessonCalendarEvents = it }
+                    )
+                    CalendarDeleteCategoryRow(
+                        title = stringResource(R.string.label_clear_calendar_deadlines),
+                        checked = clearDeadlineCalendarEvents,
+                        onCheckedChange = { clearDeadlineCalendarEvents = it }
+                    )
+                    CalendarDeleteCategoryRow(
+                        title = stringResource(R.string.label_clear_calendar_reminders),
+                        checked = clearReminderCalendarEvents,
+                        onCheckedChange = { clearReminderCalendarEvents = it }
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = hasClearSelection,
+                    onClick = {
+                        showClearAppCalendarEventsDialog = false
+                        onClearAppCalendarEvents(
+                            clearLessonCalendarEvents,
+                            clearDeadlineCalendarEvents,
+                            clearReminderCalendarEvents
+                        )
+                    }
+                ) {
+                    Text(stringResource(R.string.btn_check_delete_count))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearAppCalendarEventsDialog = false }) {
+                    Text(stringResource(R.string.btn_cancel))
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -581,6 +836,56 @@ fun SettingsScreen(
                 }
             }
 
+            // ── 通知設定 ──────────────────────────────────────────
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = stringResource(R.string.section_notification_settings),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    LessonStartNotificationSettingsContent(
+                        enabled = enabledLessonStartNotifications,
+                        notificationsEnabled = notificationsEnabled,
+                        promotedNotificationsEnabled = promotedNotificationsEnabled,
+                        liveUpdatesEnabled = enabledLessonStartLiveUpdates,
+                        liveUpdatesSupported = supportsLessonStartLiveUpdates,
+                        progressCountsDown = enabledLessonStartProgressCountsDown,
+                        minutesBefore = lessonStartNotificationMinutesBefore,
+                        exclusions = state.lessonNotificationExclusions,
+                        subjectSuggestions = subjectSuggestions,
+                        subjectTeacherCandidates = subjectTeacherCandidates,
+                        onToggleEnabled = onToggleLessonStartNotifications,
+                        onOpenNotificationSettings = {
+                            val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                            context.startActivity(intent)
+                        },
+                        onOpenPromotedNotificationSettings = {
+                            val intent = if (Build.VERSION.SDK_INT >= 36) {
+                                Intent(Settings.ACTION_APP_NOTIFICATION_PROMOTION_SETTINGS)
+                                    .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                            } else {
+                                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                    .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                            }
+                            context.startActivity(intent)
+                        },
+                        onToggleLiveUpdates = onToggleLessonStartNotificationLiveUpdates,
+                        onToggleProgressCountsDown = onToggleLessonStartNotificationProgressCountsDown,
+                        onMinutesBeforeChange = { lessonStartNotificationMinutesBefore = it },
+                        onAddExclusion = onAddLessonNotificationExclusion,
+                        onDeleteExclusion = onDeleteLessonNotificationExclusion
+                    )
+                }
+            }
+
             // ── 表示設定 ──────────────────────────────────────────
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
@@ -612,7 +917,7 @@ fun SettingsScreen(
                 }
             }
 
-            // ── 課題・予定設定 ──────────────────────────────────────────
+            // ── カレンダー連携 ──────────────────────────────────────────
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     text = stringResource(R.string.section_task_plan_settings),
@@ -634,11 +939,54 @@ fun SettingsScreen(
                             onCheckedChange = onToggleAddTasksToCalendar
                         )
                         SettingsSwitchRow(
-                            title = stringResource(R.string.label_unify_task_plan_view),
-                            description = stringResource(R.string.desc_unify_task_plan_view),
-                            checked = enabledUnifyTaskPlanView,
-                            onCheckedChange = onToggleUnifyTaskPlanView
+                            title = stringResource(R.string.label_sync_lessons_to_calendar),
+                            description = stringResource(R.string.desc_sync_lessons_to_calendar),
+                            checked = enabledLessonCalendarSync,
+                            onCheckedChange = { enabled ->
+                                if (enabled) {
+                                    openLessonCalendarSyncWizard()
+                                } else {
+                                    onToggleSyncLessonsToCalendar(false)
+                                }
+                            }
                         )
+                        if (enabledLessonCalendarSync) {
+                            Column(
+                                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.label_lesson_calendar_sync_period),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                LessonCalendarSyncDateRow(
+                                    label = stringResource(R.string.label_lesson_calendar_sync_start),
+                                    date = lessonCalendarSyncStart,
+                                    onClick = { lessonCalendarDatePickerTarget = "start" }
+                                )
+                                LessonCalendarSyncDateRow(
+                                    label = stringResource(R.string.label_lesson_calendar_sync_end),
+                                    date = lessonCalendarSyncEnd,
+                                    onClick = { lessonCalendarDatePickerTarget = "end" }
+                                )
+                            }
+                        }
+                        Column(
+                            modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 16.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    clearLessonCalendarEvents = true
+                                    clearDeadlineCalendarEvents = true
+                                    clearReminderCalendarEvents = true
+                                    showClearAppCalendarEventsDialog = true
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(stringResource(R.string.label_clear_app_calendar_events))
+                            }
+                        }
                     }
                 }
             }
@@ -659,10 +1007,10 @@ fun SettingsScreen(
                 ) {
                     Column {
                         SettingsSwitchRow(
-                            title = stringResource(R.string.label_use_hamburger_navigation),
-                            description = stringResource(R.string.desc_use_hamburger_navigation),
-                            checked = enabledDrawerNavigation,
-                            onCheckedChange = onToggleDrawerNavigation
+                            title = stringResource(R.string.label_unify_task_plan_view),
+                            description = stringResource(R.string.desc_unify_task_plan_view),
+                            checked = enabledUnifyTaskPlanView,
+                            onCheckedChange = onToggleUnifyTaskPlanView
                         )
                     }
                 }
@@ -684,6 +1032,18 @@ fun SettingsScreen(
                 ) {
                     Column {
                         SettingsSwitchRow(
+                            title = stringResource(R.string.label_use_hamburger_navigation),
+                            description = stringResource(R.string.desc_use_hamburger_navigation),
+                            checked = enabledDrawerNavigation,
+                            onCheckedChange = onToggleDrawerNavigation
+                        )
+                        SettingsSwitchRow(
+                            title = stringResource(R.string.label_advanced_time_settings_ui),
+                            description = stringResource(R.string.desc_advanced_time_settings_ui),
+                            checked = enabledAdvancedTimeSettingsUi,
+                            onCheckedChange = onToggleAdvancedTimeSettingsUi
+                        )
+                        SettingsSwitchRow(
                             title = stringResource(R.string.label_local_ai_import),
                             description = stringResource(R.string.desc_local_ai_import),
                             checked = enabledLocalAi,
@@ -694,12 +1054,6 @@ fun SettingsScreen(
                                     onToggleLocalAi(false)
                                 }
                             }
-                        )
-                        SettingsSwitchRow(
-                            title = stringResource(R.string.label_advanced_time_settings_ui),
-                            description = stringResource(R.string.desc_advanced_time_settings_ui),
-                            checked = enabledAdvancedTimeSettingsUi,
-                            onCheckedChange = onToggleAdvancedTimeSettingsUi
                         )
 
                         if (isIntDev) {
@@ -1551,10 +1905,435 @@ private fun TimePartField(
 }
 
 @Composable
+private fun LessonStartNotificationSettingsContent(
+    enabled: Boolean,
+    notificationsEnabled: Boolean,
+    promotedNotificationsEnabled: Boolean,
+    liveUpdatesEnabled: Boolean,
+    liveUpdatesSupported: Boolean,
+    progressCountsDown: Boolean,
+    minutesBefore: String,
+    exclusions: List<LessonNotificationExclusionEntity>,
+    subjectSuggestions: List<String>,
+    subjectTeacherCandidates: Map<String, List<String>>,
+    onToggleEnabled: (Boolean) -> Unit,
+    onOpenNotificationSettings: () -> Unit,
+    onOpenPromotedNotificationSettings: () -> Unit,
+    onToggleLiveUpdates: (Boolean) -> Unit,
+    onToggleProgressCountsDown: (Boolean) -> Unit,
+    onMinutesBeforeChange: (String) -> Unit,
+    onAddExclusion: (String, String?, Boolean) -> Unit,
+    onDeleteExclusion: (LessonNotificationExclusionEntity) -> Unit
+) {
+    var subject by remember { mutableStateOf("") }
+    var teacher by remember { mutableStateOf("") }
+    var matchTeacher by remember { mutableStateOf(false) }
+    var showSubjectSuggestions by remember { mutableStateOf(false) }
+
+    val filteredSubjectSuggestions = remember(subject, subjectSuggestions) {
+        val query = subject.trim()
+        subjectSuggestions
+            .asSequence()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .filter { query.isBlank() || it.contains(query, ignoreCase = true) }
+            .distinct()
+            .sorted()
+            .take(8)
+            .toList()
+    }
+    val teacherCandidates = remember(subject, subjectTeacherCandidates) {
+        val key = subject.trim()
+        if (key.isBlank()) emptyList()
+        else subjectTeacherCandidates.entries
+            .firstOrNull { it.key.equals(key, ignoreCase = true) }
+            ?.value.orEmpty()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
+    }
+    val canAdd = subject.trim().isNotBlank()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize()
+    ) {
+        SettingsSwitchRow(
+            title = stringResource(R.string.label_lesson_start_notification),
+            description = stringResource(R.string.desc_lesson_start_notification),
+            checked = enabled,
+            onCheckedChange = onToggleEnabled
+        )
+
+        if (enabled) {
+            Column(
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (!notificationsEnabled) {
+                    Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.WarningAmber,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                                Text(
+                                    text = stringResource(R.string.warning_notifications_disabled),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            OutlinedButton(onClick = onOpenNotificationSettings) {
+                                Text(stringResource(R.string.btn_open_notification_settings))
+                            }
+                        }
+                    }
+                }
+
+                if (liveUpdatesEnabled && liveUpdatesSupported && !promotedNotificationsEnabled) {
+                    Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.WarningAmber,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                                Text(
+                                    text = stringResource(R.string.warning_promoted_notifications_disabled),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            OutlinedButton(onClick = onOpenPromotedNotificationSettings) {
+                                Text(stringResource(R.string.btn_open_live_updates_settings))
+                            }
+                        }
+                    }
+                }
+
+                SettingsSwitchRow(
+                    title = stringResource(R.string.label_lesson_start_live_updates),
+                    description = if (liveUpdatesSupported) {
+                        stringResource(R.string.desc_lesson_start_live_updates)
+                    } else {
+                        stringResource(R.string.desc_lesson_start_live_updates_unavailable)
+                    },
+                    checked = liveUpdatesEnabled,
+                    enabled = liveUpdatesSupported,
+                    onCheckedChange = onToggleLiveUpdates
+                )
+
+                if (liveUpdatesEnabled && liveUpdatesSupported) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = stringResource(R.string.label_lesson_start_progress_direction),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        LessonStartProgressDirectionRow(
+                            selected = !progressCountsDown,
+                            title = stringResource(R.string.label_lesson_start_progress_increasing),
+                            description = stringResource(R.string.desc_lesson_start_progress_increasing),
+                            onClick = { onToggleProgressCountsDown(false) }
+                        )
+                        LessonStartProgressDirectionRow(
+                            selected = progressCountsDown,
+                            title = stringResource(R.string.label_lesson_start_progress_decreasing),
+                            description = stringResource(R.string.desc_lesson_start_progress_decreasing),
+                            onClick = { onToggleProgressCountsDown(true) }
+                        )
+                    }
+                }
+
+                NumberSettingRow(
+                    label = stringResource(R.string.label_lesson_start_notification_minutes),
+                    value = minutesBefore,
+                    unit = stringResource(R.string.unit_minutes_before),
+                    onValueChange = { onMinutesBeforeChange(it.filter { c -> c.isDigit() }.take(3)) }
+                )
+
+                HorizontalDivider()
+
+                Text(
+                    text = stringResource(R.string.label_lesson_start_notification_exclusions),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = stringResource(R.string.desc_lesson_start_notification_exclusions),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = subject,
+                        onValueChange = {
+                            subject = it
+                            showSubjectSuggestions = false
+                        },
+                        label = { Text(stringResource(R.string.label_task_subject)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        trailingIcon = {
+                            if (filteredSubjectSuggestions.isNotEmpty()) {
+                                IconButton(onClick = { showSubjectSuggestions = true }) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Search,
+                                        contentDescription = stringResource(R.string.label_task_subject)
+                                    )
+                                }
+                            }
+                        }
+                    )
+                    DropdownMenu(
+                        expanded = showSubjectSuggestions && filteredSubjectSuggestions.isNotEmpty(),
+                        onDismissRequest = { showSubjectSuggestions = false },
+                        modifier = Modifier.fillMaxWidth(0.95f)
+                    ) {
+                        filteredSubjectSuggestions.forEach { candidate ->
+                            DropdownMenuItem(
+                                text = { Text(candidate) },
+                                onClick = {
+                                    subject = candidate
+                                    showSubjectSuggestions = false
+                                    val candidates = subjectTeacherCandidates[candidate].orEmpty()
+                                    if (candidates.size == 1) {
+                                        teacher = candidates.first()
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            matchTeacher = !matchTeacher
+                        },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = matchTeacher,
+                        onCheckedChange = { checked -> matchTeacher = checked }
+                    )
+                    Column {
+                        Text(
+                            text = stringResource(R.string.label_lesson_start_notification_match_teacher),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            text = stringResource(R.string.desc_lesson_start_notification_match_teacher),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                if (matchTeacher) {
+                    OutlinedTextField(
+                        value = teacher,
+                        onValueChange = { teacher = it },
+                        label = { Text(stringResource(R.string.label_task_teacher)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    if (teacherCandidates.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            teacherCandidates.take(4).forEach { candidate ->
+                                Surface(
+                                    shape = MaterialTheme.shapes.small,
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    modifier = Modifier.clickable { teacher = candidate }
+                                ) {
+                                    Text(
+                                        text = candidate,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Button(
+                    onClick = {
+                        onAddExclusion(
+                            subject.trim(),
+                            teacher.trim().takeIf { it.isNotBlank() },
+                            matchTeacher && teacher.trim().isNotBlank()
+                        )
+                        subject = ""
+                        teacher = ""
+                        matchTeacher = false
+                    },
+                    enabled = canAdd,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.btn_add_lesson_start_notification_exclusion))
+                }
+
+                if (exclusions.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.msg_no_lesson_start_notification_exclusions),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        exclusions.forEach { exclusion ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = exclusion.subject,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    if (exclusion.matchTeacher && !exclusion.teacher.isNullOrBlank()) {
+                                        Text(
+                                            text = stringResource(
+                                                R.string.label_lesson_start_notification_exclusion_teacher,
+                                                exclusion.teacher
+                                            ),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                TextButton(onClick = { onDeleteExclusion(exclusion) }) {
+                                    Text(stringResource(R.string.btn_delete))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LessonStartProgressDirectionRow(
+    selected: Boolean,
+    title: String,
+    description: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(
+            selected = selected,
+            onClick = onClick
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun LessonCalendarSyncDateRow(
+    label: String,
+    date: LocalDate,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        OutlinedButton(onClick = onClick) {
+            Text(date.format(DateTimeFormatter.ofPattern("yyyy/MM/dd")))
+        }
+    }
+}
+
+@Composable
+private fun CalendarDeleteCategoryRow(
+    title: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) },
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Checkbox(
+            checked = checked,
+            onCheckedChange = onCheckedChange
+        )
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(start = 4.dp)
+        )
+    }
+}
+
+@Composable
 private fun SettingsSwitchRow(
     title: String,
     description: String,
     checked: Boolean,
+    enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit
 ) {
     Row(
@@ -1578,6 +2357,7 @@ private fun SettingsSwitchRow(
         }
         Switch(
             checked = checked,
+            enabled = enabled,
             onCheckedChange = onCheckedChange
         )
     }

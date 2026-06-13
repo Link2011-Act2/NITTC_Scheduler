@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import jp.linkserver.nittcsc.BuildConfig
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.update.AppUpdateInfo
 import jp.linkserver.nittcsc.update.checkGitHubReleaseUpdate
@@ -347,7 +348,8 @@ fun AboutScreen(
                     stringResource(
                         R.string.about_version_details_message,
                         versionName,
-                        versionCode
+                        versionCode,
+                        BuildConfig.BUILD_NUMBER
                     )
                 )
             },

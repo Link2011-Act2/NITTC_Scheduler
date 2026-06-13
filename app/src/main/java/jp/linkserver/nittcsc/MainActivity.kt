@@ -8,6 +8,7 @@ import androidx.activity.viewModels
 import androidx.lifecycle.lifecycleScope
 import jp.linkserver.nittcsc.data.AppDatabase
 import jp.linkserver.nittcsc.data.SchedulerRepository
+import jp.linkserver.nittcsc.reminder.LessonStartNotificationWorker
 import jp.linkserver.nittcsc.reminder.PlanReminderWorker
 import jp.linkserver.nittcsc.reminder.TaskReminderWorker
 import jp.linkserver.nittcsc.sync.LocalSyncManager
@@ -43,6 +44,7 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             TaskReminderWorker.rescheduleAll(this@MainActivity)
             PlanReminderWorker.rescheduleAll(this@MainActivity)
+            LessonStartNotificationWorker.rescheduleAll(this@MainActivity)
         }
     }
 

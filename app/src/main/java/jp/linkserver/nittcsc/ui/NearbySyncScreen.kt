@@ -259,8 +259,37 @@ fun NearbySyncScreen(
         )
     }
 
+    if (
+        nearbyState.phase == NearbyPhase.CONFLICT &&
+        nearbyState.pendingConflicts.isNotEmpty() &&
+        nearbyState.autoNewerConflictPreview &&
+        !conflictSubmitting
+    ) {
+        AutoNewerConflictDialog(
+            conflicts = nearbyState.pendingConflicts,
+            formatTimestamp = formatTimestamp,
+            onApprove = {
+                val resolutions = nearbyState.pendingConflicts.associate { conflict ->
+                    conflict.datasetKey to
+                        if (conflict.remoteUpdatedAt > conflict.localUpdatedAt) SyncChoice.REMOTE else SyncChoice.LOCAL
+                }
+                conflictSubmitting = true
+                onApplyConflictResolutions(resolutions)
+            },
+            onCancel = {
+                conflictSubmitting = true
+                onStopAll()
+            }
+        )
+    }
+
     // --- 競合解決ダイアログ ---
-    if (nearbyState.phase == NearbyPhase.CONFLICT && nearbyState.pendingConflicts.isNotEmpty() && !conflictSubmitting) {
+    if (
+        nearbyState.phase == NearbyPhase.CONFLICT &&
+        nearbyState.pendingConflicts.isNotEmpty() &&
+        !nearbyState.autoNewerConflictPreview &&
+        !conflictSubmitting
+    ) {
         val conflictChoices = remember(nearbyState.pendingConflicts) { mutableStateMapOf<String, SyncChoice>().also { map ->
             nearbyState.pendingConflicts.forEach { map[it.datasetKey] = SyncChoice.LOCAL }
         }}

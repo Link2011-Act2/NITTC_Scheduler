@@ -76,6 +76,21 @@ interface SchedulerDao {
     @Query("DELETE FROM changed_lessons")
     suspend fun deleteAllChangedLessons()
 
+    @Query("SELECT * FROM lesson_notification_exclusions ORDER BY subject, teacher")
+    fun observeLessonNotificationExclusions(): Flow<List<LessonNotificationExclusionEntity>>
+
+    @Query("SELECT * FROM lesson_notification_exclusions ORDER BY subject, teacher")
+    suspend fun getLessonNotificationExclusionsOnce(): List<LessonNotificationExclusionEntity>
+
+    @Upsert
+    suspend fun upsertLessonNotificationExclusion(exclusion: LessonNotificationExclusionEntity): Long
+
+    @Query("DELETE FROM lesson_notification_exclusions WHERE id = :id")
+    suspend fun deleteLessonNotificationExclusion(id: Long)
+
+    @Query("DELETE FROM lesson_notification_exclusions")
+    suspend fun deleteAllLessonNotificationExclusions()
+
     @Query("SELECT * FROM long_breaks ORDER BY startDate")
     fun observeLongBreaks(): Flow<List<LongBreakEntity>>
 
@@ -219,6 +234,9 @@ interface SchedulerDao {
 
     @Query("SELECT * FROM sync_trusted_peers WHERE trustToken = :token LIMIT 1")
     suspend fun getSyncTrustedPeerByToken(token: String): SyncTrustedPeerEntity?
+
+    @Query("SELECT * FROM sync_trusted_peers WHERE peerDeviceId = :deviceId LIMIT 1")
+    suspend fun getSyncTrustedPeerByDeviceId(deviceId: String): SyncTrustedPeerEntity?
 
     @Upsert
     suspend fun upsertSyncTrustedPeer(peer: SyncTrustedPeerEntity)

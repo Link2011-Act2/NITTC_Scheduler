@@ -7,6 +7,7 @@ import jp.linkserver.nittcsc.data.DayType
 import jp.linkserver.nittcsc.data.DayTypeEntity
 import jp.linkserver.nittcsc.data.ChangedLessonEntity
 import jp.linkserver.nittcsc.data.HolidaySpecialLabel
+import jp.linkserver.nittcsc.data.LessonNotificationExclusionEntity
 import jp.linkserver.nittcsc.data.LessonDraft
 import jp.linkserver.nittcsc.data.LessonEntity
 import jp.linkserver.nittcsc.data.LessonMode
@@ -49,6 +50,7 @@ private data class CoreDataState(
     val dayTypeMap: Map<LocalDate, DayType>,
     val longBreaks: List<LongBreakEntity>,
     val changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity>,
+    val lessonNotificationExclusions: List<LessonNotificationExclusionEntity>,
     val lessons: Map<Pair<Int, Int>, LessonEntity>,
     val tasks: List<TaskEntity>,
     val incompleteTasks: List<TaskEntity>,
@@ -60,7 +62,8 @@ private data class SettingsBundle(
     val settings: SettingsEntity?,
     val dayTypes: List<DayTypeEntity>,
     val longBreaks: List<LongBreakEntity>,
-    val changedLessons: List<ChangedLessonEntity>
+    val changedLessons: List<ChangedLessonEntity>,
+    val lessonNotificationExclusions: List<LessonNotificationExclusionEntity>
 )
 
 data class SchedulerUiState(
@@ -69,6 +72,7 @@ data class SchedulerUiState(
     val dayTypeMap: Map<LocalDate, DayType> = emptyMap(),
     val longBreaks: List<LongBreakEntity> = emptyList(),
     val changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity> = emptyMap(),
+    val lessonNotificationExclusions: List<LessonNotificationExclusionEntity> = emptyList(),
     val lessons: Map<Pair<Int, Int>, LessonEntity> = emptyMap(),
     val tasks: List<TaskEntity> = emptyList(),
     val incompleteTasks: List<TaskEntity> = emptyList(),
@@ -103,9 +107,10 @@ class SchedulerViewModel(
                 repository.settingsFlow,
                 repository.dayTypesFlow,
                 repository.longBreaksFlow,
-                repository.changedLessonsFlow
-            ) { settings: SettingsEntity?, dayTypes: List<DayTypeEntity>, longBreaks: List<LongBreakEntity>, changedLessons: List<ChangedLessonEntity> ->
-                SettingsBundle(settings, dayTypes, longBreaks, changedLessons)
+                repository.changedLessonsFlow,
+                repository.lessonNotificationExclusionsFlow
+            ) { settings: SettingsEntity?, dayTypes: List<DayTypeEntity>, longBreaks: List<LongBreakEntity>, changedLessons: List<ChangedLessonEntity>, exclusions: List<LessonNotificationExclusionEntity> ->
+                SettingsBundle(settings, dayTypes, longBreaks, changedLessons, exclusions)
             },
             repository.lessonsFlow,
             repository.tasksFlow,
@@ -124,6 +129,7 @@ class SchedulerViewModel(
             dayTypeMap = baseData.dayTypes.associate { it.date to it.dayType },
             longBreaks = baseData.longBreaks,
             changedLessons = baseData.changedLessons.associateBy { it.date to it.slotIndex },
+            lessonNotificationExclusions = baseData.lessonNotificationExclusions,
             lessons = lessons.associateBy { it.dayOfWeek to it.slotIndex },
             tasks = tasks,
             incompleteTasks = incompleteTasks,
@@ -145,6 +151,7 @@ class SchedulerViewModel(
                 dayTypeMap = core.dayTypeMap,
                 longBreaks = core.longBreaks,
                 changedLessons = core.changedLessons,
+                lessonNotificationExclusions = core.lessonNotificationExclusions,
                 lessons = core.lessons,
                 tasks = core.tasks,
                 incompleteTasks = core.incompleteTasks,
@@ -420,6 +427,24 @@ class SchedulerViewModel(
         }
     }
 
+    fun toggleSyncLessonsToCalendar(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.toggleSyncLessonsToCalendar(enabled)
+        }
+    }
+
+    fun enableSyncLessonsToCalendar(start: LocalDate, end: LocalDate) {
+        viewModelScope.launch {
+            repository.enableSyncLessonsToCalendar(start, end)
+        }
+    }
+
+    fun updateLessonCalendarSyncRange(start: LocalDate, end: LocalDate) {
+        viewModelScope.launch {
+            repository.updateLessonCalendarSyncRange(start, end)
+        }
+    }
+
     fun toggleCurrentTimeMarker(enabled: Boolean) {
         viewModelScope.launch {
             repository.toggleCurrentTimeMarker(enabled)
@@ -448,6 +473,44 @@ class SchedulerViewModel(
     fun toggleAdvancedTimeSettingsUi(enabled: Boolean) {
         viewModelScope.launch {
             repository.toggleAdvancedTimeSettingsUi(enabled)
+        }
+    }
+
+    fun toggleLessonStartNotifications(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.toggleLessonStartNotifications(enabled)
+        }
+    }
+
+    fun updateLessonStartNotificationMinutesBefore(minutesBefore: Int) {
+        viewModelScope.launch {
+            repository.updateLessonStartNotificationMinutesBefore(minutesBefore)
+        }
+    }
+
+    fun toggleLessonStartNotificationLiveUpdates(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.toggleLessonStartNotificationLiveUpdates(enabled)
+        }
+    }
+
+    fun toggleLessonStartNotificationProgressCountsDown(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.toggleLessonStartNotificationProgressCountsDown(enabled)
+        }
+    }
+
+    fun addLessonNotificationExclusion(subject: String, teacher: String?, matchTeacher: Boolean) {
+        viewModelScope.launch {
+            repository.upsertLessonNotificationExclusion(subject, teacher, matchTeacher)
+            _snackbarMessages.emit("授業前通知の例外を追加しました。")
+        }
+    }
+
+    fun deleteLessonNotificationExclusion(exclusion: LessonNotificationExclusionEntity) {
+        viewModelScope.launch {
+            repository.deleteLessonNotificationExclusion(exclusion.id)
+            _snackbarMessages.emit("授業前通知の例外を削除しました。")
         }
     }
 
