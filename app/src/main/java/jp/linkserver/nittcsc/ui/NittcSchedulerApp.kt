@@ -20,6 +20,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -112,6 +113,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -133,6 +135,8 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.platform.ViewConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -176,6 +180,7 @@ import jp.linkserver.nittcsc.update.isUpdateNotificationDismissed
 import jp.linkserver.nittcsc.update.markUpdateCheckFinished
 import jp.linkserver.nittcsc.update.shouldCheckForUpdates
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.DayOfWeek
@@ -2985,6 +2990,12 @@ private fun OutputScreen(
     val showCurrentTimeMarker = state.settings?.showCurrentTimeMarker ?: false
     val shiftUnit = if (displayMode == OutputDisplayMode.DAY) 1L else 7L
     val classSlots = remember(state.settings) { state.settings.toClassSlots() }
+    val defaultViewConfiguration = LocalViewConfiguration.current
+    val timetablePagerViewConfiguration = remember(defaultViewConfiguration) {
+        object : ViewConfiguration by defaultViewConfiguration {
+            override val touchSlop: Float = defaultViewConfiguration.touchSlop * 1.75f
+        }
+    }
 
     val arrivalMin: Int? = remember(state.settings, classSlots) {
         val s = state.settings
@@ -3141,63 +3152,65 @@ private fun OutputScreen(
                     }
                 }
 
-                HorizontalPager(
-                    state = pagerState,
-                    pageSpacing = 12.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) { page ->
-                    val pageDelta = page.toLong() - centerPage.toLong()
-                    val pageDate = pagerAnchorDate.plusDays(pageDelta * shiftUnit)
+                CompositionLocalProvider(LocalViewConfiguration provides timetablePagerViewConfiguration) {
+                    HorizontalPager(
+                        state = pagerState,
+                        pageSpacing = 12.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    ) { page ->
+                        val pageDelta = page.toLong() - centerPage.toLong()
+                        val pageDate = pagerAnchorDate.plusDays(pageDelta * shiftUnit)
 
-                    if (displayMode == OutputDisplayMode.DAY) {
-                        DayScheduleTable(
-                            date = pageDate,
-                            dayType = dayTypeForDate(pageDate),
-                            resolveLesson = resolveLesson,
-                            resolveOriginalLesson = resolveOriginalLesson,
-                            changedLessonForDate = changedLessonForDate,
-                            tasks = state.tasks,
-                            plans = state.plans,
-                            onOpenTask = onOpenTask,
-                            onOpenPlan = onOpenPlan,
-                            classSlots = classSlots,
-                            arrivalMin = arrivalMin,
-                            departureMin = departureMin,
-                            showCurrentTimeMarker = showCurrentTimeMarker && pageDate == today,
-                            onAddFromLesson = onAddFromLesson,
-                            onSetLessonCancelled = onSetLessonCancelled,
-                            onEditChangedLesson = onEditChangedLesson,
-                            isLessonCancelled = isLessonCancelled,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    } else {
-                        val pageWeekStart = pageDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
-                        val pageWeekDates = remember(pageDate) {
-                            (0L..4L).map { pageWeekStart.plusDays(it) }
+                        if (displayMode == OutputDisplayMode.DAY) {
+                            DayScheduleTable(
+                                date = pageDate,
+                                dayType = dayTypeForDate(pageDate),
+                                resolveLesson = resolveLesson,
+                                resolveOriginalLesson = resolveOriginalLesson,
+                                changedLessonForDate = changedLessonForDate,
+                                tasks = state.tasks,
+                                plans = state.plans,
+                                onOpenTask = onOpenTask,
+                                onOpenPlan = onOpenPlan,
+                                classSlots = classSlots,
+                                arrivalMin = arrivalMin,
+                                departureMin = departureMin,
+                                showCurrentTimeMarker = showCurrentTimeMarker && pageDate == today,
+                                onAddFromLesson = onAddFromLesson,
+                                onSetLessonCancelled = onSetLessonCancelled,
+                                onEditChangedLesson = onEditChangedLesson,
+                                isLessonCancelled = isLessonCancelled,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else {
+                            val pageWeekStart = pageDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+                            val pageWeekDates = remember(pageDate) {
+                                (0L..4L).map { pageWeekStart.plusDays(it) }
+                            }
+                            WeekScheduleTable(
+                                dates = pageWeekDates,
+                                dayTypeForDate = dayTypeForDate,
+                                dayTypeEntityForDate = dayTypeEntityForDate,
+                                resolveLesson = resolveLesson,
+                                resolveOriginalLesson = resolveOriginalLesson,
+                                changedLessonForDate = changedLessonForDate,
+                                tasks = state.tasks,
+                                plans = state.plans,
+                                classSlots = classSlots,
+                                showCurrentTimeMarker = showCurrentTimeMarker && pageWeekDates.contains(today),
+                                onSaveLessonOverride = onSaveLessonOverride,
+                                onClearLessonOverride = onClearLessonOverride,
+                                onAddFromLesson = onAddFromLesson,
+                                onSetLessonCancelled = onSetLessonCancelled,
+                                onEditChangedLesson = onEditChangedLesson,
+                                isLessonCancelled = isLessonCancelled,
+                                onDayClick = { date ->
+                                    onPickDate(date)
+                                    displayMode = OutputDisplayMode.DAY
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
                         }
-                        WeekScheduleTable(
-                            dates = pageWeekDates,
-                            dayTypeForDate = dayTypeForDate,
-                            dayTypeEntityForDate = dayTypeEntityForDate,
-                            resolveLesson = resolveLesson,
-                            resolveOriginalLesson = resolveOriginalLesson,
-                            changedLessonForDate = changedLessonForDate,
-                            tasks = state.tasks,
-                            plans = state.plans,
-                            classSlots = classSlots,
-                            showCurrentTimeMarker = showCurrentTimeMarker && pageWeekDates.contains(today),
-                            onSaveLessonOverride = onSaveLessonOverride,
-                            onClearLessonOverride = onClearLessonOverride,
-                            onAddFromLesson = onAddFromLesson,
-                            onSetLessonCancelled = onSetLessonCancelled,
-                            onEditChangedLesson = onEditChangedLesson,
-                            isLessonCancelled = isLessonCancelled,
-                            onDayClick = { date ->
-                                onPickDate(date)
-                                displayMode = OutputDisplayMode.DAY
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        )
                     }
                 }
             }
@@ -5270,9 +5283,66 @@ private fun UpdateNotificationBanner(
     onOpen: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val dismissThresholdPx = with(density) { 56.dp.toPx() }
+    val dismissTargetPx = with(density) { 180.dp.toPx() }
+    var dragOffsetY by remember(updateInfo.tagName) { mutableFloatStateOf(0f) }
+    var dismissing by remember(updateInfo.tagName) { mutableStateOf(false) }
+    var settleJob by remember(updateInfo.tagName) { mutableStateOf<Job?>(null) }
+
+    fun settleBanner(dismiss: Boolean) {
+        if (dismissing) return
+        settleJob?.cancel()
+        settleJob = scope.launch {
+            if (dismiss) {
+                dismissing = true
+                val animation = Animatable(dragOffsetY)
+                animation.animateTo(
+                    targetValue = -dismissTargetPx,
+                    animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
+                ) {
+                    dragOffsetY = value
+                }
+                onDismiss()
+            } else {
+                val animation = Animatable(dragOffsetY)
+                animation.animateTo(
+                    targetValue = 0f,
+                    animationSpec = spring()
+                ) {
+                    dragOffsetY = value
+                }
+            }
+        }
+    }
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .graphicsLayer {
+                translationY = dragOffsetY
+                alpha = (1f - (-dragOffsetY / dismissTargetPx) * 0.45f).coerceIn(0.55f, 1f)
+            }
+            .pointerInput(updateInfo.tagName) {
+                detectVerticalDragGestures(
+                    onDragStart = {
+                        if (!dismissing) settleJob?.cancel()
+                    },
+                    onVerticalDrag = { change, dragAmount ->
+                        if (!dismissing) {
+                            change.consume()
+                            dragOffsetY = (dragOffsetY + dragAmount).coerceAtMost(0f)
+                        }
+                    },
+                    onDragEnd = {
+                        settleBanner(dragOffsetY <= -dismissThresholdPx)
+                    },
+                    onDragCancel = {
+                        settleBanner(dismiss = false)
+                    }
+                )
+            }
             .clickable(onClick = onOpen),
         shape = RoundedCornerShape(20.dp),
         tonalElevation = 8.dp,
