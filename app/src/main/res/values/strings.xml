@@ -419,8 +419,8 @@
     <string name="label_lesson_start_notification_exclusion_subject_only">教科名だけで除外</string>
     <string name="lesson_start_live_update_title">次の授業: %1$s</string>
     <string name="lesson_start_live_update_body">次は「%1$s」です。</string>
-    <string name="label_lesson_start_live_update_early_minutes">通知上の授業開始を早める</string>
-    <string name="desc_lesson_start_live_update_early_minutes">Live Updatesのカウントダウン終了時刻だけを早めます。実際の授業時間は変更されません。</string>
+    <string name="label_lesson_start_live_update_early_minutes">授業開始時間を早める</string>
+    <string name="desc_lesson_start_live_update_early_minutes">カウントダウン終了時刻を何分か早めます\n実際は1分前くらいにチャイムが鳴ると思うので、デフォルトは1分です</string>
     <string name="lesson_start_live_update_early_none">早めない</string>
     <string name="lesson_start_live_update_early_value">%1$d分早める</string>
     <string name="lesson_start_live_update_chip_minutes">%1$d分</string>

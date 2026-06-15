@@ -46,6 +46,8 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -151,7 +153,7 @@ fun SettingsScreen(
     val enabledLessonStartProgressCountsDown =
         state.settings?.lessonStartNotificationProgressCountsDown ?: false
     val lessonStartLiveUpdateEarlyMinutes =
-        state.settings?.lessonStartNotificationLiveUpdateEarlyMinutes ?: 0
+        state.settings?.lessonStartNotificationLiveUpdateEarlyMinutes ?: 1
     var expandTimetableSettings by rememberSaveable { mutableStateOf(true) }
     var showLocalAiWarningDialog by remember { mutableStateOf(false) }
     val s = state.settings
@@ -1917,6 +1919,7 @@ private fun TimePartField(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LessonStartNotificationSettingsContent(
     enabled: Boolean,
@@ -1988,6 +1991,13 @@ private fun LessonStartNotificationSettingsContent(
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                NumberSettingRow(
+                    label = stringResource(R.string.label_lesson_start_notification_minutes),
+                    value = minutesBefore,
+                    unit = stringResource(R.string.unit_minutes_before),
+                    onValueChange = { onMinutesBeforeChange(it.filter { c -> c.isDigit() }.take(3)) }
+                )
+
                 if (!notificationsEnabled) {
                     Surface(
                         shape = MaterialTheme.shapes.medium,
@@ -2054,98 +2064,116 @@ private fun LessonStartNotificationSettingsContent(
                     }
                 }
 
-                SettingsSwitchRow(
-                    title = stringResource(R.string.label_lesson_start_live_updates),
-                    description = if (liveUpdatesSupported) {
-                        stringResource(R.string.desc_lesson_start_live_updates)
-                    } else {
-                        stringResource(R.string.desc_lesson_start_live_updates_unavailable)
-                    },
-                    checked = liveUpdatesEnabled,
-                    enabled = liveUpdatesSupported,
-                    onCheckedChange = onToggleLiveUpdates
-                )
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column {
+                        SettingsSwitchRow(
+                            title = stringResource(R.string.label_lesson_start_live_updates),
+                            description = if (liveUpdatesSupported) {
+                                stringResource(R.string.desc_lesson_start_live_updates)
+                            } else {
+                                stringResource(R.string.desc_lesson_start_live_updates_unavailable)
+                            },
+                            checked = liveUpdatesEnabled,
+                            enabled = liveUpdatesSupported,
+                            onCheckedChange = onToggleLiveUpdates
+                        )
 
-                if (liveUpdatesEnabled && liveUpdatesSupported) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            text = stringResource(R.string.label_lesson_start_live_update_early_minutes),
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = stringResource(R.string.desc_lesson_start_live_update_early_minutes),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Box {
-                            OutlinedButton(onClick = { showLiveUpdateEarlyMinutesMenu = true }) {
-                                Text(
-                                    if (liveUpdateEarlyMinutes == 0) {
-                                        stringResource(R.string.lesson_start_live_update_early_none)
-                                    } else {
-                                        stringResource(
-                                            R.string.lesson_start_live_update_early_value,
-                                            liveUpdateEarlyMinutes
-                                        )
-                                    }
-                                )
-                            }
-                            DropdownMenu(
-                                expanded = showLiveUpdateEarlyMinutesMenu,
-                                onDismissRequest = { showLiveUpdateEarlyMinutesMenu = false }
+                        if (liveUpdatesEnabled && liveUpdatesSupported) {
+                            Column(
+                                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                listOf(0, 1, 2, 3, 5).forEach { minutes ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                if (minutes == 0) {
-                                                    stringResource(R.string.lesson_start_live_update_early_none)
-                                                } else {
-                                                    stringResource(
-                                                        R.string.lesson_start_live_update_early_value,
-                                                        minutes
-                                                    )
-                                                }
-                                            )
-                                        },
-                                        onClick = {
-                                            showLiveUpdateEarlyMinutesMenu = false
-                                            onUpdateLiveUpdateEarlyMinutes(minutes)
-                                        }
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(
+                                        text = stringResource(R.string.label_lesson_start_progress_direction),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold
                                     )
+                                    LessonStartProgressDirectionRow(
+                                        selected = !progressCountsDown,
+                                        title = stringResource(R.string.label_lesson_start_progress_increasing),
+                                        description = stringResource(R.string.desc_lesson_start_progress_increasing),
+                                        onClick = { onToggleProgressCountsDown(false) }
+                                    )
+                                    LessonStartProgressDirectionRow(
+                                        selected = progressCountsDown,
+                                        title = stringResource(R.string.label_lesson_start_progress_decreasing),
+                                        description = stringResource(R.string.desc_lesson_start_progress_decreasing),
+                                        onClick = { onToggleProgressCountsDown(true) }
+                                    )
+                                }
+
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(
+                                        text = stringResource(R.string.desc_lesson_start_live_update_early_minutes),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    ExposedDropdownMenuBox(
+                                        expanded = showLiveUpdateEarlyMinutesMenu,
+                                        onExpandedChange = {
+                                            showLiveUpdateEarlyMinutesMenu = !showLiveUpdateEarlyMinutesMenu
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        OutlinedTextField(
+                                            value = if (liveUpdateEarlyMinutes == 0) {
+                                                stringResource(R.string.lesson_start_live_update_early_none)
+                                            } else {
+                                                stringResource(
+                                                    R.string.lesson_start_live_update_early_value,
+                                                    liveUpdateEarlyMinutes
+                                                )
+                                            },
+                                            onValueChange = {},
+                                            readOnly = true,
+                                            label = {
+                                                Text(stringResource(R.string.label_lesson_start_live_update_early_minutes))
+                                            },
+                                            trailingIcon = {
+                                                ExposedDropdownMenuDefaults.TrailingIcon(
+                                                    expanded = showLiveUpdateEarlyMinutesMenu
+                                                )
+                                            },
+                                            modifier = Modifier
+                                                .menuAnchor()
+                                                .fillMaxWidth()
+                                        )
+                                        ExposedDropdownMenu(
+                                            expanded = showLiveUpdateEarlyMinutesMenu,
+                                            onDismissRequest = { showLiveUpdateEarlyMinutesMenu = false }
+                                        ) {
+                                            listOf(0, 1, 2, 3, 5).forEach { minutes ->
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Text(
+                                                            if (minutes == 0) {
+                                                                stringResource(R.string.lesson_start_live_update_early_none)
+                                                            } else {
+                                                                stringResource(
+                                                                    R.string.lesson_start_live_update_early_value,
+                                                                    minutes
+                                                                )
+                                                            }
+                                                        )
+                                                    },
+                                                    onClick = {
+                                                        showLiveUpdateEarlyMinutesMenu = false
+                                                        onUpdateLiveUpdateEarlyMinutes(minutes)
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
-
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            text = stringResource(R.string.label_lesson_start_progress_direction),
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        LessonStartProgressDirectionRow(
-                            selected = !progressCountsDown,
-                            title = stringResource(R.string.label_lesson_start_progress_increasing),
-                            description = stringResource(R.string.desc_lesson_start_progress_increasing),
-                            onClick = { onToggleProgressCountsDown(false) }
-                        )
-                        LessonStartProgressDirectionRow(
-                            selected = progressCountsDown,
-                            title = stringResource(R.string.label_lesson_start_progress_decreasing),
-                            description = stringResource(R.string.desc_lesson_start_progress_decreasing),
-                            onClick = { onToggleProgressCountsDown(true) }
-                        )
-                    }
                 }
-
-                NumberSettingRow(
-                    label = stringResource(R.string.label_lesson_start_notification_minutes),
-                    value = minutesBefore,
-                    unit = stringResource(R.string.unit_minutes_before),
-                    onValueChange = { onMinutesBeforeChange(it.filter { c -> c.isDigit() }.take(3)) }
-                )
 
                 HorizontalDivider()
 
