@@ -500,6 +500,12 @@ class SchedulerViewModel(
         }
     }
 
+    fun updateLessonStartNotificationLiveUpdateEarlyMinutes(minutes: Int) {
+        viewModelScope.launch {
+            repository.updateLessonStartNotificationLiveUpdateEarlyMinutes(minutes)
+        }
+    }
+
     fun addLessonNotificationExclusion(subject: String, teacher: String?, matchTeacher: Boolean) {
         viewModelScope.launch {
             repository.upsertLessonNotificationExclusion(subject, teacher, matchTeacher)

@@ -417,8 +417,12 @@
     <string name="msg_no_lesson_start_notification_exclusions">例外授業はまだありません</string>
     <string name="label_lesson_start_notification_exclusion_teacher">担当が%1$sのときだけ除外</string>
     <string name="label_lesson_start_notification_exclusion_subject_only">教科名だけで除外</string>
-    <string name="lesson_start_live_update_title">次の授業</string>
+    <string name="lesson_start_live_update_title">次の授業: %1$s</string>
     <string name="lesson_start_live_update_body">次は「%1$s」です。</string>
+    <string name="label_lesson_start_live_update_early_minutes">通知上の授業開始を早める</string>
+    <string name="desc_lesson_start_live_update_early_minutes">Live Updatesのカウントダウン終了時刻だけを早めます。実際の授業時間は変更されません。</string>
+    <string name="lesson_start_live_update_early_none">早めない</string>
+    <string name="lesson_start_live_update_early_value">%1$d分早める</string>
     <string name="lesson_start_live_update_chip_minutes">%1$d分</string>
     <string name="lesson_start_live_update_chip_seconds">%1$d秒</string>
     <string name="warning_notifications_disabled">端末側でこのアプリの通知がオフになっています。授業前通知は表示されません。</string>

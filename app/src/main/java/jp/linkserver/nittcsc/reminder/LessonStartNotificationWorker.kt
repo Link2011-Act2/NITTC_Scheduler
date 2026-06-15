@@ -87,28 +87,43 @@ class LessonStartNotificationWorker(
         )
 
         val minutesBefore = settings.lessonStartNotificationMinutesBefore.coerceIn(0, 360)
-        val lessonStart = LocalDateTime.of(date, slot.start)
-        val remainingMillis = Duration.between(
-            LocalDateTime.now(ZoneId.systemDefault()),
-            lessonStart
-        ).toMillis()
-        if (remainingMillis < -LATE_NOTIFICATION_GRACE_MS) return Result.success()
-        if (
+        val actualLessonStart = LocalDateTime.of(date, slot.start)
+        val liveUpdatesActive =
             settings.lessonStartNotificationLiveUpdatesEnabled &&
             Build.VERSION.SDK_INT >= 36 &&
             minutesBefore > 0 &&
             canPostPromotedNotifications()
-        ) {
+        val liveUpdateEarlyMinutes = settings.lessonStartNotificationLiveUpdateEarlyMinutes.coerceIn(0, 5)
+
+        if (liveUpdatesActive) {
+            val liveUpdateTarget = actualLessonStart.minusMinutes(liveUpdateEarlyMinutes.toLong())
+            val remainingMillis = Duration.between(
+                LocalDateTime.now(ZoneId.systemDefault()),
+                liveUpdateTarget
+            ).toMillis()
+            if (remainingMillis < -LATE_NOTIFICATION_GRACE_MS) return Result.success()
             showLiveUpdateCountdown(
                 notificationId = notificationId,
                 lesson = lesson,
                 slot = slot,
-                date = date,
+                liveUpdateTarget = liveUpdateTarget,
                 minutesBefore = minutesBefore,
                 progressCountsDown = settings.lessonStartNotificationProgressCountsDown,
                 pendingIntent = pendingIntent
             )
         } else {
+            val standardNotificationAt = actualLessonStart.minusMinutes(minutesBefore.toLong())
+            val waitMillis = Duration.between(
+                LocalDateTime.now(ZoneId.systemDefault()),
+                standardNotificationAt
+            ).toMillis()
+            if (waitMillis > 0L) delay(waitMillis)
+
+            val remainingMillis = Duration.between(
+                LocalDateTime.now(ZoneId.systemDefault()),
+                actualLessonStart
+            ).toMillis()
+            if (remainingMillis < -LATE_NOTIFICATION_GRACE_MS) return Result.success()
             val displayMinutesBefore = displayMinutesBefore(
                 configuredMinutesBefore = minutesBefore,
                 remainingMillis = remainingMillis
@@ -151,20 +166,19 @@ class LessonStartNotificationWorker(
         notificationId: Int,
         lesson: ResolvedLesson,
         slot: ClassSlot,
-        date: LocalDate,
+        liveUpdateTarget: LocalDateTime,
         minutesBefore: Int,
         progressCountsDown: Boolean,
         pendingIntent: PendingIntent
     ) {
-        val lessonStart = LocalDateTime.of(date, slot.start)
-        val lessonStartMillis = lessonStart
+        val lessonStartMillis = liveUpdateTarget
             .atZone(ZoneId.systemDefault())
             .toInstant()
             .toEpochMilli()
         val totalSeconds = (minutesBefore * 60).coerceAtLeast(1)
         var remainingMillis = Duration.between(
             LocalDateTime.now(ZoneId.systemDefault()),
-            lessonStart
+            liveUpdateTarget
         ).toMillis()
 
         while (remainingMillis > 0L && !isStopped) {
@@ -183,7 +197,7 @@ class LessonStartNotificationWorker(
             delay(nextLiveUpdateDelayMillis(remainingMillis))
             remainingMillis = Duration.between(
                 LocalDateTime.now(ZoneId.systemDefault()),
-                lessonStart
+                liveUpdateTarget
             ).toMillis()
         }
 
@@ -220,7 +234,12 @@ class LessonStartNotificationWorker(
 
         return NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_school)
-            .setContentTitle(applicationContext.getString(R.string.lesson_start_live_update_title))
+            .setContentTitle(
+                applicationContext.getString(
+                    R.string.lesson_start_live_update_title,
+                    lesson.subject
+                )
+            )
             .setContentText(applicationContext.getString(R.string.lesson_start_live_update_body, lesson.subject))
             .setStyle(
                 NotificationCompat.ProgressStyle()
@@ -490,6 +509,15 @@ class LessonStartNotificationWorker(
             val cancelledLessons = dao.getCancelledLessonsOnce().map { it.date to it.slotIndex }.toSet()
             val exclusions = dao.getLessonNotificationExclusionsOnce()
             val minutesBefore = settings.lessonStartNotificationMinutesBefore.coerceIn(0, 360).toLong()
+            val potentialLiveUpdates =
+                settings.lessonStartNotificationLiveUpdatesEnabled &&
+                    Build.VERSION.SDK_INT >= 36 &&
+                    minutesBefore > 0L
+            val liveUpdateEarlyMinutes = if (potentialLiveUpdates) {
+                settings.lessonStartNotificationLiveUpdateEarlyMinutes.coerceIn(0, 5).toLong()
+            } else {
+                0L
+            }
 
             for (date in today.toDateRange(endDate)) {
                 for (slot in slots) {
@@ -505,7 +533,9 @@ class LessonStartNotificationWorker(
 
                     val lessonStart = LocalDateTime.of(date, slot.start)
                     if (!lessonStart.isAfter(now)) continue
-                    val notificationAt = lessonStart.minusMinutes(minutesBefore)
+                    val notificationAt = lessonStart
+                        .minusMinutes(liveUpdateEarlyMinutes)
+                        .minusMinutes(minutesBefore)
                     val delayMillis = Duration.between(now, notificationAt)
                         .toMillis()
                         .coerceAtLeast(0L)

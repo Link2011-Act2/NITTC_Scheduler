@@ -216,6 +216,15 @@ class SchedulerRepository(private val db: AppDatabase) {
         dao.upsertSettings(current.copy(lessonStartNotificationProgressCountsDown = enabled))
     }
 
+    suspend fun updateLessonStartNotificationLiveUpdateEarlyMinutes(minutes: Int) {
+        val current = dao.getSettings() ?: return
+        dao.upsertSettings(
+            current.copy(
+                lessonStartNotificationLiveUpdateEarlyMinutes = minutes.coerceIn(0, 5)
+            )
+        )
+    }
+
     suspend fun upsertLessonNotificationExclusion(
         subject: String,
         teacher: String?,
@@ -1116,6 +1125,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                 s.put("lessonStartNotificationMinutesBefore", settings.lessonStartNotificationMinutesBefore)
                 s.put("lessonStartNotificationLiveUpdatesEnabled", settings.lessonStartNotificationLiveUpdatesEnabled)
                 s.put("lessonStartNotificationProgressCountsDown", settings.lessonStartNotificationProgressCountsDown)
+                s.put("lessonStartNotificationLiveUpdateEarlyMinutes", settings.lessonStartNotificationLiveUpdateEarlyMinutes)
                 s.put("syncLessonsToCalendar", settings.syncLessonsToCalendar)
                 if (settings.lessonCalendarSyncStart != null) s.put("lessonCalendarSyncStart", settings.lessonCalendarSyncStart.toString())
                 if (settings.lessonCalendarSyncEnd != null) s.put("lessonCalendarSyncEnd", settings.lessonCalendarSyncEnd.toString())
@@ -1625,6 +1635,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                 lessonStartNotificationMinutesBefore = s.optInt("lessonStartNotificationMinutesBefore", 10),
                 lessonStartNotificationLiveUpdatesEnabled = s.optBoolean("lessonStartNotificationLiveUpdatesEnabled", true),
                 lessonStartNotificationProgressCountsDown = s.optBoolean("lessonStartNotificationProgressCountsDown", false),
+                lessonStartNotificationLiveUpdateEarlyMinutes = s.optInt("lessonStartNotificationLiveUpdateEarlyMinutes", 0).coerceIn(0, 5),
                 syncLessonsToCalendar = s.optBoolean("syncLessonsToCalendar", false),
                 lessonCalendarSyncStart = s.optString("lessonCalendarSyncStart", "").takeIf { it.isNotBlank() }?.let(LocalDate::parse),
                 lessonCalendarSyncEnd = s.optString("lessonCalendarSyncEnd", "").takeIf { it.isNotBlank() }?.let(LocalDate::parse)
@@ -1897,6 +1908,9 @@ class SchedulerRepository(private val db: AppDatabase) {
             }
             if (!s.has("lessonStartNotificationProgressCountsDown")) {
                 s.put("lessonStartNotificationProgressCountsDown", false)
+            }
+            if (!s.has("lessonStartNotificationLiveUpdateEarlyMinutes")) {
+                s.put("lessonStartNotificationLiveUpdateEarlyMinutes", 0)
             }
             if (!s.has("syncLessonsToCalendar")) {
                 s.put("syncLessonsToCalendar", false)

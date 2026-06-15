@@ -87,6 +87,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import jp.linkserver.nittcsc.data.LessonNotificationExclusionEntity
+import jp.linkserver.nittcsc.data.LongBreakEntity
 import jp.linkserver.nittcsc.logic.generateClassSlots
 import jp.linkserver.nittcsc.update.clearDismissedUpdateNotification
 import jp.linkserver.nittcsc.update.isIntDevBuild
@@ -128,6 +129,7 @@ fun SettingsScreen(
     onUpdateLessonStartNotificationMinutesBefore: (Int) -> Unit = {},
     onToggleLessonStartNotificationLiveUpdates: (Boolean) -> Unit = {},
     onToggleLessonStartNotificationProgressCountsDown: (Boolean) -> Unit = {},
+    onUpdateLessonStartNotificationLiveUpdateEarlyMinutes: (Int) -> Unit = {},
     onAddLessonNotificationExclusion: (String, String?, Boolean) -> Unit = { _, _, _ -> },
     onDeleteLessonNotificationExclusion: (LessonNotificationExclusionEntity) -> Unit = {},
     onUpdateScheduleSettings: (periodsPerDay: Int, periodDurationMin: Int, breakBetweenPeriodsMin: Int, lunchBreakMin: Int, lunchAfterPeriod: Int, startHour: Int, startMinute: Int, useKosenMode: Boolean, arrivalHour: Int, arrivalMinute: Int, departureHour: Int, departureMinute: Int) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _ -> },
@@ -148,6 +150,8 @@ fun SettingsScreen(
         (state.settings?.lessonStartNotificationLiveUpdatesEnabled ?: true)
     val enabledLessonStartProgressCountsDown =
         state.settings?.lessonStartNotificationProgressCountsDown ?: false
+    val lessonStartLiveUpdateEarlyMinutes =
+        state.settings?.lessonStartNotificationLiveUpdateEarlyMinutes ?: 0
     var expandTimetableSettings by rememberSaveable { mutableStateOf(true) }
     var showLocalAiWarningDialog by remember { mutableStateOf(false) }
     val s = state.settings
@@ -165,8 +169,15 @@ fun SettingsScreen(
     val lessonCalendarWizardEnd = LocalDate.ofEpochDay(lessonCalendarWizardEndEpoch)
 
     fun openLessonCalendarSyncWizard() {
-        lessonCalendarWizardStartEpoch = lessonCalendarSyncStart.toEpochDay()
-        lessonCalendarWizardEndEpoch = lessonCalendarSyncEnd.toEpochDay()
+        val today = LocalDate.now()
+        val (defaultStart, defaultEnd) = defaultLessonCalendarSyncRange(
+            today = today,
+            termStart = s?.termStart ?: today,
+            termEnd = s?.termEnd ?: s?.termStart ?: today,
+            longBreaks = state.longBreaks
+        )
+        lessonCalendarWizardStartEpoch = defaultStart.toEpochDay()
+        lessonCalendarWizardEndEpoch = defaultEnd.toEpochDay()
         showLessonCalendarSyncWizard = true
     }
 
@@ -857,6 +868,7 @@ fun SettingsScreen(
                         liveUpdatesEnabled = enabledLessonStartLiveUpdates,
                         liveUpdatesSupported = supportsLessonStartLiveUpdates,
                         progressCountsDown = enabledLessonStartProgressCountsDown,
+                        liveUpdateEarlyMinutes = lessonStartLiveUpdateEarlyMinutes,
                         minutesBefore = lessonStartNotificationMinutesBefore,
                         exclusions = state.lessonNotificationExclusions,
                         subjectSuggestions = subjectSuggestions,
@@ -879,6 +891,7 @@ fun SettingsScreen(
                         },
                         onToggleLiveUpdates = onToggleLessonStartNotificationLiveUpdates,
                         onToggleProgressCountsDown = onToggleLessonStartNotificationProgressCountsDown,
+                        onUpdateLiveUpdateEarlyMinutes = onUpdateLessonStartNotificationLiveUpdateEarlyMinutes,
                         onMinutesBeforeChange = { lessonStartNotificationMinutesBefore = it },
                         onAddExclusion = onAddLessonNotificationExclusion,
                         onDeleteExclusion = onDeleteLessonNotificationExclusion
@@ -1912,6 +1925,7 @@ private fun LessonStartNotificationSettingsContent(
     liveUpdatesEnabled: Boolean,
     liveUpdatesSupported: Boolean,
     progressCountsDown: Boolean,
+    liveUpdateEarlyMinutes: Int,
     minutesBefore: String,
     exclusions: List<LessonNotificationExclusionEntity>,
     subjectSuggestions: List<String>,
@@ -1921,6 +1935,7 @@ private fun LessonStartNotificationSettingsContent(
     onOpenPromotedNotificationSettings: () -> Unit,
     onToggleLiveUpdates: (Boolean) -> Unit,
     onToggleProgressCountsDown: (Boolean) -> Unit,
+    onUpdateLiveUpdateEarlyMinutes: (Int) -> Unit,
     onMinutesBeforeChange: (String) -> Unit,
     onAddExclusion: (String, String?, Boolean) -> Unit,
     onDeleteExclusion: (LessonNotificationExclusionEntity) -> Unit
@@ -1929,6 +1944,7 @@ private fun LessonStartNotificationSettingsContent(
     var teacher by remember { mutableStateOf("") }
     var matchTeacher by remember { mutableStateOf(false) }
     var showSubjectSuggestions by remember { mutableStateOf(false) }
+    var showLiveUpdateEarlyMinutesMenu by remember { mutableStateOf(false) }
 
     val filteredSubjectSuggestions = remember(subject, subjectSuggestions) {
         val query = subject.trim()
@@ -2051,6 +2067,58 @@ private fun LessonStartNotificationSettingsContent(
                 )
 
                 if (liveUpdatesEnabled && liveUpdatesSupported) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = stringResource(R.string.label_lesson_start_live_update_early_minutes),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = stringResource(R.string.desc_lesson_start_live_update_early_minutes),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Box {
+                            OutlinedButton(onClick = { showLiveUpdateEarlyMinutesMenu = true }) {
+                                Text(
+                                    if (liveUpdateEarlyMinutes == 0) {
+                                        stringResource(R.string.lesson_start_live_update_early_none)
+                                    } else {
+                                        stringResource(
+                                            R.string.lesson_start_live_update_early_value,
+                                            liveUpdateEarlyMinutes
+                                        )
+                                    }
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = showLiveUpdateEarlyMinutesMenu,
+                                onDismissRequest = { showLiveUpdateEarlyMinutesMenu = false }
+                            ) {
+                                listOf(0, 1, 2, 3, 5).forEach { minutes ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (minutes == 0) {
+                                                    stringResource(R.string.lesson_start_live_update_early_none)
+                                                } else {
+                                                    stringResource(
+                                                        R.string.lesson_start_live_update_early_value,
+                                                        minutes
+                                                    )
+                                                }
+                                            )
+                                        },
+                                        onClick = {
+                                            showLiveUpdateEarlyMinutesMenu = false
+                                            onUpdateLiveUpdateEarlyMinutes(minutes)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
                             text = stringResource(R.string.label_lesson_start_progress_direction),
@@ -2249,6 +2317,44 @@ private fun LessonStartNotificationSettingsContent(
             }
         }
     }
+}
+
+private fun defaultLessonCalendarSyncRange(
+    today: LocalDate,
+    termStart: LocalDate,
+    termEnd: LocalDate,
+    longBreaks: List<LongBreakEntity>
+): Pair<LocalDate, LocalDate> {
+    val normalizedTermStart = minOf(termStart, termEnd)
+    val normalizedTermEnd = maxOf(termStart, termEnd)
+    val referenceDate = today.coerceIn(normalizedTermStart, normalizedTermEnd)
+    val mergedBreaks = mutableListOf<Pair<LocalDate, LocalDate>>()
+
+    longBreaks
+        .mapNotNull { longBreak ->
+            val breakStart = maxOf(minOf(longBreak.startDate, longBreak.endDate), normalizedTermStart)
+            val breakEnd = minOf(maxOf(longBreak.startDate, longBreak.endDate), normalizedTermEnd)
+            (breakStart to breakEnd).takeIf { breakStart <= breakEnd }
+        }
+        .sortedBy { it.first }
+        .forEach { current ->
+            val previous = mergedBreaks.lastOrNull()
+            if (previous != null && !current.first.isAfter(previous.second.plusDays(1))) {
+                mergedBreaks[mergedBreaks.lastIndex] = previous.first to maxOf(previous.second, current.second)
+            } else {
+                mergedBreaks += current
+            }
+        }
+
+    val currentBreak = mergedBreaks.firstOrNull { referenceDate in it.first..it.second }
+    val start = currentBreak?.second
+        ?: mergedBreaks.lastOrNull { it.second.isBefore(referenceDate) }?.second
+        ?: normalizedTermStart
+    val end = mergedBreaks.firstOrNull {
+        it.first.isAfter(currentBreak?.second ?: referenceDate)
+    }?.first ?: normalizedTermEnd
+
+    return minOf(start, end) to maxOf(start, end)
 }
 
 @Composable
