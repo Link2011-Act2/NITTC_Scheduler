@@ -4,11 +4,13 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.AlarmManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.util.Log
+import android.net.Uri
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.work.CoroutineWorker
@@ -16,6 +18,7 @@ import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
 import androidx.work.ForegroundInfo
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import jp.linkserver.nittcsc.MainActivity
@@ -34,6 +37,8 @@ import jp.linkserver.nittcsc.logic.JapaneseHolidayCalculator
 import jp.linkserver.nittcsc.logic.generateClassSlots
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.time.DayOfWeek
 import java.time.Duration
@@ -101,16 +106,26 @@ class LessonStartNotificationWorker(
                 LocalDateTime.now(ZoneId.systemDefault()),
                 liveUpdateTarget
             ).toMillis()
-            if (remainingMillis < -LATE_NOTIFICATION_GRACE_MS) return Result.success()
-            showLiveUpdateCountdown(
-                notificationId = notificationId,
-                lesson = lesson,
-                slot = slot,
-                liveUpdateTarget = liveUpdateTarget,
-                minutesBefore = minutesBefore,
-                progressCountsDown = settings.lessonStartNotificationProgressCountsDown,
-                pendingIntent = pendingIntent
-            )
+            if (remainingMillis >= -LATE_NOTIFICATION_GRACE_MS) {
+                showLiveUpdateCountdown(
+                    notificationId = notificationId,
+                    lesson = lesson,
+                    slot = slot,
+                    liveUpdateTarget = liveUpdateTarget,
+                    minutesBefore = minutesBefore,
+                    progressCountsDown = settings.lessonStartNotificationProgressCountsDown,
+                    pendingIntent = pendingIntent
+                )
+            } else {
+                showLateStandardNotification(
+                    notificationId = notificationId,
+                    lesson = lesson,
+                    slot = slot,
+                    actualLessonStart = actualLessonStart,
+                    configuredMinutesBefore = minutesBefore,
+                    pendingIntent = pendingIntent
+                )
+            }
         } else {
             val standardNotificationAt = actualLessonStart.minusMinutes(minutesBefore.toLong())
             val waitMillis = Duration.between(
@@ -135,6 +150,30 @@ class LessonStartNotificationWorker(
         }
 
         return Result.success()
+    }
+
+    private fun showLateStandardNotification(
+        notificationId: Int,
+        lesson: ResolvedLesson,
+        slot: ClassSlot,
+        actualLessonStart: LocalDateTime,
+        configuredMinutesBefore: Int,
+        pendingIntent: PendingIntent
+    ) {
+        val remainingMillis = Duration.between(
+            LocalDateTime.now(ZoneId.systemDefault()),
+            actualLessonStart
+        ).toMillis()
+        if (remainingMillis < -LATE_NOTIFICATION_GRACE_MS) return
+        notifySafely(
+            notificationId,
+            buildStandardNotification(
+                displayMinutesBefore(configuredMinutesBefore, remainingMillis),
+                lesson,
+                slot,
+                pendingIntent
+            )
+        )
     }
 
     private fun buildStandardNotification(
@@ -480,16 +519,22 @@ class LessonStartNotificationWorker(
         private const val LIVE_UPDATE_SMOOTH_REFRESH_MS = 2_000L
         private const val LIVE_UPDATE_KEEP_ALIVE_MS = 15_000L
         private const val LATE_NOTIFICATION_GRACE_MS = 60_000L
+        private const val ALARM_PREFERENCES = "lesson_start_notification_alarms"
+        private const val ALARM_KEYS = "scheduled_alarm_keys"
+        private val rescheduleMutex = Mutex()
 
         suspend fun rescheduleAll(context: Context) {
             val appContext = context.applicationContext
-            withContext(Dispatchers.IO) {
-                WorkManager.getInstance(appContext)
-                    .cancelAllWorkByTag(WORK_TAG)
-                    .result
-                    .get()
+            rescheduleMutex.withLock {
+                withContext(Dispatchers.IO) {
+                    WorkManager.getInstance(appContext)
+                        .cancelAllWorkByTag(WORK_TAG)
+                        .result
+                        .get()
+                    cancelScheduledAlarms(appContext)
+                }
+                scheduleUpcoming(appContext)
             }
-            scheduleUpcoming(appContext)
         }
 
         private suspend fun scheduleUpcoming(context: Context) {
@@ -536,7 +581,18 @@ class LessonStartNotificationWorker(
                     val notificationAt = lessonStart
                         .minusMinutes(liveUpdateEarlyMinutes)
                         .minusMinutes(minutesBefore)
-                    val delayMillis = Duration.between(now, notificationAt)
+                    val exactAlarmScheduled = scheduleExactAlarm(
+                        context,
+                        date,
+                        slot.index,
+                        notificationAt
+                    )
+                    val fallbackNotificationAt = if (exactAlarmScheduled) {
+                        notificationAt.plusMinutes(1)
+                    } else {
+                        notificationAt
+                    }
+                    val delayMillis = Duration.between(now, fallbackNotificationAt)
                         .toMillis()
                         .coerceAtLeast(0L)
 
@@ -560,6 +616,91 @@ class LessonStartNotificationWorker(
                 }
             }
         }
+
+        fun enqueueNow(context: Context, date: LocalDate, slotIndex: Int) {
+            val request = OneTimeWorkRequestBuilder<LessonStartNotificationWorker>()
+                .setInputData(
+                    Data.Builder()
+                        .putString(KEY_DATE, date.toString())
+                        .putInt(KEY_SLOT_INDEX, slotIndex)
+                        .build()
+                )
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                .addTag(WORK_TAG)
+                .build()
+
+            WorkManager.getInstance(context.applicationContext)
+                .enqueueUniqueWork(
+                    uniqueWorkName(date, slotIndex),
+                    ExistingWorkPolicy.REPLACE,
+                    request
+                )
+        }
+
+        private fun scheduleExactAlarm(
+            context: Context,
+            date: LocalDate,
+            slotIndex: Int,
+            notificationAt: LocalDateTime
+        ): Boolean {
+            val alarmManager = context.getSystemService(AlarmManager::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
+                return false
+            }
+            val triggerAtMillis = notificationAt
+                .atZone(ZoneId.systemDefault())
+                .toInstant()
+                .toEpochMilli()
+            if (triggerAtMillis <= System.currentTimeMillis()) return false
+
+            return runCatching {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerAtMillis,
+                    alarmPendingIntent(context, date, slotIndex)
+                )
+                val preferences = context.getSharedPreferences(ALARM_PREFERENCES, Context.MODE_PRIVATE)
+                val keys = preferences.getStringSet(ALARM_KEYS, emptySet()).orEmpty().toMutableSet()
+                keys += alarmKey(date, slotIndex)
+                preferences.edit().putStringSet(ALARM_KEYS, keys).apply()
+                true
+            }.onFailure {
+                Log.w(TAG, "Cannot schedule exact lesson notification alarm", it)
+            }.getOrDefault(false)
+        }
+
+        private fun cancelScheduledAlarms(context: Context) {
+            val alarmManager = context.getSystemService(AlarmManager::class.java)
+            val preferences = context.getSharedPreferences(ALARM_PREFERENCES, Context.MODE_PRIVATE)
+            preferences.getStringSet(ALARM_KEYS, emptySet()).orEmpty().forEach { key ->
+                val parts = key.split('|')
+                val date = parts.getOrNull(0)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                    ?: return@forEach
+                val slotIndex = parts.getOrNull(1)?.toIntOrNull() ?: return@forEach
+                alarmManager.cancel(alarmPendingIntent(context, date, slotIndex))
+            }
+            preferences.edit().remove(ALARM_KEYS).apply()
+        }
+
+        private fun alarmPendingIntent(
+            context: Context,
+            date: LocalDate,
+            slotIndex: Int
+        ): PendingIntent {
+            val intent = Intent(context, LessonStartNotificationAlarmReceiver::class.java).apply {
+                data = Uri.parse("nittcsc://lesson-start-notification/$date/$slotIndex")
+                putExtra(LessonStartNotificationAlarmReceiver.EXTRA_DATE, date.toString())
+                putExtra(LessonStartNotificationAlarmReceiver.EXTRA_SLOT_INDEX, slotIndex)
+            }
+            return PendingIntent.getBroadcast(
+                context,
+                notificationId(date, slotIndex),
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        }
+
+        private fun alarmKey(date: LocalDate, slotIndex: Int): String = "$date|$slotIndex"
 
         private fun resolveEffectiveLessonForSchedule(
             date: LocalDate,
