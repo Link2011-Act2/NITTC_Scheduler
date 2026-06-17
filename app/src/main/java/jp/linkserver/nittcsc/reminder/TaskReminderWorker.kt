@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -12,6 +13,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import jp.linkserver.nittcsc.MainActivity
@@ -123,9 +125,11 @@ class TaskReminderWorker(
         }
 
         fun cancel(context: Context, taskId: Long) {
-            WorkManager.getInstance(context.applicationContext)
+            val appContext = context.applicationContext
+            WorkManager.getInstance(appContext)
                 .cancelUniqueWork(uniqueWorkName(taskId))
-            NotificationManagerCompat.from(context.applicationContext)
+            ExactReminderAlarmScheduler.cancel(appContext, alarmPendingIntent(appContext, taskId))
+            NotificationManagerCompat.from(appContext)
                 .cancel(taskReminderNotificationId(taskId))
         }
 
@@ -139,9 +143,16 @@ class TaskReminderWorker(
                 task.reminderDate,
                 java.time.LocalTime.of(task.reminderHour, task.reminderMinute)
             )
+            val appContext = context.applicationContext
+            val exactAlarmScheduled = ExactReminderAlarmScheduler.schedule(
+                appContext,
+                reminderAt,
+                alarmPendingIntent(appContext, task.id)
+            )
+            val fallbackAt = if (exactAlarmScheduled) reminderAt.plusMinutes(1) else reminderAt
             val delayMillis = Duration.between(
                 LocalDateTime.now(ZoneId.systemDefault()),
-                reminderAt
+                fallbackAt
             ).toMillis()
 
             if (delayMillis <= 0L) {
@@ -158,7 +169,7 @@ class TaskReminderWorker(
                 .setInitialDelay(delayMillis, TimeUnit.MILLISECONDS)
                 .build()
 
-            WorkManager.getInstance(context.applicationContext)
+            WorkManager.getInstance(appContext)
                 .enqueueUniqueWork(
                     uniqueWorkName(task.id),
                     ExistingWorkPolicy.REPLACE,
@@ -171,6 +182,28 @@ class TaskReminderWorker(
                 .schedulerDao()
                 .getTasksOnce()
             tasks.forEach { syncTaskReminder(context, it) }
+        }
+
+        fun enqueueNow(context: Context, taskId: Long) {
+            val request = OneTimeWorkRequestBuilder<TaskReminderWorker>()
+                .setInputData(Data.Builder().putLong(KEY_TASK_ID, taskId).build())
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                .build()
+            WorkManager.getInstance(context.applicationContext)
+                .enqueueUniqueWork(uniqueWorkName(taskId), ExistingWorkPolicy.REPLACE, request)
+        }
+
+        private fun alarmPendingIntent(context: Context, taskId: Long): PendingIntent {
+            val intent = Intent(context, TaskReminderAlarmReceiver::class.java).apply {
+                data = Uri.parse("nittcsc://task-reminder/$taskId")
+                putExtra(TaskReminderAlarmReceiver.EXTRA_TASK_ID, taskId)
+            }
+            return PendingIntent.getBroadcast(
+                context,
+                taskReminderNotificationId(taskId),
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
         }
 
         private fun taskReminderNotificationId(taskId: Long): Int {

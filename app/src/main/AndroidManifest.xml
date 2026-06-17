@@ -90,6 +90,14 @@
             android:name=".reminder.LessonStartNotificationAlarmReceiver"
             android:exported="false" />
 
+        <receiver
+            android:name=".reminder.TaskReminderAlarmReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".reminder.PlanReminderAlarmReceiver"
+            android:exported="false" />
+
         <!-- App Widgets -->
         <receiver
             android:name=".widget.TimetableSmallWidgetReceiver"
