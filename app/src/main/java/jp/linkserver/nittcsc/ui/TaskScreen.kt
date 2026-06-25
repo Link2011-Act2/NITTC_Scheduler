@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import jp.linkserver.nittcsc.R
 import androidx.compose.ui.res.stringResource
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
@@ -97,6 +98,8 @@ fun TaskScreen(
     onDeleteTask: (TaskEntity) -> Unit,
     onMarkComplete: (TaskEntity) -> Unit,
     onMarkIncomplete: (TaskEntity) -> Unit,
+    showNaturalLanguageTaskAdd: Boolean = false,
+    onOpenNaturalLanguageTaskAdd: () -> Unit = {},
     isPlan: Boolean = false
 ) {
     var deletingTask by remember { mutableStateOf<TaskEntity?>(null) }
@@ -280,13 +283,25 @@ fun TaskScreen(
             }
         }
 
-        FloatingActionButton(
-            onClick = { onOpenTaskEditor(null) },
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(16.dp)
+                .padding(16.dp),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Icon(Icons.Filled.Add, contentDescription = stringResource(if (isPlan) R.string.cd_add_plan else R.string.cd_add_task))
+            if (showNaturalLanguageTaskAdd && !isPlan) {
+                Button(onClick = onOpenNaturalLanguageTaskAdd) {
+                    Icon(Icons.Filled.AutoFixHigh, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(stringResource(R.string.btn_add_task_from_natural_language))
+                }
+            }
+            FloatingActionButton(
+                onClick = { onOpenTaskEditor(null) }
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = stringResource(if (isPlan) R.string.cd_add_plan else R.string.cd_add_task))
+            }
         }
     }
 

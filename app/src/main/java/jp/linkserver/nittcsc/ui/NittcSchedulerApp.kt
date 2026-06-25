@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import jp.linkserver.nittcsc.R
+import jp.linkserver.nittcsc.InternalFeatureFlags
 import androidx.compose.animation.*
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -23,9 +24,11 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -38,6 +41,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -49,17 +53,21 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.outlined.Assignment
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.outlined.CalendarMonth
@@ -72,6 +80,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenu
@@ -109,6 +118,7 @@ import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -133,6 +143,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalViewConfiguration
@@ -165,7 +176,12 @@ import jp.linkserver.nittcsc.logic.CLASS_SLOTS
 import jp.linkserver.nittcsc.logic.ClassSlot
 import jp.linkserver.nittcsc.logic.ExportRange
 import jp.linkserver.nittcsc.logic.ExportResult
+import jp.linkserver.nittcsc.logic.NaturalLanguageLessonCandidate
+import jp.linkserver.nittcsc.logic.NaturalLanguageTaskParser
 import jp.linkserver.nittcsc.logic.generateClassSlots
+import jp.linkserver.nittcsc.ml.ModelDownloadManager
+import jp.linkserver.nittcsc.ml.VlmInferenceEngine
+import jp.linkserver.nittcsc.ml.VlmInferenceService
 import jp.linkserver.nittcsc.reminder.LessonStartNotificationWorker
 import jp.linkserver.nittcsc.reminder.PlanReminderWorker
 import jp.linkserver.nittcsc.reminder.TaskReminderWorker
@@ -181,13 +197,19 @@ import jp.linkserver.nittcsc.update.markUpdateCheckFinished
 import jp.linkserver.nittcsc.update.shouldCheckForUpdates
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.text.Normalizer
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
+import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
+import java.time.temporal.WeekFields
 
 enum class AppTab(
     @StringRes val labelRes: Int,
@@ -226,6 +248,11 @@ private enum class OutputDisplayMode(@StringRes val labelRes: Int) {
     WEEK(R.string.display_mode_week)
 }
 
+private enum class LessonSearchDisplayMode(@StringRes val labelRes: Int) {
+    CALENDAR(R.string.search_display_calendar),
+    LIST(R.string.search_display_list)
+}
+
 private data class DayTypeVisual(
     val container: Color,
     val content: Color
@@ -260,6 +287,18 @@ private data class LessonAutocompleteEntry(
     val location: String?
 )
 
+private data class NaturalLanguageModelOption(
+    val displayName: String,
+    val modelFile: File
+)
+
+private data class LessonSearchResult(
+    val date: LocalDate,
+    val slot: ClassSlot,
+    val lesson: ResolvedLesson,
+    val isChanged: Boolean
+)
+
 private val LegacyTaskBadgeRed = Color(0xFFBA1A1A)
 private val LegacyTaskBadgeContainer = Color(0xFF93000A)
 private val LegacyTaskBadgeOnContainer = Color(0xFFFFDAD6)
@@ -269,6 +308,10 @@ private val LegacyTaskBadgeOnContainer = Color(0xFFFFDAD6)
 fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val naturalLanguageInferenceEngine = remember { VlmInferenceEngine(context) }
+    DisposableEffect(naturalLanguageInferenceEngine) {
+        onDispose { naturalLanguageInferenceEngine.cancelInference() }
+    }
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.Output) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showSync by rememberSaveable { mutableStateOf(false) }
@@ -282,6 +325,8 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     var showUpdateOverview by rememberSaveable { mutableStateOf(false) }
     var updateNotification by remember { mutableStateOf<AppUpdateInfo?>(null) }
     var showOssLicenses by rememberSaveable { mutableStateOf(false) }
+    var showLessonSearch by rememberSaveable { mutableStateOf(false) }
+    var showTaskPlanCalendar by rememberSaveable { mutableStateOf(false) }
     var showTaskEditor by rememberSaveable { mutableStateOf(false) }
     var editingTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
     var focusedTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -290,6 +335,8 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     var focusedPlanId by rememberSaveable { mutableStateOf<Long?>(null) }
     var prefillSubject by rememberSaveable { mutableStateOf("") }
     var prefillTeacher by rememberSaveable { mutableStateOf("") }
+    var showNaturalLanguageTaskAddDialog by rememberSaveable { mutableStateOf(false) }
+    var naturalLanguageTaskDraft by remember { mutableStateOf<TaskEntity?>(null) }
     var transientTabOrigin by rememberSaveable { mutableStateOf<AppTab?>(null) }
     var transientTabTarget by rememberSaveable { mutableStateOf<AppTab?>(null) }
     var unifiedTaskPlanSelectedTabIndex by rememberSaveable { mutableStateOf(0) }
@@ -352,6 +399,8 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     }
     BackHandler(enabled = showSettings && !showAbout && !showOssLicenses) { showSettings = false }
     BackHandler(enabled = showVlmImport) { showVlmImport = false }
+    BackHandler(enabled = showLessonSearch) { showLessonSearch = false }
+    BackHandler(enabled = showTaskPlanCalendar) { showTaskPlanCalendar = false }
     BackHandler(enabled = transientTabOrigin != null && transientTabTarget == selectedTab) {
         selectedTab = transientTabOrigin ?: selectedTab
         transientTabOrigin = null
@@ -364,12 +413,14 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         editingTaskId = null
             prefillSubject = ""
             prefillTeacher = ""
+            naturalLanguageTaskDraft = null
     }
     BackHandler(enabled = showPlanEditor) {
         showPlanEditor = false
         editingPlanId = null
             prefillSubject = ""
             prefillTeacher = ""
+            naturalLanguageTaskDraft = null
     }
     BackHandler(enabled = lessonChangeEditor != null) {
         lessonChangeEditor = null
@@ -1184,6 +1235,8 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         showVlmImport -> "vlm"
         showSettings -> "settings"
         lessonChangeEditor != null -> "lessonChange"
+        showLessonSearch -> "lessonSearch"
+        showTaskPlanCalendar -> "taskPlanCalendar"
         else -> "main"
     }
 
@@ -1373,6 +1426,38 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                         )
                     }
                 }
+                "lessonSearch" -> {
+                    LessonSearchScreen(
+                        state = uiState,
+                        classSlots = currentClassSlots,
+                        resolveLesson = ::resolveDisplayedLesson,
+                        changedLessonForDate = { date, slotIndex ->
+                            uiState.changedLessons[date to slotIndex]
+                        },
+                        isLessonCancelled = { date, slotIndex ->
+                            viewModel.isLessonCancelled(date, slotIndex, uiState.cancelledLessons)
+                        },
+                        onBack = { showLessonSearch = false }
+                    )
+                }
+                "taskPlanCalendar" -> {
+                    TaskPlanCalendarScreen(
+                        tasks = uiState.tasks,
+                        plans = uiState.plans,
+                        showWeekdayOnDates = uiState.settings?.showWeekdayOnDates ?: false,
+                        onBack = { showTaskPlanCalendar = false },
+                        onOpenTask = { task ->
+                            showTaskPlanCalendar = false
+                            navigateToTabFromAction(AppTab.Tasks)
+                            focusedTaskId = task.id.takeIf { it > 0 }
+                        },
+                        onOpenPlan = { plan ->
+                            showTaskPlanCalendar = false
+                            navigateToTabFromAction(AppTab.Plans)
+                            focusedPlanId = plan.id.takeIf { it > 0 }
+                        }
+                    )
+                }
                 "vlm" -> {
                 VlmImportScreen(
                     hfToken = uiState.settings?.hfToken,
@@ -1431,6 +1516,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                         showAbout = true
                     },
                     onToggleLocalAi = viewModel::toggleLocalAi,
+                    onToggleNaturalLanguageTaskAdd = viewModel::toggleNaturalLanguageTaskAdd,
                     onToggleDrawerNavigation = viewModel::toggleDrawerNavigation,
                     onToggleAddTasksToCalendar = { enabled ->
                         if (enabled && !hasCalendarPermission(context)) {
@@ -1576,6 +1662,54 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                         valueTransform = { it.second }
                     )
                     .mapValues { (_, teachers) -> teachers.distinct().sorted() }
+                val naturalLanguageLessonCandidates = uiState.lessons.values
+                    .flatMap { lesson ->
+                        when (lesson.mode) {
+                            LessonMode.WEEKLY -> listOf(
+                                NaturalLanguageLessonCandidate(
+                                    subject = lesson.weeklySubject.trim(),
+                                    teacher = lesson.weeklyTeacher.trim().takeIf { it.isNotBlank() }
+                                )
+                            )
+                            LessonMode.ALTERNATING -> listOf(
+                                NaturalLanguageLessonCandidate(
+                                    subject = lesson.aSubject.trim(),
+                                    teacher = lesson.aTeacher.trim().takeIf { it.isNotBlank() }
+                                ),
+                                NaturalLanguageLessonCandidate(
+                                    subject = lesson.bSubject.trim(),
+                                    teacher = lesson.bTeacher.trim().takeIf { it.isNotBlank() }
+                                )
+                            )
+                        }
+                    }
+                    .filter { it.subject.isNotBlank() }
+                    .distinctBy { it.subject to it.teacher }
+                val naturalLanguageModelFamilies = rememberModelFamilies()
+                val naturalLanguageModelManager = remember { ModelDownloadManager(context) }
+                val naturalLanguageModelOptions = remember(
+                    showNaturalLanguageTaskAddDialog,
+                    naturalLanguageModelFamilies
+                ) {
+                    val downloadedFiles = naturalLanguageModelManager.getDownloadedModels()
+                        .filter { it.isFile && it.length() > 0L }
+                    val downloadedByName = downloadedFiles.associateBy { it.name }
+                    val knownModels = naturalLanguageModelFamilies.values.flatten()
+                    val knownOptions = knownModels.mapNotNull { model ->
+                        val primaryName = model.assets.firstOrNull()?.fileName ?: return@mapNotNull null
+                        val modelFile = downloadedByName[primaryName] ?: return@mapNotNull null
+                        NaturalLanguageModelOption(model.name, modelFile)
+                    }
+                    val knownPrimaryNames = knownModels.mapNotNull { it.assets.firstOrNull()?.fileName }.toSet()
+                    val unknownOptions = downloadedFiles
+                        .filter {
+                            it.extension.equals("gguf", ignoreCase = true) &&
+                                !it.name.startsWith("mmproj", ignoreCase = true) &&
+                                it.name !in knownPrimaryNames
+                        }
+                        .map { NaturalLanguageModelOption(it.nameWithoutExtension, it) }
+                    (knownOptions + unknownOptions).distinctBy { it.modelFile.name }
+                }
                 val editingTask = editingTaskId?.let { id ->
                     uiState.tasks.firstOrNull { it.id == id }
                 }
@@ -1584,8 +1718,10 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                 }
                 val prefillDueHour = uiState.settings?.firstPeriodStartHour ?: 8
                 val prefillDueMinute = uiState.settings?.firstPeriodStartMinute ?: 40
-                val prefillTaskTemplate = if (editingTask == null && !showPlanEditor && prefillSubject.isNotBlank()) {
-                    TaskEntity(
+                val prefillTaskTemplate = when {
+                    editingTask != null || showPlanEditor -> null
+                    naturalLanguageTaskDraft != null -> naturalLanguageTaskDraft
+                    prefillSubject.isNotBlank() -> TaskEntity(
                         subject = prefillSubject,
                         teacher = prefillTeacher.takeIf { it.isNotBlank() },
                         title = "",
@@ -1594,7 +1730,8 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                         dueMinute = prefillDueMinute,
                         createdDate = LocalDate.now()
                     )
-                } else null
+                    else -> null
+                }
                 val prefillPlanTemplate = if (editingPlan == null && showPlanEditor && prefillSubject.isNotBlank()) {
                     TaskEntity(
                         subject = prefillSubject,
@@ -1607,6 +1744,96 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                     )
                 } else null
                 val isAnyEditorVisible = showTaskEditor || showPlanEditor
+
+                suspend fun openNaturalLanguageTaskAdd(
+                    input: String,
+                    modelOption: NaturalLanguageModelOption,
+                    onStatusUpdate: (String) -> Unit
+                ): Boolean {
+                    val fallbackResult = NaturalLanguageTaskParser.parse(
+                        input = input,
+                        candidates = naturalLanguageLessonCandidates,
+                        today = LocalDate.now(),
+                        now = LocalTime.now()
+                    ) ?: return false
+                    val serviceIntent = android.content.Intent(context, VlmInferenceService::class.java)
+                    ContextCompat.startForegroundService(context, serviceIntent)
+                    val aiResult = try {
+                        naturalLanguageInferenceEngine.analyzeNaturalLanguageTask(
+                            modelFile = modelOption.modelFile,
+                            input = input,
+                            candidates = naturalLanguageLessonCandidates,
+                            now = LocalDateTime.now(),
+                            onStatusUpdate = onStatusUpdate
+                        )
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        snackbarHostState.showSnackbar(
+                            context.getString(R.string.msg_natural_language_ai_fallback)
+                        )
+                        null
+                    } finally {
+                        context.stopService(serviceIntent)
+                    }
+
+                    val matchedAiCandidate = aiResult?.subject
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { aiSubject ->
+                            naturalLanguageLessonCandidates.firstOrNull { candidate ->
+                                candidate.subject.equals(aiSubject, ignoreCase = true) &&
+                                    (
+                                        aiResult.teacher.isNullOrBlank() ||
+                                            candidate.teacher.equals(aiResult.teacher, ignoreCase = true)
+                                        )
+                            } ?: naturalLanguageLessonCandidates.firstOrNull { candidate ->
+                                candidate.subject.equals(aiSubject, ignoreCase = true)
+                            }
+                        }
+                    val resolvedSubject = matchedAiCandidate?.subject ?: fallbackResult.subject
+                    val resolvedTeacher = when {
+                        matchedAiCandidate == null -> fallbackResult.teacher
+                        aiResult.teacher.isNullOrBlank() -> matchedAiCandidate.teacher ?: fallbackResult.teacher
+                        matchedAiCandidate.teacher.equals(aiResult.teacher, ignoreCase = true) ->
+                            matchedAiCandidate.teacher
+                        else -> fallbackResult.teacher
+                    }
+                    val resolvedTime = if (aiResult?.dueHour != null && aiResult.dueMinute != null) {
+                        aiResult.dueHour to aiResult.dueMinute
+                    } else {
+                        fallbackResult.dueHour to fallbackResult.dueMinute
+                    }
+                    naturalLanguageTaskDraft = TaskEntity(
+                        subject = resolvedSubject,
+                        teacher = resolvedTeacher,
+                        title = aiResult?.title?.takeIf { it.isNotBlank() } ?: fallbackResult.title,
+                        description = aiResult?.description ?: fallbackResult.description,
+                        dueDate = aiResult?.dueDate ?: fallbackResult.dueDate,
+                        dueHour = resolvedTime.first,
+                        dueMinute = resolvedTime.second,
+                        createdDate = LocalDate.now(),
+                        useTeacherMatching = resolvedTeacher != null
+                    )
+                    prefillSubject = ""
+                    prefillTeacher = ""
+                    editingTaskId = null
+                    editingPlanId = null
+                    showPlanEditor = false
+                    showTaskEditor = true
+                    return true
+                }
+
+                if (
+                    InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD &&
+                    showNaturalLanguageTaskAddDialog
+                ) {
+                    NaturalLanguageTaskAddDialog(
+                        modelOptions = naturalLanguageModelOptions,
+                        onDismiss = { showNaturalLanguageTaskAddDialog = false },
+                        onCancelInference = naturalLanguageInferenceEngine::cancelInference,
+                        onCreateDraft = ::openNaturalLanguageTaskAdd
+                    )
+                }
 
                 AnimatedContent(
                     targetState = isAnyEditorVisible,
@@ -1629,6 +1856,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                             subjectTeacherCandidates = taskTeacherCandidates,
                             defaultDueHour = uiState.settings?.firstPeriodStartHour ?: 8,
                             defaultDueMinute = uiState.settings?.firstPeriodStartMinute ?: 40,
+                            autoResolveInitialSubject = naturalLanguageTaskDraft == null,
                             showWeekdayOnDates = uiState.settings?.showWeekdayOnDates ?: false,
                             isPlan = showPlanEditor,
                             onResolveNextLessonDateTime = { subject, teacher, fromDate, fromTime ->
@@ -1683,6 +1911,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                     editingPlanId = null
                                        prefillSubject = ""
                                        prefillTeacher = ""
+                                       naturalLanguageTaskDraft = null
                                 } else {
                                     val shouldSyncTaskToCalendar = uiState.settings?.addTasksToCalendar == true
                                     appScope.launch {
@@ -1705,6 +1934,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                     editingTaskId = null
                                        prefillSubject = ""
                                        prefillTeacher = ""
+                                       naturalLanguageTaskDraft = null
                                 }
                             },
                             onBack = {
@@ -1717,6 +1947,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                 }
                                    prefillSubject = ""
                                    prefillTeacher = ""
+                                   naturalLanguageTaskDraft = null
                             }
                         )
                     } else {
@@ -1737,6 +1968,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                         changedLessonForDate = { date, slot -> uiState.changedLessons[date to slot] },
                                         onShiftDate = viewModel::shiftResultDate,
                                         onPickDate = viewModel::setResultDate,
+                                        onOpenLessonSearch = { showLessonSearch = true },
                                         onSaveLessonOverride = viewModel::saveLessonOverride,
                                         onClearLessonOverride = viewModel::clearLessonOverride,
                                         onOpenTask = { task ->
@@ -1786,7 +2018,18 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                                     editingTaskId = task.id.takeIf { it > 0 }
                                                     showTaskEditor = true
                                                     showPlanEditor = false
+                                                    naturalLanguageTaskDraft = null
                                                 },
+                                                onCreateTask = {
+                                                    editingTaskId = null
+                                                    showTaskEditor = true
+                                                    showPlanEditor = false
+                                                    naturalLanguageTaskDraft = null
+                                                },
+                                                showNaturalLanguageTaskAdd =
+                                                    InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD &&
+                                                        uiState.settings?.enableNaturalLanguageTaskAdd == true,
+                                                onOpenNaturalLanguageTaskAdd = { showNaturalLanguageTaskAddDialog = true },
                                                 onDeleteTask = ::deleteTaskWithIntegrations,
                                                 onMarkTaskComplete = ::markTaskCompleteWithIntegrations,
                                                 onMarkTaskIncomplete = viewModel::markTaskAsIncomplete,
@@ -1794,6 +2037,13 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                                     editingPlanId = plan.id.takeIf { it > 0 }
                                                     showPlanEditor = true
                                                     showTaskEditor = false
+                                                    naturalLanguageTaskDraft = null
+                                                },
+                                                onCreatePlan = {
+                                                    editingPlanId = null
+                                                    showPlanEditor = true
+                                                    showTaskEditor = false
+                                                    naturalLanguageTaskDraft = null
                                                 },
                                                 onDeletePlan = { plan ->
                                                     deletePlanWithIntegrations(plan)
@@ -1814,7 +2064,12 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                                     editingTaskId = task?.id?.takeIf { it > 0 }
                                                     showTaskEditor = true
                                                     showPlanEditor = false
+                                                    naturalLanguageTaskDraft = null
                                                 },
+                                                showNaturalLanguageTaskAdd =
+                                                    InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD &&
+                                                        uiState.settings?.enableNaturalLanguageTaskAdd == true,
+                                                onOpenNaturalLanguageTaskAdd = { showNaturalLanguageTaskAddDialog = true },
                                                 onDeleteTask = ::deleteTaskWithIntegrations,
                                                 onMarkComplete = ::markTaskCompleteWithIntegrations,
                                                 onMarkIncomplete = viewModel::markTaskAsIncomplete
@@ -1833,6 +2088,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                             editingPlanId = task?.id?.takeIf { it > 0 }
                                             showPlanEditor = true
                                             showTaskEditor = false
+                                            naturalLanguageTaskDraft = null
                                         },
                                         onDeleteTask = { task ->
                                             uiState.plans.firstOrNull { it.id == task.id }?.let { plan ->
@@ -1886,7 +2142,10 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                             } else {
                                 stringResource(R.string.app_name)
                             }
+                            val showTaskPlanActions =
+                                selectedTab == AppTab.Tasks || selectedTab == AppTab.Plans
                             val showTaskSyncAction = (selectedTab == AppTab.Tasks || selectedTab == AppTab.Plans) && uiState.settings?.addTasksToCalendar == true
+                            var showTaskPlanActionsMenu by remember { mutableStateOf(false) }
 
                             Scaffold(
                                 snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
@@ -1907,9 +2166,47 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                             }
                                         },
                                         actions = {
-                                            if (showTaskSyncAction) {
-                                                IconButton(onClick = { showTaskCalendarSyncDialog = true }) {
-                                                    Icon(Icons.Filled.Autorenew, contentDescription = stringResource(R.string.cd_sync_tasks_to_calendar))
+                                            if (showTaskPlanActions) {
+                                                Box {
+                                                    IconButton(
+                                                        onClick = { showTaskPlanActionsMenu = true }
+                                                    ) {
+                                                        Icon(
+                                                            Icons.Filled.CalendarMonth,
+                                                            contentDescription = stringResource(R.string.cd_open_task_plan_calendar_menu)
+                                                        )
+                                                    }
+                                                    DropdownMenu(
+                                                        expanded = showTaskPlanActionsMenu,
+                                                        onDismissRequest = { showTaskPlanActionsMenu = false }
+                                                    ) {
+                                                        DropdownMenuItem(
+                                                            text = {
+                                                                Text(stringResource(R.string.menu_task_plan_calendar))
+                                                            },
+                                                            leadingIcon = {
+                                                                Icon(Icons.Filled.CalendarMonth, contentDescription = null)
+                                                            },
+                                                            onClick = {
+                                                                showTaskPlanActionsMenu = false
+                                                                showTaskPlanCalendar = true
+                                                            }
+                                                        )
+                                                        if (showTaskSyncAction) {
+                                                            DropdownMenuItem(
+                                                                text = {
+                                                                    Text(stringResource(R.string.menu_sync_tasks_to_device_calendar))
+                                                                },
+                                                                leadingIcon = {
+                                                                    Icon(Icons.Filled.Autorenew, contentDescription = null)
+                                                                },
+                                                                onClick = {
+                                                                    showTaskPlanActionsMenu = false
+                                                                    showTaskCalendarSyncDialog = true
+                                                                }
+                                                            )
+                                                        }
+                                                    }
                                                 }
                                             }
                                             if (uiState.settings?.enableLocalAi == true) {
@@ -2967,6 +3264,7 @@ private fun OutputScreen(
     changedLessonForDate: (LocalDate, Int) -> ChangedLessonEntity?,
     onShiftDate: (Long) -> Unit,
     onPickDate: (LocalDate) -> Unit,
+    onOpenLessonSearch: () -> Unit,
     onSaveLessonOverride: (LocalDate, Int, DayType) -> Unit,
     onClearLessonOverride: (LocalDate) -> Unit,
     onOpenTask: (TaskEntity) -> Unit,
@@ -3014,6 +3312,7 @@ private fun OutputScreen(
     }
 
     var showResultDatePicker by rememberSaveable { mutableStateOf(false) }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -3061,6 +3360,15 @@ private fun OutputScreen(
                         )
                     }
                     Spacer(Modifier.weight(1f))
+                    IconButton(
+                        onClick = onOpenLessonSearch,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Search,
+                            contentDescription = stringResource(R.string.cd_search_timetable)
+                        )
+                    }
                     IconButton(onClick = { onShiftDate(-shiftUnit) }) { Text("<") }
                     if (displayMode == OutputDisplayMode.DAY) {
                         val selectedDayTypeEntity = dayTypeEntityForDate(selectedDate)
@@ -3219,6 +3527,1210 @@ private fun OutputScreen(
         }
 
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+private fun TaskPlanCalendarScreen(
+    tasks: List<TaskEntity>,
+    plans: List<PlanEntity>,
+    showWeekdayOnDates: Boolean,
+    onBack: () -> Unit,
+    onOpenTask: (TaskEntity) -> Unit,
+    onOpenPlan: (PlanEntity) -> Unit
+) {
+    val today = remember { LocalDate.now() }
+    val configuration = LocalConfiguration.current
+    val locale = configuration.locales[0]
+    val firstDayOfWeek = remember(locale) {
+        WeekFields.of(locale).firstDayOfWeek
+    }
+    val orderedDaysOfWeek = remember(firstDayOfWeek) {
+        (0 until 7).map { offset ->
+            DayOfWeek.of(((firstDayOfWeek.value - 1 + offset) % 7) + 1)
+        }
+    }
+    val scope = rememberCoroutineScope()
+    val monthPagerPageCount = 4_001
+    val monthPagerCenterPage = monthPagerPageCount / 2
+    val monthPagerAnchor = remember { YearMonth.from(today) }
+    val monthPagerState = rememberPagerState(
+        initialPage = monthPagerCenterPage,
+        pageCount = { monthPagerPageCount }
+    )
+    var selectedDateEpochDay by rememberSaveable {
+        mutableStateOf(today.toEpochDay())
+    }
+    val selectedDate = LocalDate.ofEpochDay(selectedDateEpochDay)
+    val tasksByDate = remember(tasks) { tasks.groupBy { it.dueDate } }
+    val plansByDate = remember(plans) { plans.groupBy { it.dueDate } }
+    val selectedTasks = tasksByDate[selectedDate]
+        .orEmpty()
+        .sortedWith(compareBy<TaskEntity> { it.dueHour }.thenBy { it.dueMinute })
+    val selectedPlans = plansByDate[selectedDate]
+        .orEmpty()
+        .sortedWith(compareBy<PlanEntity> { it.dueHour }.thenBy { it.dueMinute })
+    LaunchedEffect(monthPagerState.settledPage) {
+        val settledMonth = monthPagerAnchor.plusMonths(
+            monthPagerState.settledPage.toLong() - monthPagerCenterPage.toLong()
+        )
+        if (YearMonth.from(selectedDate) != settledMonth) {
+            selectedDateEpochDay = settledMonth.atDay(1).toEpochDay()
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.title_task_plan_calendar)) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.cd_back)
+                        )
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                CalendarPagerCard(
+                    state = monthPagerState,
+                    anchorMonth = monthPagerAnchor.minusMonths(monthPagerCenterPage.toLong()),
+                    orderedDaysOfWeek = orderedDaysOfWeek,
+                    onPreviousMonth = {
+                        scope.launch {
+                            monthPagerState.animateScrollToPage(
+                                (monthPagerState.settledPage - 1).coerceAtLeast(0)
+                            )
+                        }
+                    },
+                    onNextMonth = {
+                        scope.launch {
+                            monthPagerState.animateScrollToPage(
+                                (monthPagerState.settledPage + 1)
+                                    .coerceAtMost(monthPagerPageCount - 1)
+                            )
+                        }
+                    }
+                ) { _, date, cellModifier ->
+                        TaskPlanCalendarDayCell(
+                            date = date,
+                            taskCount = tasksByDate[date]?.size ?: 0,
+                            planCount = plansByDate[date]?.size ?: 0,
+                            isToday = date == today,
+                            isSelected = date == selectedDate,
+                            onClick = {
+                                selectedDateEpochDay = date.toEpochDay()
+                            },
+                            modifier = cellModifier
+                        )
+                }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = MaterialTheme.colorScheme.secondaryContainer
+                    ) {
+                        Text(
+                            text = formatDateForDisplay(selectedDate, showWeekdayOnDates),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    TaskPlanCountChip(
+                        label = stringResource(R.string.tab_tasks),
+                        count = selectedTasks.size,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    TaskPlanCountChip(
+                        label = stringResource(R.string.tab_plans),
+                        count = selectedPlans.size,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            if (selectedTasks.isEmpty() && selectedPlans.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 36.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = stringResource(R.string.msg_task_plan_calendar_empty),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            items(selectedTasks, key = { "task-${it.id}" }) { task ->
+                TaskPlanCalendarItem(
+                    typeLabel = stringResource(R.string.tab_tasks),
+                    title = task.title,
+                    subject = task.subject,
+                    teacher = task.teacher,
+                    hour = task.dueHour,
+                    minute = task.dueMinute,
+                    completed = task.isCompleted,
+                    accentColor = MaterialTheme.colorScheme.error,
+                    onClick = { onOpenTask(task) }
+                )
+            }
+
+            items(selectedPlans, key = { "plan-${it.id}" }) { plan ->
+                TaskPlanCalendarItem(
+                    typeLabel = stringResource(R.string.tab_plans),
+                    title = plan.title,
+                    subject = plan.subject,
+                    teacher = plan.teacher,
+                    hour = plan.dueHour,
+                    minute = plan.dueMinute,
+                    completed = plan.isCompleted,
+                    accentColor = MaterialTheme.colorScheme.primary,
+                    onClick = { onOpenPlan(plan) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TaskPlanCalendarDayCell(
+    date: LocalDate,
+    taskCount: Int,
+    planCount: Int,
+    isToday: Boolean,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(16.dp)
+    val containerColor = when {
+        isSelected -> MaterialTheme.colorScheme.primaryContainer
+        isToday -> MaterialTheme.colorScheme.secondaryContainer
+        else -> Color.Transparent
+    }
+    val contentColor = when {
+        isSelected -> MaterialTheme.colorScheme.onPrimaryContainer
+        isToday -> MaterialTheme.colorScheme.onSecondaryContainer
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+
+    Surface(
+        modifier = modifier
+            .aspectRatio(1f)
+            .then(
+                if (isToday && !isSelected) {
+                    Modifier.border(1.dp, MaterialTheme.colorScheme.primary, shape)
+                } else {
+                    Modifier
+                }
+            )
+            .clickable(onClick = onClick),
+        shape = shape,
+        color = containerColor,
+        contentColor = contentColor
+    ) {
+        Column(
+            modifier = Modifier.padding(vertical = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = date.dayOfMonth.toString(),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                if (taskCount > 0) {
+                    CalendarItemCountDot(
+                        count = taskCount,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                if (planCount > 0) {
+                    CalendarItemCountDot(
+                        count = planCount,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarItemCountDot(count: Int, color: Color) {
+    Surface(
+        shape = CircleShape,
+        color = color
+    ) {
+        Text(
+            text = count.toString(),
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+private fun TaskPlanCountChip(
+    label: String,
+    count: Int,
+    color: Color
+) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = color.copy(alpha = 0.13f)
+    ) {
+        Text(
+            text = "$label $count",
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = color,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+private fun TaskPlanCalendarItem(
+    typeLabel: String,
+    title: String,
+    subject: String,
+    teacher: String?,
+    hour: Int,
+    minute: Int,
+    completed: Boolean,
+    accentColor: Color,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .alpha(if (completed) 0.58f else 1f)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = accentColor.copy(alpha = 0.14f)
+            ) {
+                Text(
+                    text = typeLabel,
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = accentColor,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    textDecoration = if (completed) {
+                        androidx.compose.ui.text.style.TextDecoration.LineThrough
+                    } else {
+                        null
+                    }
+                )
+                val detail = listOfNotNull(
+                    subject.takeIf { it.isNotBlank() },
+                    teacher?.takeIf { it.isNotBlank() }
+                ).joinToString(" / ")
+                if (detail.isNotBlank()) {
+                    Text(
+                        text = detail,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Text(
+                text = "%02d:%02d".format(hour, minute),
+                style = MaterialTheme.typography.labelLarge,
+                color = accentColor,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LessonSearchScreen(
+    state: SchedulerUiState,
+    classSlots: List<ClassSlot>,
+    resolveLesson: (LocalDate, Int) -> ResolvedLesson?,
+    changedLessonForDate: (LocalDate, Int) -> ChangedLessonEntity?,
+    isLessonCancelled: (LocalDate, Int) -> Boolean,
+    onBack: () -> Unit
+) {
+    var query by rememberSaveable { mutableStateOf("") }
+    var effectiveQuery by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(query) {
+        kotlinx.coroutines.delay(180)
+        effectiveQuery = query
+    }
+    val today = remember { LocalDate.now() }
+    val configuredStart = state.settings?.termStart ?: today
+    val configuredEnd = state.settings?.termEnd ?: today.plusMonths(6)
+    val searchStart = minOf(configuredStart, configuredEnd)
+    val searchEnd = maxOf(configuredStart, configuredEnd)
+    val initialSearchMonth = remember(searchStart, searchEnd, today) {
+        YearMonth.from(today).coerceIn(
+            YearMonth.from(searchStart),
+            YearMonth.from(searchEnd)
+        )
+    }
+    var displayedMonthText by rememberSaveable { mutableStateOf(initialSearchMonth.toString()) }
+    var previewDateEpochDay by rememberSaveable { mutableStateOf<Long?>(null) }
+    var searchDisplayMode by rememberSaveable { mutableStateOf(LessonSearchDisplayMode.CALENDAR) }
+    val displayedMonth = remember(displayedMonthText) {
+        runCatching { YearMonth.parse(displayedMonthText) }.getOrElse { YearMonth.from(searchStart) }
+    }
+    val results = remember(
+        effectiveQuery,
+        state.settings,
+        state.lessons,
+        state.dayTypeMap,
+        state.dayTypeEntities,
+        state.changedLessons,
+        state.cancelledLessons,
+        classSlots
+    ) {
+        val tokens = effectiveQuery
+            .trim()
+            .split(Regex("""[\s　]+"""))
+            .map(::normalizeLessonSearchText)
+            .filter { it.isNotBlank() }
+
+        if (tokens.isEmpty()) {
+            emptyList()
+        } else {
+            val matches = mutableListOf<LessonSearchResult>()
+            var date = searchStart
+            var scannedDays = 0
+
+            while (
+                !date.isAfter(searchEnd) &&
+                scannedDays < 730
+            ) {
+                classSlots.forEach { slot ->
+                    if (isLessonCancelled(date, slot.index)) return@forEach
+                    val lesson = resolveLesson(date, slot.index) ?: return@forEach
+                    if (lesson.subject.isBlank()) return@forEach
+
+                    val searchableText = normalizeLessonSearchText(
+                        listOf(
+                            lesson.subject,
+                            lesson.teacher,
+                            lesson.location.orEmpty(),
+                            japaneseDayOfWeekSearchText(date.dayOfWeek),
+                            slot.label,
+                            date.toString()
+                        ).joinToString(" ")
+                    )
+                    if (tokens.all(searchableText::contains)) {
+                        matches += LessonSearchResult(
+                            date = date,
+                            slot = slot,
+                            lesson = lesson,
+                            isChanged = changedLessonForDate(date, slot.index) != null
+                        )
+                    }
+                }
+                date = date.plusDays(1)
+                scannedDays++
+            }
+            matches
+        }
+    }
+    val resultsByDate = remember(results) { results.groupBy { it.date } }
+
+    previewDateEpochDay?.let { epochDay ->
+        LessonSearchDayPreviewScreen(
+            date = LocalDate.ofEpochDay(epochDay),
+            query = query,
+            classSlots = classSlots,
+            resolveLesson = resolveLesson,
+            changedLessonForDate = changedLessonForDate,
+            isLessonCancelled = isLessonCancelled,
+            onBack = { previewDateEpochDay = null }
+        )
+        return
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.title_search_timetable)) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.cd_back)
+                        )
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                leadingIcon = {
+                    Icon(Icons.Filled.Search, contentDescription = null)
+                },
+                label = { Text(stringResource(R.string.label_search_timetable_query)) },
+                placeholder = { Text(stringResource(R.string.hint_search_timetable)) }
+            )
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                LessonSearchDisplayMode.entries.forEach { mode ->
+                    FilterChip(
+                        selected = searchDisplayMode == mode,
+                        onClick = { searchDisplayMode = mode },
+                        label = { Text(stringResource(mode.labelRes)) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (mode == LessonSearchDisplayMode.CALENDAR) {
+                                    Icons.Filled.CalendarMonth
+                                } else {
+                                    Icons.Filled.TableChart
+                                },
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    )
+                }
+            }
+
+            when (searchDisplayMode) {
+                LessonSearchDisplayMode.CALENDAR -> LessonSearchCalendarView(
+                    modifier = Modifier.weight(1f),
+                    query = query,
+                    displayedMonth = displayedMonth,
+                    searchStart = searchStart,
+                    searchEnd = searchEnd,
+                    today = today,
+                    results = results,
+                    resultsByDate = resultsByDate,
+                    onDisplayedMonthChange = { month ->
+                        displayedMonthText = month.toString()
+                    },
+                    onSelectDate = { date ->
+                        previewDateEpochDay = date.toEpochDay()
+                    }
+                )
+                LessonSearchDisplayMode.LIST -> LessonSearchListView(
+                    modifier = Modifier.weight(1f),
+                    query = query,
+                    results = results.filter { !it.date.isBefore(today) },
+                    onSelectDate = { date ->
+                        displayedMonthText = YearMonth.from(date).toString()
+                        previewDateEpochDay = date.toEpochDay()
+                    }
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun LessonSearchCalendarView(
+    query: String,
+    displayedMonth: YearMonth,
+    searchStart: LocalDate,
+    searchEnd: LocalDate,
+    today: LocalDate,
+    results: List<LessonSearchResult>,
+    resultsByDate: Map<LocalDate, List<LessonSearchResult>>,
+    onDisplayedMonthChange: (YearMonth) -> Unit,
+    onSelectDate: (LocalDate) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val scope = rememberCoroutineScope()
+    val configuration = LocalConfiguration.current
+    val locale = configuration.locales[0]
+    val firstDayOfWeek = remember(locale) {
+        WeekFields.of(locale).firstDayOfWeek
+    }
+    val orderedDaysOfWeek = remember(firstDayOfWeek) {
+        (0 until 7).map { offset ->
+            DayOfWeek.of(((firstDayOfWeek.value - 1 + offset) % 7) + 1)
+        }
+    }
+    val firstMonth = YearMonth.from(searchStart)
+    val lastMonth = YearMonth.from(searchEnd)
+    val pageCount = (
+        java.time.temporal.ChronoUnit.MONTHS.between(firstMonth, lastMonth) + 1L
+        ).toInt().coerceAtLeast(1)
+    val initialPage = java.time.temporal.ChronoUnit.MONTHS
+        .between(firstMonth, displayedMonth)
+        .toInt()
+        .coerceIn(0, pageCount - 1)
+    val pagerState = rememberPagerState(
+        initialPage = initialPage,
+        pageCount = { pageCount }
+    )
+
+    LaunchedEffect(pagerState.settledPage) {
+        onDisplayedMonthChange(firstMonth.plusMonths(pagerState.settledPage.toLong()))
+    }
+
+    LazyColumn(
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            CalendarPagerCard(
+                state = pagerState,
+                anchorMonth = firstMonth,
+                orderedDaysOfWeek = orderedDaysOfWeek,
+                previousEnabled = pagerState.settledPage > 0,
+                nextEnabled = pagerState.settledPage < pageCount - 1,
+                onPreviousMonth = {
+                    scope.launch {
+                        pagerState.animateScrollToPage(
+                            (pagerState.settledPage - 1).coerceAtLeast(0)
+                        )
+                    }
+                },
+                onNextMonth = {
+                    scope.launch {
+                        pagerState.animateScrollToPage(
+                            (pagerState.settledPage + 1).coerceAtMost(pageCount - 1)
+                        )
+                    }
+                }
+            ) { _, date, cellModifier ->
+                    SearchCalendarDayCell(
+                        date = date,
+                        matchCount = resultsByDate[date]?.size ?: 0,
+                        isToday = date == today,
+                        enabled = date in searchStart..searchEnd,
+                        onClick = { onSelectDate(date) },
+                        modifier = cellModifier
+                    )
+            }
+        }
+
+        item {
+            Text(
+                text = when {
+                    query.isBlank() -> stringResource(R.string.desc_search_calendar)
+                    results.isEmpty() -> stringResource(R.string.msg_search_timetable_no_results)
+                    else -> stringResource(
+                        R.string.label_search_calendar_summary,
+                        resultsByDate.size,
+                        results.size
+                    )
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun CalendarPagerCard(
+    state: PagerState,
+    anchorMonth: YearMonth,
+    orderedDaysOfWeek: List<DayOfWeek>,
+    previousEnabled: Boolean = true,
+    nextEnabled: Boolean = true,
+    onPreviousMonth: () -> Unit,
+    onNextMonth: () -> Unit,
+    dayContent: @Composable (month: YearMonth, date: LocalDate, modifier: Modifier) -> Unit
+) {
+    val settledMonth = anchorMonth.plusMonths(state.settledPage.toLong())
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    enabled = previousEnabled,
+                    onClick = onPreviousMonth
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = stringResource(R.string.cd_previous_month)
+                    )
+                }
+                Text(
+                    text = stringResource(
+                        R.string.label_search_calendar_month,
+                        settledMonth.year,
+                        settledMonth.monthValue
+                    ),
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+                IconButton(
+                    enabled = nextEnabled,
+                    onClick = onNextMonth
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = stringResource(R.string.cd_next_month)
+                    )
+                }
+            }
+
+            Row(modifier = Modifier.fillMaxWidth()) {
+                orderedDaysOfWeek.forEach { dayOfWeek ->
+                    Text(
+                        text = stringResource(dayOfWeekRes(dayOfWeek)),
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (dayOfWeek.value >= DayOfWeek.SATURDAY.value) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+            }
+
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val cellSize = (maxWidth - 24.dp) / 7
+                val calendarHeight = cellSize * 6 + 50.dp
+                HorizontalPager(
+                    state = state,
+                    pageSpacing = 12.dp,
+                    beyondViewportPageCount = 0,
+                    key = { it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(calendarHeight)
+                ) { page ->
+                    val pageMonth = anchorMonth.plusMonths(page.toLong())
+                    CalendarMonthGrid(
+                        month = pageMonth,
+                        firstDayOfWeek = orderedDaysOfWeek.first()
+                    ) { date, cellModifier ->
+                        dayContent(pageMonth, date, cellModifier)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarMonthGrid(
+    month: YearMonth,
+    firstDayOfWeek: DayOfWeek,
+    dayContent: @Composable (date: LocalDate, modifier: Modifier) -> Unit
+) {
+    val monthCells = remember(month, firstDayOfWeek) {
+        val leadingEmptyDays =
+            (month.atDay(1).dayOfWeek.value - firstDayOfWeek.value + 7) % 7
+        List<LocalDate?>(42) { cellIndex ->
+            val dayOfMonth = cellIndex - leadingEmptyDays + 1
+            dayOfMonth
+                .takeIf { it in 1..month.lengthOfMonth() }
+                ?.let(month::atDay)
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        repeat(6) { weekIndex ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                repeat(7) { dayIndex ->
+                    val cellIndex = weekIndex * 7 + dayIndex
+                    val date = monthCells[cellIndex]
+                    if (date == null) {
+                        Spacer(
+                            modifier = Modifier
+                                .weight(1f)
+                                .aspectRatio(1f)
+                        )
+                    } else {
+                        dayContent(
+                            date,
+                            Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchCalendarDayCell(
+    date: LocalDate,
+    matchCount: Int,
+    isToday: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(16.dp)
+    val containerColor = when {
+        matchCount > 0 -> MaterialTheme.colorScheme.primaryContainer
+        isToday -> MaterialTheme.colorScheme.secondaryContainer
+        else -> Color.Transparent
+    }
+    val contentColor = when {
+        matchCount > 0 -> MaterialTheme.colorScheme.onPrimaryContainer
+        isToday -> MaterialTheme.colorScheme.onSecondaryContainer
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+
+    Surface(
+        modifier = modifier
+            .aspectRatio(1f)
+            .then(
+                if (isToday) {
+                    Modifier.border(1.dp, MaterialTheme.colorScheme.primary, shape)
+                } else {
+                    Modifier
+                }
+            )
+            .clickable(enabled = enabled, onClick = onClick),
+        shape = shape,
+        color = containerColor,
+        contentColor = contentColor
+    ) {
+        Column(
+            modifier = Modifier.padding(vertical = 5.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = date.dayOfMonth.toString(),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (matchCount > 0 || isToday) FontWeight.Bold else FontWeight.Normal
+            )
+            if (matchCount > 0) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primary
+                ) {
+                    Text(
+                        text = matchCount.toString(),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LessonSearchListView(
+    query: String,
+    results: List<LessonSearchResult>,
+    onSelectDate: (LocalDate) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val timeFormatter = remember { DateTimeFormatter.ofPattern("H:mm") }
+
+    when {
+        query.isBlank() -> Box(
+            modifier = modifier.fillMaxWidth(),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            Text(
+                text = stringResource(R.string.desc_search_timetable),
+                modifier = Modifier.padding(top = 12.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        results.isEmpty() -> Box(
+            modifier = modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = stringResource(R.string.msg_search_timetable_no_results),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        else -> LazyColumn(
+            modifier = modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            item {
+                Text(
+                    text = stringResource(R.string.label_search_timetable_results, results.size),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            items(
+                items = results,
+                key = { "${it.date}-${it.slot.index}" }
+            ) { result ->
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelectDate(result.date) },
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = result.lesson.subject,
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (result.isChanged) {
+                                Text(
+                                    text = stringResource(R.string.label_changed),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        if (result.lesson.teacher.isNotBlank()) {
+                            Text(
+                                text = result.lesson.teacher,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (!result.lesson.location.isNullOrBlank()) {
+                            Text(
+                                text = result.lesson.location,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = MaterialTheme.colorScheme.secondaryContainer
+                            ) {
+                                Text(
+                                    text = stringResource(
+                                        R.string.label_search_timetable_date_chip,
+                                        result.date.format(dateFormatter),
+                                        stringResource(dayOfWeekRes(result.date.dayOfWeek))
+                                    ),
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Text(
+                                text = stringResource(
+                                    R.string.label_search_timetable_time,
+                                    result.slot.label,
+                                    result.slot.start.format(timeFormatter),
+                                    result.slot.end.format(timeFormatter)
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LessonSearchDayPreviewScreen(
+    date: LocalDate,
+    query: String,
+    classSlots: List<ClassSlot>,
+    resolveLesson: (LocalDate, Int) -> ResolvedLesson?,
+    changedLessonForDate: (LocalDate, Int) -> ChangedLessonEntity?,
+    isLessonCancelled: (LocalDate, Int) -> Boolean,
+    onBack: () -> Unit
+) {
+    BackHandler(onBack = onBack)
+    val timeFormatter = remember { DateTimeFormatter.ofPattern("H:mm") }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.title_search_day_preview)) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.cd_back)
+                        )
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            item {
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = MaterialTheme.colorScheme.secondaryContainer
+                ) {
+                    Text(
+                        text = stringResource(
+                            R.string.label_search_timetable_date_chip,
+                            date.format(dateFormatter),
+                            stringResource(dayOfWeekRes(date.dayOfWeek))
+                        ),
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            if (query.isNotBlank()) {
+                item {
+                    Text(
+                        text = stringResource(R.string.desc_search_day_preview, query),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            items(classSlots, key = { it.index }) { slot ->
+                val lesson = resolveLesson(date, slot.index)
+                val cancelled = isLessonCancelled(date, slot.index)
+                val changed = changedLessonForDate(date, slot.index) != null
+                val matches = lesson != null && lessonMatchesSearchQuery(query, date, slot, lesson)
+                val cardColor = if (matches) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerLow
+                }
+                val mainContentColor = if (matches) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                }
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    color = cardColor
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = slot.label,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = stringResource(
+                                        R.string.label_search_slot_time,
+                                        slot.start.format(timeFormatter),
+                                        slot.end.format(timeFormatter)
+                                    ),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                        }
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = lesson?.subject ?: stringResource(R.string.label_no_class_short),
+                                    modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = mainContentColor.copy(alpha = if (cancelled) 0.55f else 1f),
+                                    fontWeight = FontWeight.Bold,
+                                    textDecoration = if (cancelled) {
+                                        androidx.compose.ui.text.style.TextDecoration.LineThrough
+                                    } else {
+                                        null
+                                    }
+                                )
+                                if (matches) {
+                                    Text(
+                                        text = stringResource(R.string.label_search_match),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            if (!lesson?.teacher.isNullOrBlank()) {
+                                Text(
+                                    text = lesson.teacher,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = mainContentColor.copy(alpha = 0.72f)
+                                )
+                            }
+                            if (!lesson?.location.isNullOrBlank()) {
+                                Text(
+                                    text = lesson.location,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = mainContentColor.copy(alpha = 0.72f)
+                                )
+                            }
+                            if (cancelled || changed) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    if (cancelled) {
+                                        Text(
+                                            text = stringResource(R.string.label_cancelled),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.error,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    if (changed) {
+                                        Text(
+                                            text = stringResource(R.string.label_changed),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun lessonMatchesSearchQuery(
+    query: String,
+    date: LocalDate,
+    slot: ClassSlot,
+    lesson: ResolvedLesson
+): Boolean {
+    val tokens = query
+        .trim()
+        .split(Regex("""[\s　]+"""))
+        .map(::normalizeLessonSearchText)
+        .filter { it.isNotBlank() }
+    if (tokens.isEmpty()) return false
+
+    val searchableText = normalizeLessonSearchText(
+        listOf(
+            lesson.subject,
+            lesson.teacher,
+            lesson.location.orEmpty(),
+            japaneseDayOfWeekSearchText(date.dayOfWeek),
+            slot.label,
+            date.toString()
+        ).joinToString(" ")
+    )
+    return tokens.all(searchableText::contains)
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -3801,10 +5313,22 @@ private fun DayScheduleTable(
                         .fillMaxHeight()
                         .padding(start = 8.dp, end = 4.dp, bottom = 2.dp)
                 ) {
+                    val overlayTickReserveWidth = if (slot != null && lesson != null && sortedSegTicks.isNotEmpty()) {
+                        with(density) {
+                            textMeasurer.measure(
+                                text = "\u2713 " + "あ".repeat(7),
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                maxLines = 1
+                            ).size.width.toDp()
+                        } + 6.dp
+                    } else {
+                        0.dp
+                    }
                     if (slot != null && !(lesson == null && segmentTicks.isNotEmpty())) {
                         Card(
                             modifier = Modifier
                                 .fillMaxSize()
+                                .padding(start = overlayTickReserveWidth)
                                 .offset(y = 8.dp)
                                 .combinedClickable(
                                     onClick = {
@@ -3956,6 +5480,13 @@ private fun DayScheduleTable(
                                         fontWeight = FontWeight.Bold
                                     )
                                     val detailNoteStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp)
+                                    val completionMarkWidth = with(density) {
+                                        textMeasurer.measure(
+                                            text = "\u2713 ",
+                                            style = detailTitleStyle,
+                                            maxLines = 1
+                                        ).size.width.toDp()
+                                    }
                                     val subjectMinWidth = with(density) {
                                         textMeasurer.measure(
                                             text = "あああ",
@@ -3985,7 +5516,7 @@ private fun DayScheduleTable(
 
                                     val lessonDetailCandidates = buildList<Dp> {
                                         lessonDetailItems.take(2).forEach { item ->
-                                            add(measureWidth(item.title))
+                                            add(measureWidth(item.title) + completionMarkWidth)
                                             if (shouldShowLessonNotes) {
                                                 item.note?.let { add(measureWidth(it, isNote = true)) }
                                             }
@@ -4069,16 +5600,33 @@ private fun DayScheduleTable(
                                                 verticalArrangement = Arrangement.Bottom
                                             ) {
                                                 lessonDetailItems.take(2).forEach { item ->
-                                                    Text(
-                                                        text = "${if (item.isCompleted) "\u2713 " else ""}${item.title}",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = item.titleColor,
-                                                        fontWeight = FontWeight.Bold,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                        textAlign = androidx.compose.ui.text.style.TextAlign.End,
-                                                        modifier = Modifier.fillMaxWidth()
-                                                    )
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Spacer(modifier = Modifier.weight(1f))
+                                                        Text(
+                                                            text = if (item.isCompleted) "\u2713 " else "",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = item.titleColor,
+                                                            fontWeight = FontWeight.Bold,
+                                                            maxLines = 1,
+                                                            modifier = Modifier.width(completionMarkWidth)
+                                                        )
+                                                        Text(
+                                                            text = item.title,
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = item.titleColor,
+                                                            fontWeight = FontWeight.Bold,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis,
+                                                            textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                                            modifier = Modifier.widthIn(
+                                                                max = (lessonDetailsWidth - completionMarkWidth)
+                                                                    .coerceAtLeast(0.dp)
+                                                            )
+                                                        )
+                                                    }
                                                     if (shouldShowLessonNotes && !item.note.isNullOrBlank()) {
                                                         Text(
                                                             text = item.note,
@@ -4142,15 +5690,20 @@ private fun DayScheduleTable(
                         }.dp
                         val tickCompleted = tick.task?.isCompleted == true || tick.plan?.isCompleted == true
                         val tickColor = if (tickCompleted) MaterialTheme.colorScheme.onSurfaceVariant else tick.color
+                        val tickModifier = Modifier
+                            .align(Alignment.TopStart)
+                            .offset(y = yOffset)
+                            .clickable {
+                                tick.task?.let(onOpenTask)
+                                tick.plan?.let(onOpenPlan)
+                            }
                         Column(
                             verticalArrangement = Arrangement.spacedBy((-2).dp),
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .offset(y = yOffset)
-                                .clickable {
-                                    tick.task?.let(onOpenTask)
-                                    tick.plan?.let(onOpenPlan)
-                                }
+                            modifier = if (overlayTickReserveWidth > 0.dp) {
+                                tickModifier.widthIn(max = overlayTickReserveWidth)
+                            } else {
+                                tickModifier
+                            }
                         ) {
                             Text(
                                 text = "${if (tickCompleted) "\u2713 " else ""}${tick.title}",
@@ -5397,16 +6950,213 @@ private fun UpdateNotificationBanner(
 }
 
 @Composable
+private fun NaturalLanguageTaskAddDialog(
+    modelOptions: List<NaturalLanguageModelOption>,
+    onDismiss: () -> Unit,
+    onCancelInference: () -> Unit,
+    onCreateDraft: suspend (
+        input: String,
+        modelOption: NaturalLanguageModelOption,
+        onStatusUpdate: (String) -> Unit
+    ) -> Boolean
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val preferences = remember {
+        context.getSharedPreferences("natural_language_task_ai", Context.MODE_PRIVATE)
+    }
+    var input by rememberSaveable { mutableStateOf("") }
+    var showError by rememberSaveable { mutableStateOf(false) }
+    var modelMenuExpanded by remember { mutableStateOf(false) }
+    var selectedModelFileName by rememberSaveable {
+        mutableStateOf(preferences.getString("selected_model", null))
+    }
+    var isAnalyzing by rememberSaveable { mutableStateOf(false) }
+    var analysisStatus by rememberSaveable { mutableStateOf("") }
+    val selectedModel = modelOptions.firstOrNull { it.modelFile.name == selectedModelFileName }
+        ?: modelOptions.firstOrNull()
+
+    LaunchedEffect(modelOptions, selectedModelFileName) {
+        if (selectedModel == null) {
+            selectedModelFileName = null
+        } else if (selectedModelFileName != selectedModel.modelFile.name) {
+            selectedModelFileName = selectedModel.modelFile.name
+            preferences.edit().putString("selected_model", selectedModel.modelFile.name).apply()
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = {
+            if (!isAnalyzing) onDismiss()
+        },
+        title = { Text(stringResource(R.string.dialog_natural_language_task_add_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = stringResource(R.string.dialog_natural_language_task_add_description),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = {
+                        input = it
+                        showError = false
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isAnalyzing,
+                    minLines = 3,
+                    label = { Text(stringResource(R.string.label_natural_language_task_input)) },
+                    placeholder = { Text(stringResource(R.string.hint_natural_language_task_input)) },
+                    isError = showError,
+                    supportingText = {
+                        if (showError) {
+                            Text(stringResource(R.string.msg_natural_language_task_parse_failed))
+                        }
+                    }
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = stringResource(R.string.label_natural_language_ai_model),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = { modelMenuExpanded = true },
+                            enabled = modelOptions.isNotEmpty() && !isAnalyzing,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = selectedModel?.displayName
+                                    ?: stringResource(R.string.msg_natural_language_no_model),
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (modelOptions.isNotEmpty()) {
+                                Icon(
+                                    imageVector = Icons.Filled.ArrowDropDown,
+                                    contentDescription = null
+                                )
+                            }
+                        }
+                        DropdownMenu(
+                            expanded = modelMenuExpanded,
+                            onDismissRequest = { modelMenuExpanded = false },
+                            modifier = Modifier.fillMaxWidth(0.9f)
+                        ) {
+                            modelOptions.forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text(option.displayName) },
+                                    onClick = {
+                                        selectedModelFileName = option.modelFile.name
+                                        preferences.edit()
+                                            .putString("selected_model", option.modelFile.name)
+                                            .apply()
+                                        modelMenuExpanded = false
+                                    },
+                                    trailingIcon = {
+                                        if (option.modelFile.name == selectedModel?.modelFile?.name) {
+                                            Icon(Icons.Filled.Check, contentDescription = null)
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    if (modelOptions.isEmpty()) {
+                        Text(
+                            text = stringResource(R.string.desc_natural_language_no_model),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+                if (isAnalyzing) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                        Text(
+                            text = analysisStatus.ifBlank {
+                                stringResource(R.string.msg_natural_language_ai_starting)
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = input.isNotBlank() && selectedModel != null && !isAnalyzing,
+                onClick = {
+                    val model = selectedModel ?: return@Button
+                    isAnalyzing = true
+                    showError = false
+                    analysisStatus = context.getString(R.string.msg_natural_language_ai_starting)
+                    scope.launch {
+                        try {
+                            val created = onCreateDraft(input, model) { status ->
+                                analysisStatus = status
+                            }
+                            if (created) {
+                                onDismiss()
+                            } else {
+                                showError = true
+                            }
+                        } catch (_: CancellationException) {
+                            analysisStatus = ""
+                        } catch (_: Exception) {
+                            showError = true
+                        } finally {
+                            isAnalyzing = false
+                        }
+                    }
+                }
+            ) {
+                Text(stringResource(R.string.btn_analyze_and_create_task_draft))
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = {
+                    if (isAnalyzing) {
+                        onCancelInference()
+                        analysisStatus = context.getString(R.string.msg_inference_cancelled)
+                    } else {
+                        onDismiss()
+                    }
+                }
+            ) {
+                Text(
+                    stringResource(
+                        if (isAnalyzing) R.string.notif_cancel_action else R.string.btn_cancel
+                    )
+                )
+            }
+        }
+    )
+}
+
+@Composable
 private fun UnifiedTaskPlanScreen(
     modifier: Modifier = Modifier,
     uiState: SchedulerUiState,
     selectedTabIndex: Int,
     onSelectedTabIndexChange: (Int) -> Unit,
     onOpenTask: (TaskEntity) -> Unit,
+    onCreateTask: () -> Unit,
+    showNaturalLanguageTaskAdd: Boolean,
+    onOpenNaturalLanguageTaskAdd: () -> Unit,
     onDeleteTask: (TaskEntity) -> Unit,
     onMarkTaskComplete: (TaskEntity) -> Unit,
     onMarkTaskIncomplete: (TaskEntity) -> Unit,
     onOpenPlan: (PlanEntity) -> Unit,
+    onCreatePlan: () -> Unit,
     onDeletePlan: (PlanEntity) -> Unit,
     onMarkPlanComplete: (PlanEntity) -> Unit,
     onMarkPlanIncomplete: (PlanEntity) -> Unit
@@ -5436,11 +7186,13 @@ private fun UnifiedTaskPlanScreen(
                 focusTaskId = null,
                 onFocusHandled = {},
                 onOpenTaskEditor = { task: TaskEntity? ->
-                    task?.let { onOpenTask(it) }
+                    if (task == null) onCreateTask() else onOpenTask(task)
                 },
                 onDeleteTask = onDeleteTask,
                 onMarkComplete = onMarkTaskComplete,
-                onMarkIncomplete = onMarkTaskIncomplete
+                onMarkIncomplete = onMarkTaskIncomplete,
+                showNaturalLanguageTaskAdd = showNaturalLanguageTaskAdd,
+                onOpenNaturalLanguageTaskAdd = onOpenNaturalLanguageTaskAdd
             )
             1 -> TaskScreen(
                 modifier = Modifier.fillMaxSize(),
@@ -5450,7 +7202,10 @@ private fun UnifiedTaskPlanScreen(
                 focusTaskId = null,
                 onFocusHandled = {},
                 onOpenTaskEditor = { task: TaskEntity? ->
-                    task?.let { taskLike ->
+                    if (task == null) {
+                        onCreatePlan()
+                    } else {
+                        val taskLike = task
                         uiState.plans.firstOrNull { it.id == taskLike.id }?.let { onOpenPlan(it) }
                     }
                 },
@@ -5583,6 +7338,22 @@ private fun dayOfWeekRes(dayOfWeek: DayOfWeek): Int = when (dayOfWeek) {
     DayOfWeek.FRIDAY -> R.string.weekday_friday
     DayOfWeek.SATURDAY -> R.string.weekday_saturday
     DayOfWeek.SUNDAY -> R.string.weekday_sunday
+}
+
+private fun normalizeLessonSearchText(value: String): String {
+    return Normalizer.normalize(value, Normalizer.Form.NFKC)
+        .lowercase()
+        .replace(Regex("""[\s　,，、・/／\-ー_:.：]+"""), "")
+}
+
+private fun japaneseDayOfWeekSearchText(dayOfWeek: DayOfWeek): String = when (dayOfWeek) {
+    DayOfWeek.MONDAY -> "月曜日 月曜 月"
+    DayOfWeek.TUESDAY -> "火曜日 火曜 火"
+    DayOfWeek.WEDNESDAY -> "水曜日 水曜 水"
+    DayOfWeek.THURSDAY -> "木曜日 木曜 木"
+    DayOfWeek.FRIDAY -> "金曜日 金曜 金"
+    DayOfWeek.SATURDAY -> "土曜日 土曜 土"
+    DayOfWeek.SUNDAY -> "日曜日 日曜 日"
 }
 
 private val dateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy/MM/dd")

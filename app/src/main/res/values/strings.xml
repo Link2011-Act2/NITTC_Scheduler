@@ -347,6 +347,32 @@
     <!-- Output Display Modes -->
     <string name="display_mode_day">1日</string>
     <string name="display_mode_week">1週間</string>
+    <string name="cd_search_timetable">時間割を検索</string>
+    <string name="title_search_timetable">授業を検索</string>
+    <string name="label_search_timetable_query">授業名・教員名・場所</string>
+    <string name="hint_search_timetable">例: 英語、山田、4階</string>
+    <string name="desc_search_timetable">授業名、教員名、場所、曜日、時限などを入力すると、今後の授業を検索できます。</string>
+    <string name="msg_search_timetable_no_results">該当する授業が見つかりませんでした。</string>
+    <string name="label_search_timetable_results">%1$d件見つかりました</string>
+    <string name="label_search_timetable_results_more">直近%1$d件を表示しています</string>
+    <string name="label_search_timetable_date_chip">%1$s (%2$s)</string>
+    <string name="label_search_timetable_time">%1$s %2$s-%3$s</string>
+    <string name="search_display_calendar">カレンダー</string>
+    <string name="search_display_list">一覧</string>
+    <string name="cd_previous_month">前の月</string>
+    <string name="cd_next_month">次の月</string>
+    <string name="label_search_calendar_month">%1$d年%2$d月</string>
+    <string name="desc_search_calendar">検索すると、該当授業がある日に件数が表示されます。日付を押すと、その日の時間割を一時表示できます。</string>
+    <string name="label_search_calendar_summary">該当日 %1$d日・授業 %2$d件</string>
+    <string name="title_search_day_preview">その日の時間割</string>
+    <string name="desc_search_day_preview">「%1$s」に一致する授業を強調しています。</string>
+    <string name="label_search_slot_time">%1$s-%2$s</string>
+    <string name="label_search_match">一致</string>
+    <string name="cd_open_task_plan_calendar_menu">課題・予定のカレンダー操作</string>
+    <string name="menu_task_plan_calendar">課題・予定カレンダー</string>
+    <string name="menu_sync_tasks_to_device_calendar">端末カレンダーへ同期</string>
+    <string name="title_task_plan_calendar">課題・予定カレンダー</string>
+    <string name="msg_task_plan_calendar_empty">この日の課題・予定はありません。</string>
 
     <!-- Content Descriptions (missing from existing) -->
     <string name="cd_ai_import">AI自動インポート</string>0
@@ -466,6 +492,8 @@
     <string name="desc_enable_tls_sync">Wi-Fi同期でTLS暗号化通信を利用します。機種によって動作しない場合があり、まだ検証中です。</string>
     <string name="label_local_ai_import">AI画像インポート</string>
     <string name="desc_local_ai_import">スマホ内でローカルAIを動かし、時間割の画像から自動でインポートすることができます。\n⚠️非常に大きな負荷がかかるため、機種によってはアプリがクラッシュする可能性があります</string>
+    <string name="label_natural_language_task_add">自然文で課題を追加</string>
+    <string name="desc_natural_language_task_add">ローカルAIで曖昧な文章を解析し、現在の時間割から教科・教員を推測して課題の下書きを作成します。</string>
     <string name="label_advanced_time_settings_ui">新しい授業時間設定UI</string>
     <string name="desc_advanced_time_settings_ui">授業時間を一覧で確認しながら、授業数や昼休みの位置を直感的に調整できます。まだ実装途中なので大目に見てください</string>
     <string name="desc_advanced_time_settings_reorder">昼休みの「≡」を上下に動かすと、一覧内の位置を入れ替えられます。行を押すと時刻を編集できます。</string>
@@ -545,6 +573,20 @@
     <!-- Missing strings -->
     <string name="settings_title">設定</string>
     <string name="cd_add_task">課題を追加</string>
+    <string name="btn_add_task_from_natural_language">自然文で追加</string>
+    <string name="dialog_natural_language_task_add_title">自然文で課題を追加</string>
+    <string name="dialog_natural_language_task_add_description">選択したローカルAIモデルで文章を解析します。\n例: 英Iレポート、明後日17時まで\n解析後に課題編集画面を開くので、内容を確認してから保存してください。</string>
+    <string name="label_natural_language_task_input">課題の内容</string>
+    <string name="hint_natural_language_task_input">山田の授業のレポート、来週金曜17時まで</string>
+    <string name="btn_create_task_draft">下書きを作成</string>
+    <string name="btn_analyze_and_create_task_draft">AIで解析</string>
+    <string name="label_natural_language_ai_model">使用するモデル</string>
+    <string name="msg_natural_language_no_model">モデルがありません</string>
+    <string name="desc_natural_language_no_model">AI画像インポート画面からローカルモデルをダウンロードしてください。</string>
+    <string name="msg_natural_language_ai_starting">ローカルAIで文章を解析しています…</string>
+    <string name="msg_natural_language_ai_invalid_response">AIの応答をJSONとして読み取れませんでした。</string>
+    <string name="msg_natural_language_ai_fallback">AI解析に失敗したため、ルール解析で下書きを作成しました。</string>
+    <string name="msg_natural_language_task_parse_failed">文章を解析できませんでした。もう少し具体的に入力してください。</string>
     <string name="cd_add_plan">予定を追加</string>
     <string name="cd_open_navigation_menu">ナビゲーションメニューを開く</string>
     <string name="label_no_model_selected">選択なし</string>

@@ -29,6 +29,7 @@ data class SettingsEntity(
     val termStart: LocalDate,
     val termEnd: LocalDate,
     val enableLocalAi: Boolean = false,
+    val enableNaturalLanguageTaskAdd: Boolean = false,
     val hfToken: String? = null,
     val periodsPerDay: Int = 4,
     val periodDurationMin: Int = 90,

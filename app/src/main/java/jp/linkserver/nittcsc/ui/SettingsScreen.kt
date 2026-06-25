@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import jp.linkserver.nittcsc.R
+import jp.linkserver.nittcsc.InternalFeatureFlags
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -115,6 +116,7 @@ fun SettingsScreen(
     onAbout: () -> Unit,
     onOpenLocalSync: () -> Unit = {},
     onToggleLocalAi: (Boolean) -> Unit,
+    onToggleNaturalLanguageTaskAdd: (Boolean) -> Unit = {},
     onToggleDrawerNavigation: (Boolean) -> Unit,
     onToggleAddTasksToCalendar: (Boolean) -> Unit,
     onToggleSyncLessonsToCalendar: (Boolean) -> Unit = {},
@@ -139,6 +141,9 @@ fun SettingsScreen(
     onImportAllFromJson: (String) -> Unit = {}
 ) {
     val enabledLocalAi = state.settings?.enableLocalAi ?: false
+    val enabledNaturalLanguageTaskAdd =
+        InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD &&
+            (state.settings?.enableNaturalLanguageTaskAdd ?: false)
     val enabledDrawerNavigation = state.settings?.useDrawerNavigation ?: false
     val enabledTaskCalendarSync = state.settings?.addTasksToCalendar ?: false
     val enabledLessonCalendarSync = state.settings?.syncLessonsToCalendar ?: false
@@ -1070,6 +1075,14 @@ fun SettingsScreen(
                                 }
                             }
                         )
+                        if (InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD) {
+                            SettingsSwitchRow(
+                                title = stringResource(R.string.label_natural_language_task_add),
+                                description = stringResource(R.string.desc_natural_language_task_add),
+                                checked = enabledNaturalLanguageTaskAdd,
+                                onCheckedChange = onToggleNaturalLanguageTaskAdd
+                            )
+                        }
 
                         if (isIntDev) {
                             SettingsSwitchRow(

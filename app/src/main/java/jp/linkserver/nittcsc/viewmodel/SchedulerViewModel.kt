@@ -415,6 +415,12 @@ class SchedulerViewModel(
         }
     }
 
+    fun toggleNaturalLanguageTaskAdd(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.toggleNaturalLanguageTaskAdd(enabled)
+        }
+    }
+
     fun toggleDrawerNavigation(enabled: Boolean) {
         viewModelScope.launch {
             repository.toggleDrawerNavigation(enabled)

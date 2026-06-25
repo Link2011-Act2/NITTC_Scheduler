@@ -1,5 +1,6 @@
 package jp.linkserver.nittcsc.data
 
+import jp.linkserver.nittcsc.InternalFeatureFlags
 import jp.linkserver.nittcsc.logic.CLASS_SLOTS
 import jp.linkserver.nittcsc.data.HolidaySpecialLabel
 import jp.linkserver.nittcsc.logic.ExportRange
@@ -55,8 +56,14 @@ class SchedulerRepository(private val db: AppDatabase) {
     val syncRegisteredDevicesFlow: Flow<List<SyncRegisteredDeviceEntity>> = dao.observeSyncRegisteredDevices()
 
     suspend fun initialize(today: LocalDate = LocalDate.now()) {
-        if (dao.getSettings() == null) {
+        val settings = dao.getSettings()
+        if (settings == null) {
             dao.upsertSettings(defaultSettings(today))
+        } else if (
+            !InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD &&
+            settings.enableNaturalLanguageTaskAdd
+        ) {
+            dao.upsertSettings(settings.copy(enableNaturalLanguageTaskAdd = false))
         }
         ensureLessonRows()
         syncDayTypes()
@@ -125,6 +132,16 @@ class SchedulerRepository(private val db: AppDatabase) {
     suspend fun toggleLocalAi(enabled: Boolean) {
         val current = dao.getSettings() ?: return
         dao.upsertSettings(current.copy(enableLocalAi = enabled))
+    }
+
+    suspend fun toggleNaturalLanguageTaskAdd(enabled: Boolean) {
+        val current = dao.getSettings() ?: return
+        dao.upsertSettings(
+            current.copy(
+                enableNaturalLanguageTaskAdd =
+                    enabled && InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD
+            )
+        )
     }
 
     suspend fun toggleDrawerNavigation(enabled: Boolean) {
@@ -1035,19 +1052,43 @@ class SchedulerRepository(private val db: AppDatabase) {
             return null
         }
 
+        suspend fun searchAfterToday(requireTeacherMatch: Boolean): Pair<LocalDate, LocalTime>? {
+            for (date in startDate.plusDays(1).toDateRange(settings.termEnd)) {
+                if (date.dayOfWeek.value !in 1..5) continue
+
+                val dayTypeEntity = dao.getDayType(date)
+                val dayType = dayTypeEntity?.dayType ?: DayType.A
+                if (dayType == DayType.HOLIDAY) continue
+
+                for (slot in slots) {
+                    val slotIndex = slot.index
+                    if (dao.getCancelledLesson(date, slotIndex) != null) continue
+                    val resolved = resolveEffectiveLessonForDate(date, slotIndex) ?: continue
+
+                    val matches = lessonMatchesSearch(
+                        resolved = resolved,
+                        subject = subject,
+                        teacher = teacher,
+                        requireTeacherMatch = requireTeacherMatch
+                    )
+
+                    if (matches) {
+                        return date to slot.start
+                    }
+                }
+            }
+            return null
+        }
+
         searchToday(strictTeacherMatching)?.let { return it }
+        searchAfterToday(strictTeacherMatching)?.let { return it }
+
         if (strictTeacherMatching) {
             searchToday(false)?.let { return it }
+            return searchAfterToday(false)
         }
-        
-        // 今日に授業がなければ、以降の日を検索
-        return calculateNextLessonDateTime(
-            subject = subject,
-            teacher = teacher,
-            useTeacherMatching = if (strictTeacherMatching) false else useTeacherMatching,
-            fromDate = startDate.plusDays(1),
-            fromTime = LocalTime.MIN
-        )
+
+        return null
     }
 
     private fun lessonMatchesSearch(
@@ -1101,6 +1142,11 @@ class SchedulerRepository(private val db: AppDatabase) {
                 s.put("termStart", settings.termStart.toString())
                 s.put("termEnd", settings.termEnd.toString())
                 s.put("enableLocalAi", settings.enableLocalAi)
+                s.put(
+                    "enableNaturalLanguageTaskAdd",
+                    settings.enableNaturalLanguageTaskAdd &&
+                        InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD
+                )
                 s.put("hfToken", settings.hfToken)
                 s.put("periodsPerDay", settings.periodsPerDay)
                 s.put("periodDurationMin", settings.periodDurationMin)
@@ -1611,6 +1657,9 @@ class SchedulerRepository(private val db: AppDatabase) {
                 termStart = LocalDate.parse(s.getString("termStart")),
                 termEnd = LocalDate.parse(s.getString("termEnd")),
                 enableLocalAi = s.optBoolean("enableLocalAi", false),
+                enableNaturalLanguageTaskAdd =
+                    InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD &&
+                        s.optBoolean("enableNaturalLanguageTaskAdd", false),
                 hfToken = if (s.has("hfToken") && !s.isNull("hfToken")) s.getString("hfToken") else null,
                 periodsPerDay = s.optInt("periodsPerDay", 4),
                 periodDurationMin = s.optInt("periodDurationMin", 90),

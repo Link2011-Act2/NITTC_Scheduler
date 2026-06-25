@@ -10,18 +10,24 @@ import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import jp.linkserver.nittcsc.data.LessonDraft
 import jp.linkserver.nittcsc.data.LessonMode
+import jp.linkserver.nittcsc.logic.NaturalLanguageLessonCandidate
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
+import org.json.JSONArray
 import org.nehuatl.llamacpp.LlamaHelper
 import java.io.File
+import java.time.LocalDate
+import java.time.LocalDateTime
 
 data class VlmFullResult(
     val jsonOutput: String,
@@ -29,9 +35,20 @@ data class VlmFullResult(
     val usedDirectVision: Boolean
 )
 
+data class NaturalLanguageTaskAiResult(
+    val title: String,
+    val description: String?,
+    val subject: String,
+    val teacher: String?,
+    val dueDate: LocalDate?,
+    val dueHour: Int?,
+    val dueMinute: Int?
+)
+
 class VlmInferenceEngine(private val context: Context) {
 
     private var inferenceScope: CoroutineScope? = null
+    private var currentInferenceJob: Job? = null
     private var isCancelRequested = false
     private var currentHelper: LlamaHelper? = null
 
@@ -41,12 +58,93 @@ class VlmInferenceEngine(private val context: Context) {
         // LlamaHelper を直接 release して推論プロセスを強制終了
         currentHelper?.release()
         currentHelper = null
+        currentInferenceJob?.cancel()
+        currentInferenceJob = null
         // Coroutine Scope もキャンセル
         inferenceScope?.cancel()
     }
 
     private fun resetCancelFlag() {
         isCancelRequested = false
+    }
+
+    suspend fun analyzeNaturalLanguageTask(
+        modelFile: File,
+        input: String,
+        candidates: List<NaturalLanguageLessonCandidate>,
+        now: LocalDateTime = LocalDateTime.now(),
+        onStatusUpdate: (String) -> Unit = {}
+    ): NaturalLanguageTaskAiResult = withContext(Dispatchers.IO) {
+        resetCancelFlag()
+        val candidateJson = JSONArray().apply {
+            candidates
+                .filter { it.subject.isNotBlank() }
+                .distinctBy { it.subject.trim() to it.teacher?.trim().orEmpty() }
+                .forEach { candidate ->
+                    put(JSONObject().apply {
+                        put("subject", candidate.subject.trim())
+                        put("teacher", candidate.teacher?.trim().orEmpty())
+                    })
+                }
+        }
+        val prompt = """
+            あなたは学校の課題登録を補助するAIです。
+            入力された日本語の自然文から、課題登録用の情報を1件だけ抽出してください。
+
+            【現在日時】
+            ${now}
+
+            【入力文】
+            $input
+
+            【現在の時間割候補】
+            $candidateJson
+
+            【重要ルール】
+            - 出力はJSONオブジェクトのみ。Markdown、説明、コードブロックは禁止。
+            - 「今日」「明日」「明後日」「来週金曜」などは現在日時を基準に実日付へ変換する。
+            - subjectとteacherは、時間割候補に該当するものがあれば候補内の文字列を完全に同じ表記で返す。
+            - 教員名だけが指定された場合、その教員に対応する候補からsubjectを選ぶ。
+            - 候補を特定できない項目は空文字にする。存在しない授業名や教員名を創作しない。
+            - titleは課題の内容を短く自然な表現にする。教科名だけをtitleにしない。
+            - descriptionは補足情報がある場合のみ入れ、なければ空文字にする。
+            - 日付を特定できない場合はdueDateを空文字にする。
+            - 時刻を特定できない場合はdueHourとdueMinuteを-1にする。
+
+            【出力形式】
+            {
+              "title": "レポート",
+              "description": "",
+              "subject": "英語I",
+              "teacher": "山田",
+              "dueDate": "2026-06-20",
+              "dueHour": 17,
+              "dueMinute": 0
+            }
+        """.trimIndent()
+
+        onStatusUpdate(context.getString(jp.linkserver.nittcsc.R.string.msg_natural_language_ai_starting))
+        val rawJson = runLocalLlamaPrompt(
+            modelFile = modelFile,
+            mmprojFile = null,
+            prompt = prompt,
+            imageUri = null,
+            onStatusUpdate = onStatusUpdate
+        )
+        val json = JSONObject(extractJsonObject(rawJson))
+
+        NaturalLanguageTaskAiResult(
+            title = json.optString("title", "").trim(),
+            description = json.optString("description", "").trim().takeIf { it.isNotBlank() },
+            subject = json.optString("subject", "").trim(),
+            teacher = json.optString("teacher", "").trim().takeIf { it.isNotBlank() },
+            dueDate = json.optString("dueDate", "")
+                .trim()
+                .takeIf { it.isNotBlank() }
+                ?.let { runCatching { LocalDate.parse(it) }.getOrNull() },
+            dueHour = json.optInt("dueHour", -1).takeIf { it in 0..23 },
+            dueMinute = json.optInt("dueMinute", -1).takeIf { it in 0..59 }
+        )
     }
 
     suspend fun extractDataFromJsonVlm(
@@ -146,8 +244,10 @@ class VlmInferenceEngine(private val context: Context) {
         imageUri: Uri?,
         onStatusUpdate: (String) -> Unit
     ): String {
+        currentInferenceJob = currentCoroutineContext()[Job]
         val events = MutableSharedFlow<LlamaHelper.LLMEvent>(extraBufferCapacity = 256)
         val scope = CoroutineScope(Dispatchers.IO)
+        inferenceScope = scope
         val helper = LlamaHelper(
             contentResolver = context.contentResolver,
             scope = scope,
@@ -235,8 +335,12 @@ class VlmInferenceEngine(private val context: Context) {
             onStatusUpdate(context.getString(jp.linkserver.nittcsc.R.string.msg_processing_result))
             return cleanJsonResponse(fullText)
         } finally {
-            helper.release()
+            if (currentHelper === helper) {
+                helper.release()
+            }
             currentHelper = null  // キャンセル用の参照をクリア
+            currentInferenceJob = null
+            inferenceScope = null
             collector.cancel()
             scope.cancel()
         }
@@ -581,6 +685,16 @@ class VlmInferenceEngine(private val context: Context) {
             trimmed.startsWith("```") && trimmed.endsWith("```") -> trimmed.removePrefix("```").removeSuffix("```").trim()
             else -> trimmed
         }
+    }
+
+    private fun extractJsonObject(rawText: String): String {
+        val cleaned = cleanJsonResponse(rawText)
+        val start = cleaned.indexOf('{')
+        val end = cleaned.lastIndexOf('}')
+        if (start < 0 || end <= start) {
+            throw IllegalArgumentException(context.getString(jp.linkserver.nittcsc.R.string.msg_natural_language_ai_invalid_response))
+        }
+        return cleaned.substring(start, end + 1)
     }
 
     private fun fileToContentUri(file: File): Uri {

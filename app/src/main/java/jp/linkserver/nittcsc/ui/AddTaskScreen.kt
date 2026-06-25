@@ -75,6 +75,7 @@ fun AddTaskScreen(
     subjectTeacherCandidates: Map<String, List<String>> = emptyMap(),
     defaultDueHour: Int = 8,
     defaultDueMinute: Int = 40,
+    autoResolveInitialSubject: Boolean = true,
     showWeekdayOnDates: Boolean = false,
     isPlan: Boolean = false,
     onResolveNextLessonDateTime: suspend (subject: String, teacher: String?, fromDate: LocalDate, fromTime: LocalTime) -> Pair<LocalDate, LocalTime>? = { _, _, _, _ -> null },
@@ -91,7 +92,9 @@ fun AddTaskScreen(
     var subject by remember { mutableStateOf(task?.subject ?: "") }
     var teacher by remember { mutableStateOf(task?.teacher ?: "") }
     // 新規タスクで教科名が事前設定されている場合は自動検索を即座にトリガーする
-    var subjectEditedByUser by remember { mutableStateOf((task?.id ?: 0L) == 0L && task?.subject?.isNotBlank() == true) }
+    var subjectEditedByUser by remember {
+        mutableStateOf(autoResolveInitialSubject && (task?.id ?: 0L) == 0L && task?.subject?.isNotBlank() == true)
+    }
     var dueDate by remember { mutableStateOf(task?.dueDate ?: LocalDate.now()) }
     var dueHour by remember { mutableStateOf(if ((task?.id ?: 0L) == 0L) defaultDueHour else (task?.dueHour ?: defaultDueHour)) }
     var dueMinute by remember { mutableStateOf(if ((task?.id ?: 0L) == 0L) defaultDueMinute else (task?.dueMinute ?: defaultDueMinute)) }
