@@ -3622,10 +3622,16 @@ private fun TaskPlanCalendarScreen(
                         }
                     }
                 ) { _, date, cellModifier ->
+                    val dateTasksForCell = tasksByDate[date].orEmpty()
+                    val datePlansForCell = plansByDate[date].orEmpty()
                         TaskPlanCalendarDayCell(
                             date = date,
-                            taskCount = tasksByDate[date]?.size ?: 0,
-                            planCount = plansByDate[date]?.size ?: 0,
+                            taskCount = dateTasksForCell.size,
+                            planCount = datePlansForCell.size,
+                            allTasksCompleted = dateTasksForCell.isNotEmpty() &&
+                                dateTasksForCell.all { it.isCompleted },
+                            allPlansCompleted = datePlansForCell.isNotEmpty() &&
+                                datePlansForCell.all { it.isCompleted },
                             isToday = date == today,
                             isSelected = date == selectedDate,
                             onClick = {
@@ -3721,6 +3727,8 @@ private fun TaskPlanCalendarDayCell(
     date: LocalDate,
     taskCount: Int,
     planCount: Int,
+    allTasksCompleted: Boolean,
+    allPlansCompleted: Boolean,
     isToday: Boolean,
     isSelected: Boolean,
     onClick: () -> Unit,
@@ -3767,13 +3775,21 @@ private fun TaskPlanCalendarDayCell(
                 if (taskCount > 0) {
                     CalendarItemCountDot(
                         count = taskCount,
-                        color = MaterialTheme.colorScheme.error
+                        color = if (allTasksCompleted) {
+                            MaterialTheme.colorScheme.outline
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        }
                     )
                 }
                 if (planCount > 0) {
                     CalendarItemCountDot(
                         count = planCount,
-                        color = MaterialTheme.colorScheme.primary
+                        color = if (allPlansCompleted) {
+                            MaterialTheme.colorScheme.outline
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        }
                     )
                 }
             }
