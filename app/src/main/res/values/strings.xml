@@ -372,6 +372,7 @@
     <string name="menu_task_plan_calendar">課題・予定カレンダー</string>
     <string name="menu_sync_tasks_to_device_calendar">端末カレンダーへ同期</string>
     <string name="title_task_plan_calendar">課題・予定カレンダー</string>
+    <string name="msg_task_plan_calendar_select_date">日付を選択してください。</string>
     <string name="msg_task_plan_calendar_empty">この日の課題・予定はありません。</string>
 
     <!-- Content Descriptions (missing from existing) -->

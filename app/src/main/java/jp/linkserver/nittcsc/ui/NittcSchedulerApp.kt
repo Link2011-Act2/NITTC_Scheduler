@@ -2756,7 +2756,7 @@ private fun AbTableScreen(
     var showBreakDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    val today = remember { LocalDate.now() }
+    val today = LocalDate.now()
     val weeks = remember(settings.termStart, settings.termEnd) {
         buildWeekRows(settings.termStart, settings.termEnd)
     }
@@ -3299,7 +3299,7 @@ private fun OutputScreen(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
-    val today = remember { LocalDate.now() }
+    val today = LocalDate.now()
     val defaultWeekFocusDate = remember(today) {
         when (today.dayOfWeek) {
             DayOfWeek.SATURDAY -> today.plusDays(2)
@@ -3311,9 +3311,23 @@ private fun OutputScreen(
     var displayMode by rememberSaveable { mutableStateOf(OutputDisplayMode.DAY) }
     val isTodayWeekend = today.dayOfWeek == DayOfWeek.SATURDAY || today.dayOfWeek == DayOfWeek.SUNDAY
     val currentWeekReferenceDate = if (isTodayWeekend) defaultWeekFocusDate else today
+    val weekDisplayReferenceDate = if (
+        displayMode == OutputDisplayMode.WEEK &&
+        selectedDate == today &&
+        isTodayWeekend
+    ) {
+        currentWeekReferenceDate
+    } else {
+        selectedDate
+    }
+    val dateNavigationBase = if (displayMode == OutputDisplayMode.WEEK) {
+        weekDisplayReferenceDate
+    } else {
+        selectedDate
+    }
     val dayType = dayTypeForDate(selectedDate)
-    val weekStart = selectedDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
-    val weekDates = remember(selectedDate) { (0L..4L).map { weekStart.plusDays(it) } }
+    val weekStart = weekDisplayReferenceDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+    val weekDates = remember(weekDisplayReferenceDate) { (0L..4L).map { weekStart.plusDays(it) } }
     val tasksByDueDate = remember(state.tasks) { state.tasks.groupBy { it.dueDate } }
     val plansByDueDate = remember(state.plans) { state.plans.groupBy { it.dueDate } }
     val isCurrentRangeToday = remember(displayMode, selectedDate, weekDates, today) {
@@ -3425,14 +3439,6 @@ private fun OutputScreen(
                                     )
                                     IconButton(
                                         onClick = {
-                                            if (
-                                                mode == OutputDisplayMode.WEEK &&
-                                                displayMode != OutputDisplayMode.WEEK &&
-                                                selectedDate == today &&
-                                                isTodayWeekend
-                                            ) {
-                                                onPickDate(currentWeekReferenceDate)
-                                            }
                                             displayMode = mode
                                         },
                                         modifier = Modifier
@@ -3458,7 +3464,7 @@ private fun OutputScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                IconButton(onClick = { onPickDate(selectedDate.minusDays(shiftUnit)) }) { Text("<") }
+                                IconButton(onClick = { onPickDate(dateNavigationBase.minusDays(shiftUnit)) }) { Text("<") }
                                 if (displayMode == OutputDisplayMode.DAY) {
                                     val selectedDayTypeEntity = dayTypeEntityForDate(selectedDate)
                                     Column(
@@ -3491,14 +3497,14 @@ private fun OutputScreen(
                                             onClick = {},
                                         onLongClick = {
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            onPickDate(currentWeekReferenceDate)
+                                            onPickDate(today)
                                         }
                                     ),
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
-                                IconButton(onClick = { onPickDate(selectedDate.plusDays(shiftUnit)) }) { Text(">") }
+                                IconButton(onClick = { onPickDate(dateNavigationBase.plusDays(shiftUnit)) }) { Text(">") }
                             }
                         }
                         IconButton(
@@ -3516,17 +3522,29 @@ private fun OutputScreen(
         item {
                 val pagerPageCount = 51
                 val centerPage = pagerPageCount / 2
-                var pagerAnchorDate by remember { mutableStateOf(selectedDate) }
+                var pagerAnchorDate by remember { mutableStateOf(dateNavigationBase) }
                 var pagerDisplayMode by remember { mutableStateOf(displayMode) }
                 var pendingPagerSelectedDateEpochDays by remember { mutableStateOf<List<Long>>(emptyList()) }
                 val pagerState = rememberPagerState(
                     initialPage = centerPage,
                     pageCount = { pagerPageCount }
                 )
+                val pagerRenderAnchorDate = if (pagerDisplayMode != displayMode) {
+                    dateNavigationBase
+                } else {
+                    pagerAnchorDate
+                }
 
                 LaunchedEffect(pagerState.settledPage) {
                     val pageDelta = pagerState.settledPage.toLong() - centerPage.toLong()
                     val settledDate = pagerAnchorDate.plusDays(pageDelta * shiftUnit)
+                    val isWeekendCurrentWeekCenter =
+                        pageDelta == 0L &&
+                            displayMode == OutputDisplayMode.WEEK &&
+                            selectedDate == today &&
+                            isTodayWeekend &&
+                            settledDate == currentWeekReferenceDate
+                    if (isWeekendCurrentWeekCenter) return@LaunchedEffect
                     if (settledDate != selectedDate) {
                         val settledEpochDay = settledDate.toEpochDay()
                         pendingPagerSelectedDateEpochDays =
@@ -3544,10 +3562,10 @@ private fun OutputScreen(
                     }
                 }
 
-                LaunchedEffect(selectedDate, displayMode) {
+                LaunchedEffect(selectedDate, displayMode, dateNavigationBase) {
                     if (pagerDisplayMode != displayMode) {
                         pagerDisplayMode = displayMode
-                        pagerAnchorDate = selectedDate
+                        pagerAnchorDate = dateNavigationBase
                         pendingPagerSelectedDateEpochDays = emptyList()
                         if (pagerState.currentPage != centerPage) {
                             pagerState.scrollToPage(centerPage)
@@ -3560,8 +3578,8 @@ private fun OutputScreen(
                             pendingPagerSelectedDateEpochDays - selectedEpochDay
                         return@LaunchedEffect
                     }
-                    if (pagerAnchorDate != selectedDate) {
-                        pagerAnchorDate = selectedDate
+                    if (pagerAnchorDate != dateNavigationBase) {
+                        pagerAnchorDate = dateNavigationBase
                     }
                     if (pagerState.currentPage != centerPage) {
                         pagerState.scrollToPage(centerPage)
@@ -3581,7 +3599,7 @@ private fun OutputScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) { page ->
                         val pageDelta = page.toLong() - centerPage.toLong()
-                        val pageDate = pagerAnchorDate.plusDays(pageDelta * shiftUnit)
+                        val pageDate = pagerRenderAnchorDate.plusDays(pageDelta * shiftUnit)
                         val shouldRenderPageDetails = page == pagerState.settledPage
 
                         if (displayMode == OutputDisplayMode.DAY) {
@@ -3676,7 +3694,7 @@ private fun TaskPlanCalendarScreen(
     onOpenTask: (TaskEntity) -> Unit,
     onOpenPlan: (PlanEntity) -> Unit
 ) {
-    val today = remember { LocalDate.now() }
+    val today = LocalDate.now()
     val configuration = LocalConfiguration.current
     val locale = configuration.locales[0]
     val firstDayOfWeek = remember(locale) {
@@ -3695,18 +3713,28 @@ private fun TaskPlanCalendarScreen(
         initialPage = monthPagerCenterPage,
         pageCount = { monthPagerPageCount }
     )
+    var observedMonthPagerPage by remember { mutableStateOf(monthPagerState.settledPage) }
     var selectedDateEpochDay by rememberSaveable {
-        mutableStateOf(today.toEpochDay())
+        mutableStateOf<Long?>(today.toEpochDay())
     }
-    val selectedDate = LocalDate.ofEpochDay(selectedDateEpochDay)
+    val selectedDate = selectedDateEpochDay?.let(LocalDate::ofEpochDay)
     val tasksByDate = remember(tasks) { tasks.groupBy { it.dueDate } }
     val plansByDate = remember(plans) { plans.groupBy { it.dueDate } }
-    val selectedTasks = tasksByDate[selectedDate]
+    val selectedTasks = selectedDate
+        ?.let { tasksByDate[it] }
         .orEmpty()
         .sortedWith(compareBy<TaskEntity> { it.dueHour }.thenBy { it.dueMinute })
-    val selectedPlans = plansByDate[selectedDate]
+    val selectedPlans = selectedDate
+        ?.let { plansByDate[it] }
         .orEmpty()
         .sortedWith(compareBy<PlanEntity> { it.dueHour }.thenBy { it.dueMinute })
+    LaunchedEffect(monthPagerState.settledPage) {
+        val settledPage = monthPagerState.settledPage
+        if (settledPage != observedMonthPagerPage) {
+            observedMonthPagerPage = settledPage
+            selectedDateEpochDay = null
+        }
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -3776,15 +3804,24 @@ private fun TaskPlanCalendarScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = MaterialTheme.colorScheme.secondaryContainer
-                    ) {
+                    if (selectedDate != null) {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = MaterialTheme.colorScheme.secondaryContainer
+                        ) {
+                            Text(
+                                text = formatDateForDisplay(selectedDate, showWeekdayOnDates),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    } else {
                         Text(
-                            text = formatDateForDisplay(selectedDate, showWeekdayOnDates),
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            text = stringResource(R.string.msg_task_plan_calendar_select_date),
                             style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -3802,7 +3839,22 @@ private fun TaskPlanCalendarScreen(
                 }
             }
 
-            if (selectedTasks.isEmpty() && selectedPlans.isEmpty()) {
+            if (selectedDate == null) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 36.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = stringResource(R.string.msg_task_plan_calendar_select_date),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else if (selectedTasks.isEmpty() && selectedPlans.isEmpty()) {
                 item {
                     Box(
                         modifier = Modifier
@@ -4050,7 +4102,7 @@ private fun LessonSearchScreen(
         kotlinx.coroutines.delay(180)
         effectiveQuery = query
     }
-    val today = remember { LocalDate.now() }
+    val today = LocalDate.now()
     val configuredStart = state.settings?.termStart ?: today
     val configuredEnd = state.settings?.termEnd ?: today.plusMonths(6)
     val searchStart = minOf(configuredStart, configuredEnd)
@@ -4301,6 +4353,16 @@ private fun LessonSearchCalendarView(
         initialPage = initialPage,
         pageCount = { pageCount }
     )
+
+    LaunchedEffect(displayedMonth, firstMonth, pageCount) {
+        val targetPage = java.time.temporal.ChronoUnit.MONTHS
+            .between(firstMonth, displayedMonth)
+            .toInt()
+            .coerceIn(0, pageCount - 1)
+        if (targetPage != pagerState.settledPage && !pagerState.isScrollInProgress) {
+            pagerState.scrollToPage(targetPage)
+        }
+    }
 
     LaunchedEffect(pagerState.settledPage) {
         onDisplayedMonthChange(firstMonth.plusMonths(pagerState.settledPage.toLong()))
@@ -4941,7 +5003,7 @@ private fun DayScheduleTable(
     isLessonCancelled: (LocalDate, Int) -> Boolean,
     modifier: Modifier = Modifier
 ) {
-    val today = remember { LocalDate.now() }
+    val today = LocalDate.now()
     val hapticDaySchedule = LocalHapticFeedback.current
     data class LessonActionDialogData(
         val lesson: ResolvedLesson,
@@ -6018,7 +6080,7 @@ private fun WeekScheduleTable(
     onDayClick: (LocalDate) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val today = remember { LocalDate.now() }
+    val today = LocalDate.now()
     val currentTime = if (showCurrentTimeMarker) rememberCurrentTime() else null
     val haptic = LocalHapticFeedback.current
     data class WeekLessonActionDialogData(
