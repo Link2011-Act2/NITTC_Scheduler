@@ -11,6 +11,7 @@ import jp.linkserver.nittcsc.data.LessonNotificationExclusionEntity
 import jp.linkserver.nittcsc.data.LessonDraft
 import jp.linkserver.nittcsc.data.LessonEntity
 import jp.linkserver.nittcsc.data.LessonMode
+import jp.linkserver.nittcsc.data.LessonStartNotificationChipMode
 import jp.linkserver.nittcsc.data.LongBreakEntity
 import jp.linkserver.nittcsc.data.ResolvedLesson
 import jp.linkserver.nittcsc.data.SchedulerRepository
@@ -509,6 +510,12 @@ class SchedulerViewModel(
     fun updateLessonStartNotificationLiveUpdateEarlyMinutes(minutes: Int) {
         viewModelScope.launch {
             repository.updateLessonStartNotificationLiveUpdateEarlyMinutes(minutes)
+        }
+    }
+
+    fun updateLessonStartNotificationChipMode(mode: LessonStartNotificationChipMode) {
+        viewModelScope.launch {
+            repository.updateLessonStartNotificationChipMode(mode)
         }
     }
 

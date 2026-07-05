@@ -27,4 +27,12 @@ class Converters {
 
     @TypeConverter
     fun toLessonMode(value: String): LessonMode = LessonMode.valueOf(value)
+
+    @TypeConverter
+    fun fromLessonStartNotificationChipMode(value: LessonStartNotificationChipMode): String = value.name
+
+    @TypeConverter
+    fun toLessonStartNotificationChipMode(value: String): LessonStartNotificationChipMode =
+        runCatching { LessonStartNotificationChipMode.valueOf(value) }
+            .getOrDefault(LessonStartNotificationChipMode.MINUTE_TEXT)
 }

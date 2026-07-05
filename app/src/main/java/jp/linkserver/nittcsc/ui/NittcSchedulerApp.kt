@@ -13,6 +13,7 @@ import jp.linkserver.nittcsc.InternalFeatureFlags
 import androidx.compose.animation.*
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.unit.IntOffset
@@ -24,6 +25,8 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerDefaults
+import androidx.compose.foundation.pager.PagerSnapDistance
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.verticalScroll
@@ -77,6 +80,7 @@ import androidx.compose.material.icons.outlined.TableChart
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Canvas
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -138,6 +142,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
@@ -335,6 +340,9 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     var focusedPlanId by rememberSaveable { mutableStateOf<Long?>(null) }
     var prefillSubject by rememberSaveable { mutableStateOf("") }
     var prefillTeacher by rememberSaveable { mutableStateOf("") }
+    var prefillDueDateEpochDay by rememberSaveable { mutableStateOf<Long?>(null) }
+    var prefillDueHour by rememberSaveable { mutableStateOf<Int?>(null) }
+    var prefillDueMinute by rememberSaveable { mutableStateOf<Int?>(null) }
     var showNaturalLanguageTaskAddDialog by rememberSaveable { mutableStateOf(false) }
     var naturalLanguageTaskDraft by remember { mutableStateOf<TaskEntity?>(null) }
     var transientTabOrigin by rememberSaveable { mutableStateOf<AppTab?>(null) }
@@ -342,6 +350,14 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     var unifiedTaskPlanSelectedTabIndex by rememberSaveable { mutableStateOf(0) }
     var lessonChangeEditor by remember { mutableStateOf<LessonChangeEditorState?>(null) }
     var pendingLessonMoveDialog by remember { mutableStateOf<PendingLessonMoveDialogState?>(null) }
+
+    fun clearLessonTaskPrefill() {
+        prefillSubject = ""
+        prefillTeacher = ""
+        prefillDueDateEpochDay = null
+        prefillDueHour = null
+        prefillDueMinute = null
+    }
 
     fun navigateToTabFromAction(target: AppTab) {
         val unifyTaskPlanView = uiState.settings?.unifyTaskPlanView == true
@@ -411,16 +427,14 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     BackHandler(enabled = showTaskEditor) {
         showTaskEditor = false
         editingTaskId = null
-            prefillSubject = ""
-            prefillTeacher = ""
-            naturalLanguageTaskDraft = null
+        clearLessonTaskPrefill()
+        naturalLanguageTaskDraft = null
     }
     BackHandler(enabled = showPlanEditor) {
         showPlanEditor = false
         editingPlanId = null
-            prefillSubject = ""
-            prefillTeacher = ""
-            naturalLanguageTaskDraft = null
+        clearLessonTaskPrefill()
+        naturalLanguageTaskDraft = null
     }
     BackHandler(enabled = lessonChangeEditor != null) {
         lessonChangeEditor = null
@@ -1570,6 +1584,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                     onToggleLessonStartNotificationLiveUpdates = viewModel::toggleLessonStartNotificationLiveUpdates,
                     onToggleLessonStartNotificationProgressCountsDown = viewModel::toggleLessonStartNotificationProgressCountsDown,
                     onUpdateLessonStartNotificationLiveUpdateEarlyMinutes = viewModel::updateLessonStartNotificationLiveUpdateEarlyMinutes,
+                    onUpdateLessonStartNotificationChipMode = viewModel::updateLessonStartNotificationChipMode,
                     onAddLessonNotificationExclusion = viewModel::addLessonNotificationExclusion,
                     onDeleteLessonNotificationExclusion = viewModel::deleteLessonNotificationExclusion,
                     onUpdateScheduleSettings = viewModel::updateScheduleSettingsSilently,
@@ -1716,8 +1731,9 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                 val editingPlan = editingPlanId?.let { id ->
                     uiState.plans.firstOrNull { it.id == id }
                 }
-                val prefillDueHour = uiState.settings?.firstPeriodStartHour ?: 8
-                val prefillDueMinute = uiState.settings?.firstPeriodStartMinute ?: 40
+                val prefillDueDate = prefillDueDateEpochDay?.let(LocalDate::ofEpochDay)
+                val templateDueHour = prefillDueHour ?: uiState.settings?.firstPeriodStartHour ?: 8
+                val templateDueMinute = prefillDueMinute ?: uiState.settings?.firstPeriodStartMinute ?: 40
                 val prefillTaskTemplate = when {
                     editingTask != null || showPlanEditor -> null
                     naturalLanguageTaskDraft != null -> naturalLanguageTaskDraft
@@ -1725,9 +1741,9 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                         subject = prefillSubject,
                         teacher = prefillTeacher.takeIf { it.isNotBlank() },
                         title = "",
-                        dueDate = LocalDate.now(),
-                        dueHour = prefillDueHour,
-                        dueMinute = prefillDueMinute,
+                        dueDate = prefillDueDate ?: LocalDate.now(),
+                        dueHour = templateDueHour,
+                        dueMinute = templateDueMinute,
                         createdDate = LocalDate.now()
                     )
                     else -> null
@@ -1737,9 +1753,9 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                         subject = prefillSubject,
                         teacher = prefillTeacher.takeIf { it.isNotBlank() },
                         title = "",
-                        dueDate = LocalDate.now(),
-                        dueHour = prefillDueHour,
-                        dueMinute = prefillDueMinute,
+                        dueDate = prefillDueDate ?: LocalDate.now(),
+                        dueHour = templateDueHour,
+                        dueMinute = templateDueMinute,
                         createdDate = LocalDate.now()
                     )
                 } else null
@@ -1814,8 +1830,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                         createdDate = LocalDate.now(),
                         useTeacherMatching = resolvedTeacher != null
                     )
-                    prefillSubject = ""
-                    prefillTeacher = ""
+                    clearLessonTaskPrefill()
                     editingTaskId = null
                     editingPlanId = null
                     showPlanEditor = false
@@ -1856,7 +1871,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                             subjectTeacherCandidates = taskTeacherCandidates,
                             defaultDueHour = uiState.settings?.firstPeriodStartHour ?: 8,
                             defaultDueMinute = uiState.settings?.firstPeriodStartMinute ?: 40,
-                            autoResolveInitialSubject = naturalLanguageTaskDraft == null,
+                            autoResolveInitialSubject = naturalLanguageTaskDraft == null && prefillDueDateEpochDay == null,
                             showWeekdayOnDates = uiState.settings?.showWeekdayOnDates ?: false,
                             isPlan = showPlanEditor,
                             onResolveNextLessonDateTime = { subject, teacher, fromDate, fromTime ->
@@ -1909,9 +1924,8 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                     }
                                     showPlanEditor = false
                                     editingPlanId = null
-                                       prefillSubject = ""
-                                       prefillTeacher = ""
-                                       naturalLanguageTaskDraft = null
+                                    clearLessonTaskPrefill()
+                                    naturalLanguageTaskDraft = null
                                 } else {
                                     val shouldSyncTaskToCalendar = uiState.settings?.addTasksToCalendar == true
                                     appScope.launch {
@@ -1932,9 +1946,8 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                     }
                                     showTaskEditor = false
                                     editingTaskId = null
-                                       prefillSubject = ""
-                                       prefillTeacher = ""
-                                       naturalLanguageTaskDraft = null
+                                    clearLessonTaskPrefill()
+                                    naturalLanguageTaskDraft = null
                                 }
                             },
                             onBack = {
@@ -1945,9 +1958,8 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                     showTaskEditor = false
                                     editingTaskId = null
                                 }
-                                   prefillSubject = ""
-                                   prefillTeacher = ""
-                                   naturalLanguageTaskDraft = null
+                                clearLessonTaskPrefill()
+                                naturalLanguageTaskDraft = null
                             }
                         )
                     } else {
@@ -1985,9 +1997,19 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                             showPlanEditor = false
                                             focusedPlanId = plan.id.takeIf { it > 0 }
                                         },
-                                           onAddFromLesson = { subject, teacher, isPlan ->
+                                           onAddFromLesson = { subject, teacher, isPlan, date, time ->
                                                prefillSubject = subject
                                                prefillTeacher = teacher
+                                               val lessonDateTime = LocalDateTime.of(date, time)
+                                               if (lessonDateTime.isAfter(LocalDateTime.now())) {
+                                                   prefillDueDateEpochDay = date.toEpochDay()
+                                                   prefillDueHour = time.hour
+                                                   prefillDueMinute = time.minute
+                                               } else {
+                                                   prefillDueDateEpochDay = null
+                                                   prefillDueHour = null
+                                                   prefillDueMinute = null
+                                               }
                                                if (isPlan) {
                                                    showPlanEditor = true
                                                    showTaskEditor = false
@@ -3269,7 +3291,7 @@ private fun OutputScreen(
     onClearLessonOverride: (LocalDate) -> Unit,
     onOpenTask: (TaskEntity) -> Unit,
     onOpenPlan: (PlanEntity) -> Unit,
-    onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean) -> Unit)? = null,
+    onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean, date: LocalDate, time: LocalTime) -> Unit)? = null,
     onSetLessonCancelled: (LocalDate, Int, Boolean) -> Unit,
     onEditChangedLesson: (LocalDate, Int) -> Unit,
     isLessonCancelled: (LocalDate, Int) -> Boolean
@@ -3278,15 +3300,31 @@ private fun OutputScreen(
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val today = remember { LocalDate.now() }
+    val defaultWeekFocusDate = remember(today) {
+        when (today.dayOfWeek) {
+            DayOfWeek.SATURDAY -> today.plusDays(2)
+            DayOfWeek.SUNDAY -> today.plusDays(1)
+            else -> today
+        }
+    }
     val selectedDate = state.selectedResultDate
     var displayMode by rememberSaveable { mutableStateOf(OutputDisplayMode.DAY) }
+    val isTodayWeekend = today.dayOfWeek == DayOfWeek.SATURDAY || today.dayOfWeek == DayOfWeek.SUNDAY
+    val currentWeekReferenceDate = if (isTodayWeekend) defaultWeekFocusDate else today
     val dayType = dayTypeForDate(selectedDate)
     val weekStart = selectedDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
     val weekDates = remember(selectedDate) { (0L..4L).map { weekStart.plusDays(it) } }
+    val tasksByDueDate = remember(state.tasks) { state.tasks.groupBy { it.dueDate } }
+    val plansByDueDate = remember(state.plans) { state.plans.groupBy { it.dueDate } }
     val isCurrentRangeToday = remember(displayMode, selectedDate, weekDates, today) {
         if (displayMode == OutputDisplayMode.DAY) selectedDate == today
-        else weekDates.contains(today)
+        else weekDates.contains(currentWeekReferenceDate)
     }
+    val displayModeIndicatorOffset by animateDpAsState(
+        targetValue = if (displayMode == OutputDisplayMode.DAY) 0.dp else 42.dp,
+        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+        label = "DisplayModeIndicatorOffset"
+    )
     val showCurrentTimeMarker = state.settings?.showCurrentTimeMarker ?: false
     val shiftUnit = if (displayMode == OutputDisplayMode.DAY) 1L else 7L
     val classSlots = remember(state.settings) { state.settings.toClassSlots() }
@@ -3313,152 +3351,220 @@ private fun OutputScreen(
 
     var showResultDatePicker by rememberSaveable { mutableStateOf(false) }
 
-    LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        item {
-            if (showResultDatePicker) {
-                val state = rememberDatePickerState(initialSelectedDateMillis = selectedDate.toEpochDay() * 86400000L)
-                DatePickerDialog(
-                    onDismissRequest = { showResultDatePicker = false },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            state.selectedDateMillis?.let { onPickDate(LocalDate.ofEpochDay(it / 86400000L)) }
-                            showResultDatePicker = false
-                        }) { Text(stringResource(R.string.btn_save)) }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showResultDatePicker = false }) { Text(stringResource(R.string.btn_cancel)) }
-                    }
-                ) { DatePicker(state = state) }
-            }
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isCurrentRangeToday) {
-                        MaterialTheme.colorScheme.surfaceContainer
-                    } else {
-                        MaterialTheme.colorScheme.surfaceContainerLow
-                    }
-                )
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+    Box(modifier = modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                if (showResultDatePicker) {
+                    val state = rememberDatePickerState(initialSelectedDateMillis = selectedDate.toEpochDay() * 86400000L)
+                    DatePickerDialog(
+                        onDismissRequest = { showResultDatePicker = false },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                state.selectedDateMillis?.let { onPickDate(LocalDate.ofEpochDay(it / 86400000L)) }
+                                showResultDatePicker = false
+                            }) { Text(stringResource(R.string.btn_save)) }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showResultDatePicker = false }) { Text(stringResource(R.string.btn_cancel)) }
+                        }
+                    ) { DatePicker(state = state) }
+                }
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isCurrentRangeToday) {
+                            MaterialTheme.colorScheme.surfaceContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainerLow
+                        }
+                    )
                 ) {
-                    OutputDisplayMode.entries.forEach { mode ->
-                        FilterChip(
-                            selected = displayMode == mode,
-                            onClick = { displayMode = mode },
-                            label = { Text(stringResource(mode.labelRes)) }
-                        )
-                    }
-                    Spacer(Modifier.weight(1f))
-                    IconButton(
-                        onClick = onOpenLessonSearch,
-                        modifier = Modifier.size(36.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.Search,
-                            contentDescription = stringResource(R.string.cd_search_timetable)
-                        )
-                    }
-                    IconButton(onClick = { onShiftDate(-shiftUnit) }) { Text("<") }
-                    if (displayMode == OutputDisplayMode.DAY) {
-                        val selectedDayTypeEntity = dayTypeEntityForDate(selectedDate)
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.combinedClickable(
-                                onClick = { showResultDatePicker = true },
-                                onLongClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onPickDate(today)
-                                }
-                            )
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    MaterialTheme.colorScheme.surfaceContainerHighest,
+                                    CircleShape
+                                )
+                                .padding(2.dp)
                         ) {
-                            Text(selectedDate.format(dateFormatter), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text(
-                                "${stringResource(dayOfWeekRes(selectedDate.dayOfWeek))} / ${
-                                    dayTypeDisplayText(
-                                        dayType,
-                                        selectedDayTypeEntity?.overrideLessonDayOfWeek,
-                                        selectedDayTypeEntity?.holidaySpecialLabel
+                            Box(
+                                modifier = Modifier
+                                    .offset(x = displayModeIndicatorOffset)
+                                    .size(40.dp)
+                                    .background(
+                                        MaterialTheme.colorScheme.primary,
+                                        CircleShape
                                     )
-                                }",
-                                style = MaterialTheme.typography.labelSmall
+                            )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutputDisplayMode.entries.forEach { mode ->
+                                    val selected = displayMode == mode
+                                    val iconTint by animateColorAsState(
+                                        targetValue = if (selected) {
+                                            MaterialTheme.colorScheme.onPrimary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+                                        label = "DisplayModeIconTint"
+                                    )
+                                    IconButton(
+                                        onClick = {
+                                            if (
+                                                mode == OutputDisplayMode.WEEK &&
+                                                displayMode != OutputDisplayMode.WEEK &&
+                                                selectedDate == today &&
+                                                isTodayWeekend
+                                            ) {
+                                                onPickDate(currentWeekReferenceDate)
+                                            }
+                                            displayMode = mode
+                                        },
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = when (mode) {
+                                                OutputDisplayMode.DAY -> Icons.Filled.Event
+                                                OutputDisplayMode.WEEK -> Icons.Filled.TableChart
+                                            },
+                                            contentDescription = stringResource(mode.labelRes),
+                                            tint = iconTint
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Box(
+                            modifier = Modifier.weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                IconButton(onClick = { onPickDate(selectedDate.minusDays(shiftUnit)) }) { Text("<") }
+                                if (displayMode == OutputDisplayMode.DAY) {
+                                    val selectedDayTypeEntity = dayTypeEntityForDate(selectedDate)
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier.combinedClickable(
+                                            onClick = { showResultDatePicker = true },
+                                            onLongClick = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                onPickDate(today)
+                                            }
+                                        )
+                                    ) {
+                                        Text(selectedDate.format(dateFormatter), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                        Text(
+                                            "${stringResource(dayOfWeekRes(selectedDate.dayOfWeek))} / ${
+                                                dayTypeDisplayText(
+                                                    dayType,
+                                                    selectedDayTypeEntity?.overrideLessonDayOfWeek,
+                                                    selectedDayTypeEntity?.holidaySpecialLabel
+                                                )
+                                            }",
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                    }
+                                } else {
+                                    val shortFmt = remember { java.time.format.DateTimeFormatter.ofPattern("MM/dd") }
+                                    Text(
+                                        "${weekDates.first().format(shortFmt)}-${weekDates.last().format(shortFmt)}",
+                                        modifier = Modifier.combinedClickable(
+                                            onClick = {},
+                                        onLongClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            onPickDate(currentWeekReferenceDate)
+                                        }
+                                    ),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                IconButton(onClick = { onPickDate(selectedDate.plusDays(shiftUnit)) }) { Text(">") }
+                            }
+                        }
+                        IconButton(
+                            onClick = onOpenLessonSearch
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Search,
+                                contentDescription = stringResource(R.string.cd_search_timetable)
                             )
                         }
-                    } else {
-                        val shortFmt = remember { java.time.format.DateTimeFormatter.ofPattern("MM/dd") }
-                        Text(
-                            "${weekDates.first().format(shortFmt)}-${weekDates.last().format(shortFmt)}",
-                            modifier = Modifier.combinedClickable(
-                                onClick = {},
-                                onLongClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onPickDate(today)
-                                }
-                            ),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold
-                        )
                     }
-                    IconButton(onClick = { onShiftDate(shiftUnit) }) { Text(">") }
                 }
-            }
         }
 
         item {
-            key(displayMode) {
-                val pagerPageCount = 4_001
+                val pagerPageCount = 51
                 val centerPage = pagerPageCount / 2
                 var pagerAnchorDate by remember { mutableStateOf(selectedDate) }
+                var pagerDisplayMode by remember { mutableStateOf(displayMode) }
+                var pendingPagerSelectedDateEpochDays by remember { mutableStateOf<List<Long>>(emptyList()) }
                 val pagerState = rememberPagerState(
                     initialPage = centerPage,
                     pageCount = { pagerPageCount }
                 )
 
-                val targetPage = pagerState.targetPage
-                LaunchedEffect(targetPage, pagerAnchorDate, shiftUnit) {
-                    val pageDelta = targetPage.toLong() - centerPage.toLong()
-                    val targetDate = pagerAnchorDate.plusDays(pageDelta * shiftUnit)
-                    if (targetDate != selectedDate) {
-                        onPickDate(targetDate)
-                    }
-                }
-
                 LaunchedEffect(pagerState.settledPage) {
                     val pageDelta = pagerState.settledPage.toLong() - centerPage.toLong()
                     val settledDate = pagerAnchorDate.plusDays(pageDelta * shiftUnit)
                     if (settledDate != selectedDate) {
+                        val settledEpochDay = settledDate.toEpochDay()
+                        pendingPagerSelectedDateEpochDays =
+                            (pendingPagerSelectedDateEpochDays + settledEpochDay).takeLast(16)
                         onPickDate(settledDate)
+                    }
+                    if (pageDelta == 0L) return@LaunchedEffect
+
+                    if (
+                        pagerState.settledPage == 0 ||
+                        pagerState.settledPage == pagerPageCount - 1
+                    ) {
+                        pagerAnchorDate = settledDate
+                        pagerState.scrollToPage(centerPage)
                     }
                 }
 
-                LaunchedEffect(selectedDate, displayMode, pagerState.isScrollInProgress) {
-                    if (!pagerState.isScrollInProgress) {
-                        val dayDelta = java.time.temporal.ChronoUnit.DAYS
-                            .between(pagerAnchorDate, selectedDate)
-                        if (dayDelta % shiftUnit == 0L) {
-                            val targetPage = centerPage.toLong() + dayDelta / shiftUnit
-                            if (targetPage in 0L until pagerPageCount.toLong()) {
-                                if (pagerState.currentPage != targetPage.toInt()) {
-                                    pagerState.scrollToPage(targetPage.toInt())
-                                }
-                            } else {
-                                pagerAnchorDate = selectedDate
-                                pagerState.scrollToPage(centerPage)
-                            }
-                        } else {
-                            pagerAnchorDate = selectedDate
+                LaunchedEffect(selectedDate, displayMode) {
+                    if (pagerDisplayMode != displayMode) {
+                        pagerDisplayMode = displayMode
+                        pagerAnchorDate = selectedDate
+                        pendingPagerSelectedDateEpochDays = emptyList()
+                        if (pagerState.currentPage != centerPage) {
                             pagerState.scrollToPage(centerPage)
                         }
+                        return@LaunchedEffect
+                    }
+                    val selectedEpochDay = selectedDate.toEpochDay()
+                    if (selectedEpochDay in pendingPagerSelectedDateEpochDays) {
+                        pendingPagerSelectedDateEpochDays =
+                            pendingPagerSelectedDateEpochDays - selectedEpochDay
+                        return@LaunchedEffect
+                    }
+                    if (pagerAnchorDate != selectedDate) {
+                        pagerAnchorDate = selectedDate
+                    }
+                    if (pagerState.currentPage != centerPage) {
+                        pagerState.scrollToPage(centerPage)
                     }
                 }
 
@@ -3466,20 +3572,37 @@ private fun OutputScreen(
                     HorizontalPager(
                         state = pagerState,
                         pageSpacing = 12.dp,
+                        beyondViewportPageCount = 1,
+                        flingBehavior = PagerDefaults.flingBehavior(
+                            state = pagerState,
+                            pagerSnapDistance = PagerSnapDistance.atMost(1)
+                        ),
+                        key = { it },
                         modifier = Modifier.fillMaxWidth()
                     ) { page ->
                         val pageDelta = page.toLong() - centerPage.toLong()
                         val pageDate = pagerAnchorDate.plusDays(pageDelta * shiftUnit)
+                        val shouldRenderPageDetails = page == pagerState.settledPage
 
                         if (displayMode == OutputDisplayMode.DAY) {
+                            val pageTasks = if (shouldRenderPageDetails) {
+                                tasksByDueDate[pageDate].orEmpty()
+                            } else {
+                                emptyList()
+                            }
+                            val pagePlans = if (shouldRenderPageDetails) {
+                                plansByDueDate[pageDate].orEmpty()
+                            } else {
+                                emptyList()
+                            }
                             DayScheduleTable(
                                 date = pageDate,
                                 dayType = dayTypeForDate(pageDate),
                                 resolveLesson = resolveLesson,
                                 resolveOriginalLesson = resolveOriginalLesson,
                                 changedLessonForDate = changedLessonForDate,
-                                tasks = state.tasks,
-                                plans = state.plans,
+                                tasks = pageTasks,
+                                plans = pagePlans,
                                 onOpenTask = onOpenTask,
                                 onOpenPlan = onOpenPlan,
                                 classSlots = classSlots,
@@ -3497,6 +3620,20 @@ private fun OutputScreen(
                             val pageWeekDates = remember(pageDate) {
                                 (0L..4L).map { pageWeekStart.plusDays(it) }
                             }
+                            val pageTasks = remember(pageWeekDates, tasksByDueDate, shouldRenderPageDetails) {
+                                if (shouldRenderPageDetails) {
+                                    pageWeekDates.flatMap { tasksByDueDate[it].orEmpty() }
+                                } else {
+                                    emptyList()
+                                }
+                            }
+                            val pagePlans = remember(pageWeekDates, plansByDueDate, shouldRenderPageDetails) {
+                                if (shouldRenderPageDetails) {
+                                    pageWeekDates.flatMap { plansByDueDate[it].orEmpty() }
+                                } else {
+                                    emptyList()
+                                }
+                            }
                             WeekScheduleTable(
                                 dates = pageWeekDates,
                                 dayTypeForDate = dayTypeForDate,
@@ -3504,8 +3641,8 @@ private fun OutputScreen(
                                 resolveLesson = resolveLesson,
                                 resolveOriginalLesson = resolveOriginalLesson,
                                 changedLessonForDate = changedLessonForDate,
-                                tasks = state.tasks,
-                                plans = state.plans,
+                                tasks = pageTasks,
+                                plans = pagePlans,
                                 classSlots = classSlots,
                                 showCurrentTimeMarker = showCurrentTimeMarker && pageWeekDates.contains(today),
                                 onSaveLessonOverride = onSaveLessonOverride,
@@ -3570,15 +3707,6 @@ private fun TaskPlanCalendarScreen(
     val selectedPlans = plansByDate[selectedDate]
         .orEmpty()
         .sortedWith(compareBy<PlanEntity> { it.dueHour }.thenBy { it.dueMinute })
-    LaunchedEffect(monthPagerState.settledPage) {
-        val settledMonth = monthPagerAnchor.plusMonths(
-            monthPagerState.settledPage.toLong() - monthPagerCenterPage.toLong()
-        )
-        if (YearMonth.from(selectedDate) != settledMonth) {
-            selectedDateEpochDay = settledMonth.atDay(1).toEpochDay()
-        }
-    }
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -3851,7 +3979,7 @@ private fun TaskPlanCalendarItem(
             .alpha(if (completed) 0.58f else 1f)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh
+        color = MaterialTheme.colorScheme.surfaceContainerLow
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
@@ -3933,11 +4061,33 @@ private fun LessonSearchScreen(
             YearMonth.from(searchEnd)
         )
     }
+    val initialSelectedSearchDate = remember(searchStart, searchEnd, today) {
+        when {
+            today.isBefore(searchStart) -> searchStart
+            today.isAfter(searchEnd) -> searchEnd
+            else -> today
+        }
+    }
     var displayedMonthText by rememberSaveable { mutableStateOf(initialSearchMonth.toString()) }
-    var previewDateEpochDay by rememberSaveable { mutableStateOf<Long?>(null) }
+    var selectedSearchDateEpochDay by rememberSaveable {
+        mutableStateOf(initialSelectedSearchDate.toEpochDay())
+    }
     var searchDisplayMode by rememberSaveable { mutableStateOf(LessonSearchDisplayMode.CALENDAR) }
     val displayedMonth = remember(displayedMonthText) {
         runCatching { YearMonth.parse(displayedMonthText) }.getOrElse { YearMonth.from(searchStart) }
+    }
+    val selectedSearchDate = remember(selectedSearchDateEpochDay, searchStart, searchEnd) {
+        val rawDate = LocalDate.ofEpochDay(selectedSearchDateEpochDay)
+        when {
+            rawDate.isBefore(searchStart) -> searchStart
+            rawDate.isAfter(searchEnd) -> searchEnd
+            else -> rawDate
+        }
+    }
+    LaunchedEffect(selectedSearchDate, selectedSearchDateEpochDay) {
+        if (selectedSearchDate.toEpochDay() != selectedSearchDateEpochDay) {
+            selectedSearchDateEpochDay = selectedSearchDate.toEpochDay()
+        }
     }
     val results = remember(
         effectiveQuery,
@@ -3998,19 +4148,6 @@ private fun LessonSearchScreen(
     }
     val resultsByDate = remember(results) { results.groupBy { it.date } }
 
-    previewDateEpochDay?.let { epochDay ->
-        LessonSearchDayPreviewScreen(
-            date = LocalDate.ofEpochDay(epochDay),
-            query = query,
-            classSlots = classSlots,
-            resolveLesson = resolveLesson,
-            changedLessonForDate = changedLessonForDate,
-            isLessonCancelled = isLessonCancelled,
-            onBack = { previewDateEpochDay = null }
-        )
-        return
-    }
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -4068,32 +4205,54 @@ private fun LessonSearchScreen(
                 }
             }
 
-            when (searchDisplayMode) {
-                LessonSearchDisplayMode.CALENDAR -> LessonSearchCalendarView(
-                    modifier = Modifier.weight(1f),
-                    query = query,
-                    displayedMonth = displayedMonth,
-                    searchStart = searchStart,
-                    searchEnd = searchEnd,
-                    today = today,
-                    results = results,
-                    resultsByDate = resultsByDate,
-                    onDisplayedMonthChange = { month ->
-                        displayedMonthText = month.toString()
-                    },
-                    onSelectDate = { date ->
-                        previewDateEpochDay = date.toEpochDay()
+            AnimatedContent(
+                targetState = searchDisplayMode,
+                modifier = Modifier.weight(1f),
+                transitionSpec = {
+                    val spec = tween<IntOffset>(220, easing = FastOutSlowInEasing)
+                    if (targetState == LessonSearchDisplayMode.CALENDAR) {
+                        slideInHorizontally(animationSpec = spec) { -it / 3 } + fadeIn() togetherWith
+                            slideOutHorizontally(animationSpec = spec) { it } + fadeOut()
+                    } else {
+                        slideInHorizontally(animationSpec = spec) { it } + fadeIn() togetherWith
+                            slideOutHorizontally(animationSpec = spec) { -it / 3 } + fadeOut()
                     }
-                )
-                LessonSearchDisplayMode.LIST -> LessonSearchListView(
-                    modifier = Modifier.weight(1f),
-                    query = query,
-                    results = results.filter { !it.date.isBefore(today) },
-                    onSelectDate = { date ->
-                        displayedMonthText = YearMonth.from(date).toString()
-                        previewDateEpochDay = date.toEpochDay()
-                    }
-                )
+                },
+                label = "LessonSearchDisplayModeTransition"
+            ) { mode ->
+                when (mode) {
+                    LessonSearchDisplayMode.CALENDAR -> LessonSearchCalendarView(
+                        modifier = Modifier.fillMaxSize(),
+                        query = query,
+                        displayedMonth = displayedMonth,
+                        searchStart = searchStart,
+                        searchEnd = searchEnd,
+                        today = today,
+                        selectedDate = selectedSearchDate,
+                        results = results,
+                        resultsByDate = resultsByDate,
+                        classSlots = classSlots,
+                        resolveLesson = resolveLesson,
+                        changedLessonForDate = changedLessonForDate,
+                        isLessonCancelled = isLessonCancelled,
+                        onDisplayedMonthChange = { month ->
+                            displayedMonthText = month.toString()
+                        },
+                        onSelectDate = { date ->
+                            selectedSearchDateEpochDay = date.toEpochDay()
+                        }
+                    )
+                    LessonSearchDisplayMode.LIST -> LessonSearchListView(
+                        modifier = Modifier.fillMaxSize(),
+                        query = query,
+                        results = results.filter { !it.date.isBefore(today) },
+                        onSelectDate = { date ->
+                            displayedMonthText = YearMonth.from(date).toString()
+                            selectedSearchDateEpochDay = date.toEpochDay()
+                            searchDisplayMode = LessonSearchDisplayMode.CALENDAR
+                        }
+                    )
+                }
             }
         }
     }
@@ -4107,8 +4266,13 @@ private fun LessonSearchCalendarView(
     searchStart: LocalDate,
     searchEnd: LocalDate,
     today: LocalDate,
+    selectedDate: LocalDate,
     results: List<LessonSearchResult>,
     resultsByDate: Map<LocalDate, List<LessonSearchResult>>,
+    classSlots: List<ClassSlot>,
+    resolveLesson: (LocalDate, Int) -> ResolvedLesson?,
+    changedLessonForDate: (LocalDate, Int) -> ChangedLessonEntity?,
+    isLessonCancelled: (LocalDate, Int) -> Boolean,
     onDisplayedMonthChange: (YearMonth) -> Unit,
     onSelectDate: (LocalDate) -> Unit,
     modifier: Modifier = Modifier
@@ -4173,6 +4337,7 @@ private fun LessonSearchCalendarView(
                         date = date,
                         matchCount = resultsByDate[date]?.size ?: 0,
                         isToday = date == today,
+                        isSelected = date == selectedDate,
                         enabled = date in searchStart..searchEnd,
                         onClick = { onSelectDate(date) },
                         modifier = cellModifier
@@ -4193,6 +4358,17 @@ private fun LessonSearchCalendarView(
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        item {
+            LessonSearchSelectedDaySchedule(
+                date = selectedDate,
+                query = query,
+                classSlots = classSlots,
+                resolveLesson = resolveLesson,
+                changedLessonForDate = changedLessonForDate,
+                isLessonCancelled = isLessonCancelled
             )
         }
     }
@@ -4280,7 +4456,11 @@ private fun CalendarPagerCard(
                 HorizontalPager(
                     state = state,
                     pageSpacing = 12.dp,
-                    beyondViewportPageCount = 0,
+                    beyondViewportPageCount = 1,
+                    flingBehavior = PagerDefaults.flingBehavior(
+                        state = state,
+                        pagerSnapDistance = PagerSnapDistance.atMost(1)
+                    ),
                     key = { it },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -4348,6 +4528,7 @@ private fun SearchCalendarDayCell(
     date: LocalDate,
     matchCount: Int,
     isToday: Boolean,
+    isSelected: Boolean,
     enabled: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -4368,10 +4549,10 @@ private fun SearchCalendarDayCell(
         modifier = modifier
             .aspectRatio(1f)
             .then(
-                if (isToday) {
-                    Modifier.border(1.dp, MaterialTheme.colorScheme.primary, shape)
-                } else {
-                    Modifier
+                when {
+                    isSelected -> Modifier.border(2.dp, MaterialTheme.colorScheme.primary, shape)
+                    isToday -> Modifier.border(1.dp, MaterialTheme.colorScheme.primary, shape)
+                    else -> Modifier
                 }
             )
             .clickable(enabled = enabled, onClick = onClick),
@@ -4387,7 +4568,7 @@ private fun SearchCalendarDayCell(
             Text(
                 text = date.dayOfMonth.toString(),
                 style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (matchCount > 0 || isToday) FontWeight.Bold else FontWeight.Normal
+                fontWeight = if (isSelected || matchCount > 0 || isToday) FontWeight.Bold else FontWeight.Normal
             )
             if (matchCount > 0) {
                 Surface(
@@ -4459,7 +4640,7 @@ private fun LessonSearchListView(
                         .fillMaxWidth()
                         .clickable { onSelectDate(result.date) },
                     shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh
+                    color = MaterialTheme.colorScheme.surfaceContainerLow
                 ) {
                     Column(
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
@@ -4537,70 +4718,59 @@ private fun LessonSearchListView(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LessonSearchDayPreviewScreen(
+private fun LessonSearchSelectedDaySchedule(
     date: LocalDate,
     query: String,
     classSlots: List<ClassSlot>,
     resolveLesson: (LocalDate, Int) -> ResolvedLesson?,
     changedLessonForDate: (LocalDate, Int) -> ChangedLessonEntity?,
-    isLessonCancelled: (LocalDate, Int) -> Boolean,
-    onBack: () -> Unit
+    isLessonCancelled: (LocalDate, Int) -> Boolean
 ) {
-    BackHandler(onBack = onBack)
     val timeFormatter = remember { DateTimeFormatter.ofPattern("H:mm") }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.title_search_day_preview)) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.cd_back)
-                        )
-                    }
-                }
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = MaterialTheme.colorScheme.secondaryContainer
+            ) {
+                Text(
+                    text = stringResource(
+                        R.string.label_search_timetable_date_chip,
+                        date.format(dateFormatter),
+                        stringResource(dayOfWeekRes(date.dayOfWeek))
+                    ),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Text(
+                text = stringResource(R.string.title_search_day_preview),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.SemiBold
             )
         }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            item {
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = MaterialTheme.colorScheme.secondaryContainer
-                ) {
-                    Text(
-                        text = stringResource(
-                            R.string.label_search_timetable_date_chip,
-                            date.format(dateFormatter),
-                            stringResource(dayOfWeekRes(date.dayOfWeek))
-                        ),
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-            if (query.isNotBlank()) {
-                item {
-                    Text(
-                        text = stringResource(R.string.desc_search_day_preview, query),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-            items(classSlots, key = { it.index }) { slot ->
+        if (query.isNotBlank()) {
+            Text(
+                text = stringResource(R.string.desc_search_day_preview, query),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        classSlots.forEach { slot ->
+            key(slot.index) {
                 val lesson = resolveLesson(date, slot.index)
                 val cancelled = isLessonCancelled(date, slot.index)
                 val changed = changedLessonForDate(date, slot.index) != null
@@ -4765,7 +4935,7 @@ private fun DayScheduleTable(
     arrivalMin: Int? = null,
     departureMin: Int? = null,
     showCurrentTimeMarker: Boolean = false,
-    onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean) -> Unit)? = null,
+    onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean, date: LocalDate, time: LocalTime) -> Unit)? = null,
     onSetLessonCancelled: (LocalDate, Int, Boolean) -> Unit,
     onEditChangedLesson: (LocalDate, Int) -> Unit,
     isLessonCancelled: (LocalDate, Int) -> Boolean,
@@ -4778,6 +4948,7 @@ private fun DayScheduleTable(
         val originalLesson: ResolvedLesson?,
         val isChanged: Boolean,
         val slotIndex: Int,
+        val lessonStartTime: LocalTime,
         val cancelled: Boolean
     )
     var lessonActionDialog by remember { mutableStateOf<LessonActionDialogData?>(null) }
@@ -4795,13 +4966,13 @@ private fun DayScheduleTable(
             onAddTask = onAddFromLesson?.let {
                 {
                     lessonActionDialog = null
-                    it(lessonSnap.lesson.subject, lessonSnap.lesson.teacher, false)
+                    it(lessonSnap.lesson.subject, lessonSnap.lesson.teacher, false, date, lessonSnap.lessonStartTime)
                 }
             },
             onAddPlan = onAddFromLesson?.let {
                 {
                     lessonActionDialog = null
-                    it(lessonSnap.lesson.subject, lessonSnap.lesson.teacher, true)
+                    it(lessonSnap.lesson.subject, lessonSnap.lesson.teacher, true, date, lessonSnap.lessonStartTime)
                 }
             },
             onToggleCancelled = {
@@ -4825,6 +4996,7 @@ private fun DayScheduleTable(
     val strHasTask = stringResource(R.string.label_task_exists)
     val strHasPlan = stringResource(R.string.label_plan_exists)
     val strCancelled = stringResource(R.string.label_cancelled)
+    val isHoliday = dayType == DayType.HOLIDAY
 
     data class TimeSegment(
         val startMin: Int,
@@ -4851,9 +5023,13 @@ private fun DayScheduleTable(
 
     val taskDueTicks = dateTasks.mapNotNull { task ->
         val dueMinuteOfDay = task.dueHour * 60 + task.dueMinute
-        val matchedSlots = classSlots.filter { slot ->
-            val lesson = resolveLesson(date, slot.index)
-            lesson != null && taskMatchesLesson(task, lesson)
+        val matchedSlots = if (isHoliday) {
+            emptyList()
+        } else {
+            classSlots.filter { slot ->
+                val lesson = resolveLesson(date, slot.index)
+                lesson != null && taskMatchesLesson(task, lesson)
+            }
         }
         if (matchedSlots.isEmpty()) {
             DueTick(dueMinuteOfDay, task.title, task.description?.trim()?.ifBlank { null }, task = task, color = MaterialTheme.colorScheme.error)
@@ -4868,9 +5044,13 @@ private fun DayScheduleTable(
     }
     val planDueTicks = datePlans.mapNotNull { plan ->
         val dueMinuteOfDay = plan.dueHour * 60 + plan.dueMinute
-        val matchedSlots = classSlots.filter { slot ->
-            val lesson = resolveLesson(date, slot.index)
-            lesson != null && planMatchesLesson(plan, lesson)
+        val matchedSlots = if (isHoliday) {
+            emptyList()
+        } else {
+            classSlots.filter { slot ->
+                val lesson = resolveLesson(date, slot.index)
+                lesson != null && planMatchesLesson(plan, lesson)
+            }
         }
         if (matchedSlots.isEmpty()) {
             DueTick(dueMinuteOfDay, plan.title, plan.description?.trim()?.ifBlank { null }, plan = plan, color = MaterialTheme.colorScheme.primary)
@@ -4932,9 +5112,9 @@ private fun DayScheduleTable(
         segments.forEach { seg ->
             val rawHeightDp = (seg.durationMin * dpPerMinute).dp
             val slot = if (seg.slotIndex != null) classSlots.find { it.index == seg.slotIndex } else null
-            val lesson = if (seg.slotIndex != null) resolveLesson(date, seg.slotIndex) else null
-            val changedLesson = if (seg.slotIndex != null) changedLessonForDate(date, seg.slotIndex) else null
-            val originalLesson = if (seg.slotIndex != null && changedLesson != null) resolveOriginalLesson(date, seg.slotIndex) else null
+            val lesson = if (!isHoliday && seg.slotIndex != null) resolveLesson(date, seg.slotIndex) else null
+            val changedLesson = if (!isHoliday && seg.slotIndex != null) changedLessonForDate(date, seg.slotIndex) else null
+            val originalLesson = if (!isHoliday && seg.slotIndex != null && changedLesson != null) resolveOriginalLesson(date, seg.slotIndex) else null
             val isChangedLesson = changedLesson != null && originalLesson != null
             val segmentEndMin = seg.startMin + seg.durationMin
             val segmentTicks = outOfSlotDueTicks.filter { it.minuteOfDay in seg.startMin until segmentEndMin }
@@ -5184,7 +5364,7 @@ private fun DayScheduleTable(
                     )
                 }
             }.sortedWith(compareBy<LessonDetailItem> { it.dueHour }.thenBy { it.dueMinute })
-            val isCancelled = slot != null && isLessonCancelled(date, slot.index)
+            val isCancelled = !isHoliday && slot != null && isLessonCancelled(date, slot.index)
 
             Row(modifier = Modifier.fillMaxWidth().height(heightDp)) {
                 // 左: 時刻ラベル + 縦線
@@ -5361,6 +5541,7 @@ private fun DayScheduleTable(
                                                 originalLesson = originalLesson,
                                                 isChanged = isChangedLesson,
                                                 slotIndex = slot.index,
+                                                lessonStartTime = slot.start,
                                                 cancelled = isCancelled
                                             )
                                         }
@@ -5496,20 +5677,28 @@ private fun DayScheduleTable(
                                         fontWeight = FontWeight.Bold
                                     )
                                     val detailNoteStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp)
-                                    val completionMarkWidth = with(density) {
-                                        textMeasurer.measure(
-                                            text = "\u2713 ",
-                                            style = detailTitleStyle,
-                                            maxLines = 1
-                                        ).size.width.toDp()
+                                    val completionMarkWidth = if (hasLessonDetails) {
+                                        with(density) {
+                                            textMeasurer.measure(
+                                                text = "\u2713 ",
+                                                style = detailTitleStyle,
+                                                maxLines = 1
+                                            ).size.width.toDp()
+                                        }
+                                    } else {
+                                        0.dp
                                     }
-                                    val subjectMinWidth = with(density) {
-                                        textMeasurer.measure(
-                                            text = "あああ",
-                                            style = subjectStyle,
-                                            maxLines = 1
-                                        ).size.width.toDp()
-                                    } + 4.dp
+                                    val subjectMinWidth = if (hasLessonDetails) {
+                                        with(density) {
+                                            textMeasurer.measure(
+                                                text = "あああ",
+                                                style = subjectStyle,
+                                                maxLines = 1
+                                            ).size.width.toDp()
+                                        } + 4.dp
+                                    } else {
+                                        0.dp
+                                    }
                                     val lessonDetailsMinWidth = 88.dp
                                     val contentGap = if (hasLessonDetails) 8.dp else 0.dp
                                     val availableContentWidth = (maxWidth - contentGap).coerceAtLeast(0.dp)
@@ -5522,21 +5711,29 @@ private fun DayScheduleTable(
                                         ).size.width.toDp()
                                     }
 
-                                    val subjectPreferredWidth = with(density) {
-                                        textMeasurer.measure(
-                                            text = lesson?.subject ?: strNoLesson,
-                                            style = subjectStyle,
-                                            maxLines = 1
-                                        ).size.width.toDp()
-                                    }.coerceAtLeast(subjectMinWidth)
+                                    val subjectPreferredWidth = if (hasLessonDetails) {
+                                        with(density) {
+                                            textMeasurer.measure(
+                                                text = lesson?.subject ?: strNoLesson,
+                                                style = subjectStyle,
+                                                maxLines = 1
+                                            ).size.width.toDp()
+                                        }.coerceAtLeast(subjectMinWidth)
+                                    } else {
+                                        0.dp
+                                    }
 
-                                    val lessonDetailCandidates = buildList<Dp> {
-                                        lessonDetailItems.take(2).forEach { item ->
-                                            add(measureWidth(item.title) + completionMarkWidth)
-                                            if (shouldShowLessonNotes) {
-                                                item.note?.let { add(measureWidth(it, isNote = true)) }
+                                    val lessonDetailCandidates = if (hasLessonDetails) {
+                                        buildList {
+                                            lessonDetailItems.take(2).forEach { item ->
+                                                add(measureWidth(item.title) + completionMarkWidth)
+                                                if (shouldShowLessonNotes) {
+                                                    item.note?.let { add(measureWidth(it, isNote = true)) }
+                                                }
                                             }
                                         }
+                                    } else {
+                                        emptyList()
                                     }
                                     val lessonDetailsPreferredWidth = lessonDetailCandidates
                                         .maxOrNull()
@@ -5772,6 +5969,33 @@ private fun DayScheduleTable(
     }
 }
 
+@Composable
+private fun WeekendCurrentDayMarker(
+    pointsTowardWeek: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val color = MaterialTheme.colorScheme.primary
+    Canvas(
+        modifier = modifier
+            .width(10.dp)
+            .height(16.dp)
+    ) {
+        val path = Path().apply {
+            if (pointsTowardWeek) {
+                moveTo(0f, 0f)
+                lineTo(size.width, size.height / 2f)
+                lineTo(0f, size.height)
+            } else {
+                moveTo(size.width, 0f)
+                lineTo(0f, size.height / 2f)
+                lineTo(size.width, size.height)
+            }
+            close()
+        }
+        drawPath(path = path, color = color)
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun WeekScheduleTable(
@@ -5787,7 +6011,7 @@ private fun WeekScheduleTable(
     showCurrentTimeMarker: Boolean = false,
     onSaveLessonOverride: (LocalDate, Int, DayType) -> Unit,
     onClearLessonOverride: (LocalDate) -> Unit,
-    onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean) -> Unit)? = null,
+    onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean, date: LocalDate, time: LocalTime) -> Unit)? = null,
     onSetLessonCancelled: (LocalDate, Int, Boolean) -> Unit,
     onEditChangedLesson: (LocalDate, Int) -> Unit,
     isLessonCancelled: (LocalDate, Int) -> Boolean,
@@ -5800,6 +6024,7 @@ private fun WeekScheduleTable(
     data class WeekLessonActionDialogData(
         val date: LocalDate,
         val slotIndex: Int,
+        val lessonStartTime: LocalTime,
         val lesson: ResolvedLesson,
         val originalLesson: ResolvedLesson?,
         val isChanged: Boolean,
@@ -5811,6 +6036,20 @@ private fun WeekScheduleTable(
     var overrideEditingDate by remember(dates) { mutableStateOf<LocalDate?>(null) }
     var lessonActionDialog by remember(dates) { mutableStateOf<WeekLessonActionDialogData?>(null) }
     val strCancelled = stringResource(R.string.label_cancelled)
+    val weekendCurrentMarkerSide = remember(dates, today) {
+        val firstVisibleDate = dates.firstOrNull()
+        val lastVisibleDate = dates.lastOrNull()
+        when {
+            today.dayOfWeek !in setOf(DayOfWeek.SATURDAY, DayOfWeek.SUNDAY) -> 0
+            firstVisibleDate != null &&
+                today.isBefore(firstVisibleDate) &&
+                !today.isBefore(firstVisibleDate.minusDays(2)) -> -1
+            lastVisibleDate != null &&
+                today.isAfter(lastVisibleDate) &&
+                !today.isAfter(lastVisibleDate.plusDays(2)) -> 1
+            else -> 0
+        }
+    }
 
     Column(
         modifier = modifier.fillMaxWidth()
@@ -5818,43 +6057,56 @@ private fun WeekScheduleTable(
         // ヘッダー行
         Row(modifier = Modifier.fillMaxWidth()) {
             Spacer(modifier = Modifier.width(slotLabelWidth))
-            dates.forEach { date ->
-                val dayType = dayTypeForDate(date)
-                val dayTypeEntity = dayTypeEntityForDate(date)
-                val isToday = date == today
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 1.dp, vertical = 4.dp)
-                        .combinedClickable(
-                            onClick = { onDayClick(date) },
-                            onLongClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                overrideEditingDate = date
+            Box(modifier = Modifier.weight(1f)) {
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    dates.forEach { date ->
+                        val dayType = dayTypeForDate(date)
+                        val dayTypeEntity = dayTypeEntityForDate(date)
+                        val isToday = date == today
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 1.dp, vertical = 4.dp)
+                                .combinedClickable(
+                                    onClick = { onDayClick(date) },
+                                    onLongClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        overrideEditingDate = date
+                                    }
+                                ),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            val circleModifier = if (isToday)
+                                Modifier.width(36.dp).height(36.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(50.dp))
+                            else
+                                Modifier.width(36.dp).height(36.dp)
+                            Box(
+                                modifier = circleModifier,
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = stringResource(dayOfWeekRes(date.dayOfWeek)),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isToday) MaterialTheme.colorScheme.onPrimary
+                                            else MaterialTheme.colorScheme.onSurface
+                                )
                             }
-                        ),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    val circleModifier = if (isToday)
-                        Modifier.width(36.dp).height(36.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(50.dp))
-                    else
-                        Modifier.width(36.dp).height(36.dp)
-                    Box(
-                        modifier = circleModifier,
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = stringResource(dayOfWeekRes(date.dayOfWeek)),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isToday) MaterialTheme.colorScheme.onPrimary
-                                    else MaterialTheme.colorScheme.onSurface
-                        )
+                            Text(
+                                text = dayTypeDisplayText(dayType, dayTypeEntity?.overrideLessonDayOfWeek, dayTypeEntity?.holidaySpecialLabel),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
-                    Text(
-                        text = dayTypeDisplayText(dayType, dayTypeEntity?.overrideLessonDayOfWeek, dayTypeEntity?.holidaySpecialLabel),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                }
+                if (weekendCurrentMarkerSide != 0) {
+                    WeekendCurrentDayMarker(
+                        pointsTowardWeek = weekendCurrentMarkerSide > 0,
+                        modifier = Modifier
+                            .align(if (weekendCurrentMarkerSide < 0) Alignment.TopStart else Alignment.TopEnd)
+                            .offset(x = if (weekendCurrentMarkerSide < 0) (-2).dp else (-4).dp)
+                            .padding(top = 14.dp)
                     )
                 }
             }
@@ -5897,9 +6149,11 @@ private fun WeekScheduleTable(
 
                 // 各曜日のセル
                 dates.forEach { date ->
-                    val lesson = resolveLesson(date, slot.index)
-                    val changedLesson = changedLessonForDate(date, slot.index)
-                    val originalLesson = if (changedLesson != null) resolveOriginalLesson(date, slot.index) else null
+                    val dayType = dayTypeForDate(date)
+                    val isHoliday = dayType == DayType.HOLIDAY
+                    val lesson = if (!isHoliday) resolveLesson(date, slot.index) else null
+                    val changedLesson = if (!isHoliday) changedLessonForDate(date, slot.index) else null
+                    val originalLesson = if (!isHoliday && changedLesson != null) resolveOriginalLesson(date, slot.index) else null
                     val isChangedLesson = changedLesson != null && originalLesson != null
                     val slotStartMin = slot.start.hour * 60 + slot.start.minute
                     val slotEndMin = slot.end.hour * 60 + slot.end.minute
@@ -5908,13 +6162,13 @@ private fun WeekScheduleTable(
                     } else {
                         null
                     }
-                    val hasTask = lesson != null && tasks.any { task ->
+                    val hasTask = !isHoliday && lesson != null && tasks.any { task ->
                         task.dueDate == date && taskMatchesLesson(task, lesson)
                     }
-                    val hasPlan = lesson != null && plans.any { plan ->
+                    val hasPlan = !isHoliday && lesson != null && plans.any { plan ->
                         plan.dueDate == date && planMatchesLesson(plan, lesson)
                     }
-                    val isCancelled = isLessonCancelled(date, slot.index)
+                    val isCancelled = !isHoliday && isLessonCancelled(date, slot.index)
                     val bgColor = if (lesson != null) MaterialTheme.colorScheme.surfaceContainerLow
                                   else MaterialTheme.colorScheme.surfaceContainer
                     val contentColor = if (lesson != null) MaterialTheme.colorScheme.onSurface
@@ -5937,6 +6191,7 @@ private fun WeekScheduleTable(
                                             lessonActionDialog = WeekLessonActionDialogData(
                                                 date = date,
                                                 slotIndex = slot.index,
+                                                lessonStartTime = slot.start,
                                                 lesson = lesson,
                                                 originalLesson = originalLesson,
                                                 isChanged = isChangedLesson,
@@ -6065,13 +6320,13 @@ private fun WeekScheduleTable(
             onAddTask = onAddFromLesson?.let {
                 {
                     lessonActionDialog = null
-                    it(target.lesson.subject, target.lesson.teacher, false)
+                    it(target.lesson.subject, target.lesson.teacher, false, target.date, target.lessonStartTime)
                 }
             },
             onAddPlan = onAddFromLesson?.let {
                 {
                     lessonActionDialog = null
-                    it(target.lesson.subject, target.lesson.teacher, true)
+                    it(target.lesson.subject, target.lesson.teacher, true, target.date, target.lessonStartTime)
                 }
             },
             onToggleCancelled = {

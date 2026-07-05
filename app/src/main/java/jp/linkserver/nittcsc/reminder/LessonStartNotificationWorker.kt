@@ -29,6 +29,7 @@ import jp.linkserver.nittcsc.data.DayType
 import jp.linkserver.nittcsc.data.DayTypeEntity
 import jp.linkserver.nittcsc.data.LessonEntity
 import jp.linkserver.nittcsc.data.LessonMode
+import jp.linkserver.nittcsc.data.LessonStartNotificationChipMode
 import jp.linkserver.nittcsc.data.LessonNotificationExclusionEntity
 import jp.linkserver.nittcsc.data.ResolvedLesson
 import jp.linkserver.nittcsc.data.SettingsEntity
@@ -114,6 +115,7 @@ class LessonStartNotificationWorker(
                     liveUpdateTarget = liveUpdateTarget,
                     minutesBefore = minutesBefore,
                     progressCountsDown = settings.lessonStartNotificationProgressCountsDown,
+                    chipMode = settings.lessonStartNotificationChipMode,
                     pendingIntent = pendingIntent
                 )
             } else {
@@ -208,6 +210,7 @@ class LessonStartNotificationWorker(
         liveUpdateTarget: LocalDateTime,
         minutesBefore: Int,
         progressCountsDown: Boolean,
+        chipMode: LessonStartNotificationChipMode,
         pendingIntent: PendingIntent
     ) {
         val lessonStartMillis = liveUpdateTarget
@@ -228,6 +231,7 @@ class LessonStartNotificationWorker(
                 remainingMillis = remainingMillis,
                 totalSeconds = totalSeconds,
                 progressCountsDown = progressCountsDown,
+                chipMode = chipMode,
                 pendingIntent = pendingIntent
             )
             setForegroundSafely(notificationId, notification)
@@ -261,6 +265,7 @@ class LessonStartNotificationWorker(
         remainingMillis: Long,
         totalSeconds: Int,
         progressCountsDown: Boolean,
+        chipMode: LessonStartNotificationChipMode,
         pendingIntent: PendingIntent
     ): Notification {
         val remainingSeconds = remainingSeconds(remainingMillis).coerceIn(0, totalSeconds)
@@ -269,9 +274,8 @@ class LessonStartNotificationWorker(
         } else {
             totalSeconds - remainingSeconds
         }.coerceIn(0, totalSeconds)
-        val chipText = buildLiveUpdateChipText(remainingSeconds)
 
-        return NotificationCompat.Builder(applicationContext, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_school)
             .setContentTitle(
                 applicationContext.getString(
@@ -297,7 +301,6 @@ class LessonStartNotificationWorker(
             .setShowWhen(true)
             .setUsesChronometer(true)
             .setChronometerCountDown(true)
-            .setShortCriticalText(chipText)
             .setSettingsText(
                 applicationContext.getString(
                     R.string.lesson_start_notification_time_summary,
@@ -306,7 +309,12 @@ class LessonStartNotificationWorker(
                 )
             )
             .setRequestPromotedOngoing(true)
-            .build()
+
+        if (chipMode == LessonStartNotificationChipMode.MINUTE_TEXT) {
+            builder.setShortCriticalText(buildLiveUpdateMinuteChipText(remainingSeconds))
+        }
+
+        return builder.build()
     }
 
     private fun canPostPromotedNotifications(): Boolean {
@@ -357,6 +365,13 @@ class LessonStartNotificationWorker(
         return ((remainingMillis + 999L) / 1_000L).toInt().coerceAtLeast(1)
     }
 
+    private fun buildLiveUpdateMinuteChipText(remainingSeconds: Int): String {
+        return applicationContext.getString(
+            R.string.lesson_start_live_update_chip_minutes,
+            (remainingSeconds / 60).coerceAtLeast(0)
+        )
+    }
+
     private fun displayMinutesBefore(
         configuredMinutesBefore: Int,
         remainingMillis: Long
@@ -366,20 +381,6 @@ class LessonStartNotificationWorker(
         return ceil(remainingMillis / ONE_MINUTE_MS.toDouble())
             .toInt()
             .coerceIn(1, configuredMinutesBefore)
-    }
-
-    private fun buildLiveUpdateChipText(remainingSeconds: Int): String {
-        return if (remainingSeconds < 60) {
-            applicationContext.getString(
-                R.string.lesson_start_live_update_chip_seconds,
-                remainingSeconds
-            )
-        } else {
-            applicationContext.getString(
-                R.string.lesson_start_live_update_chip_minutes,
-                (remainingSeconds / 60).coerceAtLeast(1)
-            )
-        }
     }
 
     private fun buildLiveLessonStartText(remainingSeconds: Int, subject: String): String {

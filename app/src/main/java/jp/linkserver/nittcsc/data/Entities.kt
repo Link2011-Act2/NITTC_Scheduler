@@ -23,6 +23,11 @@ enum class HolidaySpecialLabel {
     EXCURSION
 }
 
+enum class LessonStartNotificationChipMode {
+    CHRONOMETER,
+    MINUTE_TEXT
+}
+
 @Entity(tableName = "settings")
 data class SettingsEntity(
     @PrimaryKey val id: Int = 1,
@@ -55,6 +60,7 @@ data class SettingsEntity(
     val lessonStartNotificationLiveUpdatesEnabled: Boolean = true,
     val lessonStartNotificationProgressCountsDown: Boolean = false,
     val lessonStartNotificationLiveUpdateEarlyMinutes: Int = 1,
+    val lessonStartNotificationChipMode: LessonStartNotificationChipMode = LessonStartNotificationChipMode.MINUTE_TEXT,
     val syncLessonsToCalendar: Boolean = false,
     val lessonCalendarSyncStart: LocalDate? = null,
     val lessonCalendarSyncEnd: LocalDate? = null

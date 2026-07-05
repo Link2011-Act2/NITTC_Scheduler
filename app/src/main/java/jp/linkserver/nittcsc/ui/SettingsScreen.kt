@@ -90,6 +90,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import jp.linkserver.nittcsc.data.LessonNotificationExclusionEntity
+import jp.linkserver.nittcsc.data.LessonStartNotificationChipMode
 import jp.linkserver.nittcsc.data.LongBreakEntity
 import jp.linkserver.nittcsc.logic.generateClassSlots
 import jp.linkserver.nittcsc.update.clearDismissedUpdateNotification
@@ -134,6 +135,7 @@ fun SettingsScreen(
     onToggleLessonStartNotificationLiveUpdates: (Boolean) -> Unit = {},
     onToggleLessonStartNotificationProgressCountsDown: (Boolean) -> Unit = {},
     onUpdateLessonStartNotificationLiveUpdateEarlyMinutes: (Int) -> Unit = {},
+    onUpdateLessonStartNotificationChipMode: (LessonStartNotificationChipMode) -> Unit = {},
     onAddLessonNotificationExclusion: (String, String?, Boolean) -> Unit = { _, _, _ -> },
     onDeleteLessonNotificationExclusion: (LessonNotificationExclusionEntity) -> Unit = {},
     onUpdateScheduleSettings: (periodsPerDay: Int, periodDurationMin: Int, breakBetweenPeriodsMin: Int, lunchBreakMin: Int, lunchAfterPeriod: Int, startHour: Int, startMinute: Int, useKosenMode: Boolean, arrivalHour: Int, arrivalMinute: Int, departureHour: Int, departureMinute: Int) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _ -> },
@@ -159,6 +161,8 @@ fun SettingsScreen(
         state.settings?.lessonStartNotificationProgressCountsDown ?: false
     val lessonStartLiveUpdateEarlyMinutes =
         state.settings?.lessonStartNotificationLiveUpdateEarlyMinutes ?: 1
+    val lessonStartChipMode =
+        state.settings?.lessonStartNotificationChipMode ?: LessonStartNotificationChipMode.MINUTE_TEXT
     var expandTimetableSettings by rememberSaveable { mutableStateOf(true) }
     var showLocalAiWarningDialog by remember { mutableStateOf(false) }
     val s = state.settings
@@ -876,6 +880,7 @@ fun SettingsScreen(
                         liveUpdatesSupported = supportsLessonStartLiveUpdates,
                         progressCountsDown = enabledLessonStartProgressCountsDown,
                         liveUpdateEarlyMinutes = lessonStartLiveUpdateEarlyMinutes,
+                        chipMode = lessonStartChipMode,
                         minutesBefore = lessonStartNotificationMinutesBefore,
                         exclusions = state.lessonNotificationExclusions,
                         subjectSuggestions = subjectSuggestions,
@@ -899,6 +904,7 @@ fun SettingsScreen(
                         onToggleLiveUpdates = onToggleLessonStartNotificationLiveUpdates,
                         onToggleProgressCountsDown = onToggleLessonStartNotificationProgressCountsDown,
                         onUpdateLiveUpdateEarlyMinutes = onUpdateLessonStartNotificationLiveUpdateEarlyMinutes,
+                        onUpdateChipMode = onUpdateLessonStartNotificationChipMode,
                         onMinutesBeforeChange = { lessonStartNotificationMinutesBefore = it },
                         onAddExclusion = onAddLessonNotificationExclusion,
                         onDeleteExclusion = onDeleteLessonNotificationExclusion
@@ -1942,6 +1948,7 @@ private fun LessonStartNotificationSettingsContent(
     liveUpdatesSupported: Boolean,
     progressCountsDown: Boolean,
     liveUpdateEarlyMinutes: Int,
+    chipMode: LessonStartNotificationChipMode,
     minutesBefore: String,
     exclusions: List<LessonNotificationExclusionEntity>,
     subjectSuggestions: List<String>,
@@ -1952,6 +1959,7 @@ private fun LessonStartNotificationSettingsContent(
     onToggleLiveUpdates: (Boolean) -> Unit,
     onToggleProgressCountsDown: (Boolean) -> Unit,
     onUpdateLiveUpdateEarlyMinutes: (Int) -> Unit,
+    onUpdateChipMode: (LessonStartNotificationChipMode) -> Unit,
     onMinutesBeforeChange: (String) -> Unit,
     onAddExclusion: (String, String?, Boolean) -> Unit,
     onDeleteExclusion: (LessonNotificationExclusionEntity) -> Unit
@@ -1961,6 +1969,7 @@ private fun LessonStartNotificationSettingsContent(
     var matchTeacher by remember { mutableStateOf(false) }
     var showSubjectSuggestions by remember { mutableStateOf(false) }
     var showLiveUpdateEarlyMinutesMenu by remember { mutableStateOf(false) }
+    var showLiveUpdateDisplayDetails by rememberSaveable { mutableStateOf(false) }
 
     val filteredSubjectSuggestions = remember(subject, subjectSuggestions) {
         val query = subject.trim()
@@ -2102,26 +2111,6 @@ private fun LessonStartNotificationSettingsContent(
                             ) {
                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Text(
-                                        text = stringResource(R.string.label_lesson_start_progress_direction),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    LessonStartProgressDirectionRow(
-                                        selected = !progressCountsDown,
-                                        title = stringResource(R.string.label_lesson_start_progress_increasing),
-                                        description = stringResource(R.string.desc_lesson_start_progress_increasing),
-                                        onClick = { onToggleProgressCountsDown(false) }
-                                    )
-                                    LessonStartProgressDirectionRow(
-                                        selected = progressCountsDown,
-                                        title = stringResource(R.string.label_lesson_start_progress_decreasing),
-                                        description = stringResource(R.string.desc_lesson_start_progress_decreasing),
-                                        onClick = { onToggleProgressCountsDown(true) }
-                                    )
-                                }
-
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(
                                         text = stringResource(R.string.desc_lesson_start_live_update_early_minutes),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -2180,6 +2169,98 @@ private fun LessonStartNotificationSettingsContent(
                                                     }
                                                 )
                                             }
+                                        }
+                                    }
+                                }
+
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            showLiveUpdateDisplayDetails = !showLiveUpdateDisplayDetails
+                                        },
+                                    shape = MaterialTheme.shapes.medium,
+                                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                    tonalElevation = 0.dp,
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        MaterialTheme.colorScheme.outlineVariant
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = stringResource(R.string.label_lesson_start_live_update_display_details),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Text(
+                                                text = stringResource(R.string.desc_lesson_start_live_update_display_details),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Icon(
+                                            imageVector = if (showLiveUpdateDisplayDetails) {
+                                                Icons.Filled.ExpandLess
+                                            } else {
+                                                Icons.Filled.ExpandMore
+                                            },
+                                            contentDescription = null
+                                        )
+                                    }
+                                }
+
+                                if (showLiveUpdateDisplayDetails) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text(
+                                                text = stringResource(R.string.label_lesson_start_progress_direction),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            LessonStartRadioOptionRow(
+                                                selected = !progressCountsDown,
+                                                title = stringResource(R.string.label_lesson_start_progress_increasing),
+                                                description = stringResource(R.string.desc_lesson_start_progress_increasing),
+                                                onClick = { onToggleProgressCountsDown(false) }
+                                            )
+                                            LessonStartRadioOptionRow(
+                                                selected = progressCountsDown,
+                                                title = stringResource(R.string.label_lesson_start_progress_decreasing),
+                                                description = stringResource(R.string.desc_lesson_start_progress_decreasing),
+                                                onClick = { onToggleProgressCountsDown(true) }
+                                            )
+                                        }
+
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text(
+                                                text = stringResource(R.string.label_lesson_start_chip_mode),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            LessonStartRadioOptionRow(
+                                                selected = chipMode == LessonStartNotificationChipMode.CHRONOMETER,
+                                                title = stringResource(R.string.label_lesson_start_chip_mode_chronometer),
+                                                description = stringResource(R.string.desc_lesson_start_chip_mode_chronometer),
+                                                onClick = {
+                                                    onUpdateChipMode(LessonStartNotificationChipMode.CHRONOMETER)
+                                                }
+                                            )
+                                            LessonStartRadioOptionRow(
+                                                selected = chipMode == LessonStartNotificationChipMode.MINUTE_TEXT,
+                                                title = stringResource(R.string.label_lesson_start_chip_mode_minute_text),
+                                                description = stringResource(R.string.desc_lesson_start_chip_mode_minute_text),
+                                                onClick = {
+                                                    onUpdateChipMode(LessonStartNotificationChipMode.MINUTE_TEXT)
+                                                }
+                                            )
                                         }
                                     }
                                 }
@@ -2399,7 +2480,7 @@ private fun defaultLessonCalendarSyncRange(
 }
 
 @Composable
-private fun LessonStartProgressDirectionRow(
+private fun LessonStartRadioOptionRow(
     selected: Boolean,
     title: String,
     description: String,

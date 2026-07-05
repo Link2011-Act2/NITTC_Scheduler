@@ -96,8 +96,8 @@ fun AddTaskScreen(
         mutableStateOf(autoResolveInitialSubject && (task?.id ?: 0L) == 0L && task?.subject?.isNotBlank() == true)
     }
     var dueDate by remember { mutableStateOf(task?.dueDate ?: LocalDate.now()) }
-    var dueHour by remember { mutableStateOf(if ((task?.id ?: 0L) == 0L) defaultDueHour else (task?.dueHour ?: defaultDueHour)) }
-    var dueMinute by remember { mutableStateOf(if ((task?.id ?: 0L) == 0L) defaultDueMinute else (task?.dueMinute ?: defaultDueMinute)) }
+    var dueHour by remember { mutableStateOf(task?.dueHour ?: defaultDueHour) }
+    var dueMinute by remember { mutableStateOf(task?.dueMinute ?: defaultDueMinute) }
     var priority by remember { mutableStateOf(task?.priority ?: 0) }
     val defaultReminderDateTime = remember(task?.id) {
         val now = LocalDateTime.now()
@@ -158,8 +158,8 @@ fun AddTaskScreen(
             subject = task?.subject ?: "",
             teacher = task?.teacher ?: "",
             dueDate = task?.dueDate ?: LocalDate.now(),
-            dueHour = if ((task?.id ?: 0L) == 0L) defaultDueHour else (task?.dueHour ?: defaultDueHour),
-            dueMinute = if ((task?.id ?: 0L) == 0L) defaultDueMinute else (task?.dueMinute ?: defaultDueMinute),
+            dueHour = task?.dueHour ?: defaultDueHour,
+            dueMinute = task?.dueMinute ?: defaultDueMinute,
             priority = task?.priority ?: 0,
             reminderEnabled = task?.reminderEnabled ?: false,
             reminderDate = task?.reminderDate ?: defaultReminderDateTime.first,

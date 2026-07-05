@@ -242,6 +242,11 @@ class SchedulerRepository(private val db: AppDatabase) {
         )
     }
 
+    suspend fun updateLessonStartNotificationChipMode(mode: LessonStartNotificationChipMode) {
+        val current = dao.getSettings() ?: return
+        dao.upsertSettings(current.copy(lessonStartNotificationChipMode = mode))
+    }
+
     suspend fun upsertLessonNotificationExclusion(
         subject: String,
         teacher: String?,
@@ -1172,6 +1177,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                 s.put("lessonStartNotificationLiveUpdatesEnabled", settings.lessonStartNotificationLiveUpdatesEnabled)
                 s.put("lessonStartNotificationProgressCountsDown", settings.lessonStartNotificationProgressCountsDown)
                 s.put("lessonStartNotificationLiveUpdateEarlyMinutes", settings.lessonStartNotificationLiveUpdateEarlyMinutes)
+                s.put("lessonStartNotificationChipMode", settings.lessonStartNotificationChipMode.name)
                 s.put("syncLessonsToCalendar", settings.syncLessonsToCalendar)
                 if (settings.lessonCalendarSyncStart != null) s.put("lessonCalendarSyncStart", settings.lessonCalendarSyncStart.toString())
                 if (settings.lessonCalendarSyncEnd != null) s.put("lessonCalendarSyncEnd", settings.lessonCalendarSyncEnd.toString())
@@ -1235,12 +1241,10 @@ class SchedulerRepository(private val db: AppDatabase) {
                     obj.put("createdDate", task.createdDate.toString())
                     obj.put("priority", task.priority)
                     obj.put("useTeacherMatching", task.useTeacherMatching)
-                    if (task.calendarEventId != null) obj.put("calendarEventId", task.calendarEventId)
                     obj.put("reminderEnabled", task.reminderEnabled)
                     if (task.reminderDate != null) obj.put("reminderDate", task.reminderDate.toString())
                     obj.put("reminderHour", task.reminderHour)
                     obj.put("reminderMinute", task.reminderMinute)
-                    if (task.reminderCalendarEventId != null) obj.put("reminderCalendarEventId", task.reminderCalendarEventId)
                 })
             }
         })
@@ -1261,12 +1265,10 @@ class SchedulerRepository(private val db: AppDatabase) {
                     obj.put("createdDate", plan.createdDate.toString())
                     obj.put("priority", plan.priority)
                     obj.put("useTeacherMatching", plan.useTeacherMatching)
-                    if (plan.calendarEventId != null) obj.put("calendarEventId", plan.calendarEventId)
                     obj.put("reminderEnabled", plan.reminderEnabled)
                     if (plan.reminderDate != null) obj.put("reminderDate", plan.reminderDate.toString())
                     obj.put("reminderHour", plan.reminderHour)
                     obj.put("reminderMinute", plan.reminderMinute)
-                    if (plan.reminderCalendarEventId != null) obj.put("reminderCalendarEventId", plan.reminderCalendarEventId)
                 })
             }
         })
@@ -1539,7 +1541,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                     reminderDate = reminderDate,
                     reminderHour = obj.optInt("reminderHour", 20),
                     reminderMinute = obj.optInt("reminderMinute", 0),
-                    reminderCalendarEventId = if (obj.has("reminderCalendarEventId") && !obj.isNull("reminderCalendarEventId")) obj.getLong("reminderCalendarEventId") else null
+                    reminderCalendarEventId = null
                 ))
             }
         }
@@ -1572,7 +1574,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                     reminderDate = reminderDate,
                     reminderHour = obj.optInt("reminderHour", 20),
                     reminderMinute = obj.optInt("reminderMinute", 0),
-                    reminderCalendarEventId = if (obj.has("reminderCalendarEventId") && !obj.isNull("reminderCalendarEventId")) obj.getLong("reminderCalendarEventId") else null
+                    reminderCalendarEventId = null
                 ))
             }
         }
@@ -1685,6 +1687,14 @@ class SchedulerRepository(private val db: AppDatabase) {
                 lessonStartNotificationLiveUpdatesEnabled = s.optBoolean("lessonStartNotificationLiveUpdatesEnabled", true),
                 lessonStartNotificationProgressCountsDown = s.optBoolean("lessonStartNotificationProgressCountsDown", false),
                 lessonStartNotificationLiveUpdateEarlyMinutes = s.optInt("lessonStartNotificationLiveUpdateEarlyMinutes", 1).coerceIn(0, 5),
+                lessonStartNotificationChipMode = runCatching {
+                    LessonStartNotificationChipMode.valueOf(
+                        s.optString(
+                            "lessonStartNotificationChipMode",
+                            LessonStartNotificationChipMode.MINUTE_TEXT.name
+                        )
+                    )
+                }.getOrDefault(LessonStartNotificationChipMode.MINUTE_TEXT),
                 syncLessonsToCalendar = s.optBoolean("syncLessonsToCalendar", false),
                 lessonCalendarSyncStart = s.optString("lessonCalendarSyncStart", "").takeIf { it.isNotBlank() }?.let(LocalDate::parse),
                 lessonCalendarSyncEnd = s.optString("lessonCalendarSyncEnd", "").takeIf { it.isNotBlank() }?.let(LocalDate::parse)
@@ -1770,12 +1780,12 @@ class SchedulerRepository(private val db: AppDatabase) {
                         createdDate = LocalDate.parse(obj.getString("createdDate")),
                         priority = obj.optInt("priority", 0),
                         useTeacherMatching = obj.optBoolean("useTeacherMatching", false),
-                        calendarEventId = if (obj.has("calendarEventId") && !obj.isNull("calendarEventId")) obj.getLong("calendarEventId") else null,
+                        calendarEventId = null,
                         reminderEnabled = obj.optBoolean("reminderEnabled", false),
                         reminderDate = if (obj.has("reminderDate") && !obj.isNull("reminderDate")) LocalDate.parse(obj.getString("reminderDate")) else null,
                         reminderHour = obj.optInt("reminderHour", 20),
                         reminderMinute = obj.optInt("reminderMinute", 0),
-                        reminderCalendarEventId = if (obj.has("reminderCalendarEventId") && !obj.isNull("reminderCalendarEventId")) obj.getLong("reminderCalendarEventId") else null
+                        reminderCalendarEventId = null
                     )
                 } catch (_: Exception) { }
             }
@@ -1801,12 +1811,12 @@ class SchedulerRepository(private val db: AppDatabase) {
                         createdDate = LocalDate.parse(obj.getString("createdDate")),
                         priority = obj.optInt("priority", 0),
                         useTeacherMatching = obj.optBoolean("useTeacherMatching", false),
-                        calendarEventId = if (obj.has("calendarEventId") && !obj.isNull("calendarEventId")) obj.getLong("calendarEventId") else null,
+                        calendarEventId = null,
                         reminderEnabled = obj.optBoolean("reminderEnabled", false),
                         reminderDate = if (obj.has("reminderDate") && !obj.isNull("reminderDate")) LocalDate.parse(obj.getString("reminderDate")) else null,
                         reminderHour = obj.optInt("reminderHour", 20),
                         reminderMinute = obj.optInt("reminderMinute", 0),
-                        reminderCalendarEventId = if (obj.has("reminderCalendarEventId") && !obj.isNull("reminderCalendarEventId")) obj.getLong("reminderCalendarEventId") else null
+                        reminderCalendarEventId = null
                     )
                 } catch (_: Exception) { }
             }
@@ -1960,6 +1970,9 @@ class SchedulerRepository(private val db: AppDatabase) {
             }
             if (!s.has("lessonStartNotificationLiveUpdateEarlyMinutes")) {
                 s.put("lessonStartNotificationLiveUpdateEarlyMinutes", 1)
+            }
+            if (!s.has("lessonStartNotificationChipMode")) {
+                s.put("lessonStartNotificationChipMode", LessonStartNotificationChipMode.MINUTE_TEXT.name)
             }
             if (!s.has("syncLessonsToCalendar")) {
                 s.put("syncLessonsToCalendar", false)

@@ -362,7 +362,7 @@
     <string name="cd_previous_month">前の月</string>
     <string name="cd_next_month">次の月</string>
     <string name="label_search_calendar_month">%1$d年%2$d月</string>
-    <string name="desc_search_calendar">検索すると、該当授業がある日に件数が表示されます。日付を押すと、その日の時間割を一時表示できます。</string>
+    <string name="desc_search_calendar">検索すると、該当授業がある日に件数が表示されます。日付を押すと、下にその日の時間割が表示されます。</string>
     <string name="label_search_calendar_summary">該当日 %1$d日・授業 %2$d件</string>
     <string name="title_search_day_preview">その日の時間割</string>
     <string name="desc_search_day_preview">「%1$s」に一致する授業を強調しています。</string>
@@ -433,6 +433,13 @@
     <string name="desc_lesson_start_progress_increasing">授業開始に近づくほどバーが進みます</string>
     <string name="label_lesson_start_progress_decreasing">減少タイプ</string>
     <string name="desc_lesson_start_progress_decreasing">残り時間に合わせてバーが短くなります</string>
+    <string name="label_lesson_start_chip_mode">カプセルの残り時間表示</string>
+    <string name="label_lesson_start_chip_mode_chronometer">詳細表示（mm:ss）</string>
+    <string name="desc_lesson_start_chip_mode_chronometer">カウントダウンを詳細に表示します 例: 08:10</string>
+    <string name="label_lesson_start_chip_mode_minute_text">アバウト表示（m分）</string>
+    <string name="desc_lesson_start_chip_mode_minute_text">ある程度アバウトに時間を表示します 例: 8分, 10秒</string>
+    <string name="label_lesson_start_live_update_display_details">表示の詳細設定</string>
+    <string name="desc_lesson_start_live_update_display_details">プログレスバーとカプセル表示を調整します</string>
     <string name="label_lesson_start_notification_minutes">通知するタイミング</string>
     <string name="unit_minutes_before">分前</string>
     <string name="label_lesson_start_notification_exclusions">例外授業</string>
