@@ -118,6 +118,7 @@ fun SettingsScreen(
     onOpenLocalSync: () -> Unit = {},
     onToggleLocalAi: (Boolean) -> Unit,
     onToggleNaturalLanguageTaskAdd: (Boolean) -> Unit = {},
+    onToggleLessonNotes: (Boolean) -> Unit = {},
     onToggleDrawerNavigation: (Boolean) -> Unit,
     onToggleAddTasksToCalendar: (Boolean) -> Unit,
     onToggleSyncLessonsToCalendar: (Boolean) -> Unit = {},
@@ -146,6 +147,7 @@ fun SettingsScreen(
     val enabledNaturalLanguageTaskAdd =
         InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD &&
             (state.settings?.enableNaturalLanguageTaskAdd ?: false)
+    val enabledLessonNotes = state.settings?.enableLessonNotes ?: false
     val enabledDrawerNavigation = state.settings?.useDrawerNavigation ?: false
     val enabledTaskCalendarSync = state.settings?.addTasksToCalendar ?: false
     val enabledLessonCalendarSync = state.settings?.syncLessonsToCalendar ?: false
@@ -1068,6 +1070,12 @@ fun SettingsScreen(
                             description = stringResource(R.string.desc_advanced_time_settings_ui),
                             checked = enabledAdvancedTimeSettingsUi,
                             onCheckedChange = onToggleAdvancedTimeSettingsUi
+                        )
+                        SettingsSwitchRow(
+                            title = stringResource(R.string.label_enable_lesson_notes),
+                            description = stringResource(R.string.desc_enable_lesson_notes),
+                            checked = enabledLessonNotes,
+                            onCheckedChange = onToggleLessonNotes
                         )
                         SettingsSwitchRow(
                             title = stringResource(R.string.label_local_ai_import),

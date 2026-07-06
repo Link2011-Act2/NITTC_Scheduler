@@ -513,6 +513,8 @@
     <string name="desc_natural_language_task_add">ローカルAIで曖昧な文章を解析し、現在の時間割から教科・教員を推測して課題の下書きを作成します。</string>
     <string name="label_advanced_time_settings_ui">新しい授業時間設定UI</string>
     <string name="desc_advanced_time_settings_ui">授業時間を一覧で確認しながら、授業数や昼休みの位置を直感的に調整できます。まだ実装途中なので大目に見てください</string>
+    <string name="label_enable_lesson_notes">授業メモ</string>
+    <string name="desc_enable_lesson_notes">授業を長押しすることで、授業ごとにメモを追加する機能を有効にします</string>
     <string name="desc_advanced_time_settings_reorder">昼休みの「≡」を上下に動かすと、一覧内の位置を入れ替えられます。行を押すと時刻を編集できます。</string>
     <string name="warning_advanced_time_invalid_period_count">授業数を正しく入力してください。</string>
     <string name="warning_advanced_time_invalid_period_time">授業時間の時刻を正しく入力してください。</string>

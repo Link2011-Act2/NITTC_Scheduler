@@ -20,7 +20,7 @@ class SchedulerRepository(private val db: AppDatabase) {
     private val dao: SchedulerDao = db.schedulerDao()
 
     companion object {
-        private const val CURRENT_EXPORT_VERSION = 8
+        private const val CURRENT_EXPORT_VERSION = 9
         private const val MIN_SUPPORTED_IMPORT_VERSION = 1
         private const val MAX_FUTURE_META_DRIFT_MS = 5 * 60 * 1000L
         const val DATASET_TASKS = "tasks"
@@ -145,6 +145,11 @@ class SchedulerRepository(private val db: AppDatabase) {
                     enabled && InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD
             )
         )
+    }
+
+    suspend fun toggleLessonNotes(enabled: Boolean) {
+        val current = dao.getSettings() ?: return
+        dao.upsertSettings(current.copy(enableLessonNotes = enabled))
     }
 
     suspend fun toggleDrawerNavigation(enabled: Boolean) {
@@ -1184,6 +1189,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                     settings.enableNaturalLanguageTaskAdd &&
                         InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD
                 )
+                s.put("enableLessonNotes", settings.enableLessonNotes)
                 s.put("hfToken", settings.hfToken)
                 s.put("periodsPerDay", settings.periodsPerDay)
                 s.put("periodDurationMin", settings.periodDurationMin)
@@ -1737,6 +1743,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                 enableNaturalLanguageTaskAdd =
                     InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD &&
                         s.optBoolean("enableNaturalLanguageTaskAdd", false),
+                enableLessonNotes = s.optBoolean("enableLessonNotes", false),
                 hfToken = if (s.has("hfToken") && !s.isNull("hfToken")) s.getString("hfToken") else null,
                 periodsPerDay = s.optInt("periodsPerDay", 4),
                 periodDurationMin = s.optInt("periodDurationMin", 90),
@@ -2055,6 +2062,9 @@ class SchedulerRepository(private val db: AppDatabase) {
             }
             if (!s.has("useAdvancedTimeSettingsUi")) {
                 s.put("useAdvancedTimeSettingsUi", false)
+            }
+            if (!s.has("enableLessonNotes")) {
+                s.put("enableLessonNotes", false)
             }
             if (!s.has("lessonStartNotificationEnabled")) {
                 s.put("lessonStartNotificationEnabled", false)

@@ -442,6 +442,12 @@ class SchedulerViewModel(
         }
     }
 
+    fun toggleLessonNotes(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.toggleLessonNotes(enabled)
+        }
+    }
+
     fun toggleDrawerNavigation(enabled: Boolean) {
         viewModelScope.launch {
             repository.toggleDrawerNavigation(enabled)
