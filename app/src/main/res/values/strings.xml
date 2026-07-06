@@ -529,6 +529,8 @@
     <string name="warning_advanced_time_lunch_middle_not_connected">昼休みは前後の授業の間にぴったり入るようにしてください。</string>
     <string name="label_update_show_latest_for_testing">最新ビルドを常にアップデートとして扱う</string>
     <string name="desc_update_show_latest_for_testing">IntDev 用のデバッグ設定です。自分より新しいバージョンでなくても、GitHub の最新 Release を更新ありとして扱います。</string>
+    <string name="label_update_current_version_override_for_testing">アップデート確認用の現在バージョン</string>
+    <string name="desc_update_current_version_override_for_testing">空欄なら実際のバージョン（%1$s）を使います。IntDev 用のデバッグ設定です。</string>
     <string name="section_data_transfer">設定データの移行</string>
     <string name="desc_data_transfer">時間割・A/B表・長期休み・課題・各種設定をJSONでエクスポート/インポートできます。</string>
     <string name="btn_export_json">エクスポート</string>
@@ -653,6 +655,8 @@
     <string name="update_screen_title">アップデートがあります</string>
     <string name="update_release_notes_title">リリースノート</string>
     <string name="update_release_notes_empty">このバージョンのリリースノートはありません。</string>
+    <string name="update_intermediate_release_notes_title">途中のリリースノート</string>
+    <string name="update_intermediate_release_notes_count">%1$d 件の過去リリースを表示できます</string>
     <string name="update_download_install_button">ダウンロード / インストール</string>
     <string name="update_cancel_download_button">ダウンロードをキャンセル</string>
     <string name="update_asset_name">アセット: %1$s</string>

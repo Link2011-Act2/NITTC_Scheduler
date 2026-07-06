@@ -50,6 +50,7 @@ import jp.linkserver.nittcsc.update.checkGitHubReleaseUpdate
 import jp.linkserver.nittcsc.update.detectReleaseChannel
 import jp.linkserver.nittcsc.update.isShowLatestReleaseForTestingEnabled
 import jp.linkserver.nittcsc.update.markUpdateCheckFinished
+import jp.linkserver.nittcsc.update.resolveUpdateCurrentVersionForTesting
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -98,7 +99,7 @@ fun AboutScreen(
             val result = withContext(Dispatchers.IO) {
                 checkGitHubReleaseUpdate(
                     repositoryUrl = repositoryUrl,
-                    currentVersion = versionName,
+                    currentVersion = resolveUpdateCurrentVersionForTesting(context, versionName),
                     showLatestForTesting = isShowLatestReleaseForTestingEnabled(context, versionName)
                 )
             }

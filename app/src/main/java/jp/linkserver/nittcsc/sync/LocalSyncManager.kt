@@ -803,16 +803,7 @@ class LocalSyncManager(
         val localDeviceName = localPayload.getJSONObject("device").optString("deviceName", "この端末")
         val remoteDeviceName = remotePayload.getJSONObject("device").optString("deviceName", "相手端末")
         val conflicts = mutableListOf<SyncConflict>()
-        listOf(
-            SchedulerRepository.DATASET_TASKS,
-            SchedulerRepository.DATASET_PLANS,
-            SchedulerRepository.DATASET_LESSONS,
-            SchedulerRepository.DATASET_DAY_TYPES,
-            SchedulerRepository.DATASET_LONG_BREAKS,
-            SchedulerRepository.DATASET_CANCELLED_LESSONS,
-            SchedulerRepository.DATASET_CHANGED_LESSONS,
-            SchedulerRepository.DATASET_LESSON_NOTES
-        ).forEach { key ->
+        commonDatasets(localPayload, remotePayload).forEach { key ->
             val localContent = localPayload.opt(key)?.toString() ?: ""
             val remoteContent = remotePayload.opt(key)?.toString() ?: ""
             if (localContent == remoteContent) return@forEach
@@ -871,16 +862,8 @@ class LocalSyncManager(
         val localMeta = localPayload.getJSONObject("metadata")
         val remoteMeta = remotePayload.getJSONObject("metadata")
 
-        listOf(
-            SchedulerRepository.DATASET_TASKS,
-            SchedulerRepository.DATASET_PLANS,
-            SchedulerRepository.DATASET_LESSONS,
-            SchedulerRepository.DATASET_DAY_TYPES,
-            SchedulerRepository.DATASET_LONG_BREAKS,
-            SchedulerRepository.DATASET_CANCELLED_LESSONS,
-            SchedulerRepository.DATASET_CHANGED_LESSONS,
-            SchedulerRepository.DATASET_LESSON_NOTES
-        ).forEach { key ->
+        val commonDatasetKeys = commonDatasets(localPayload, remotePayload).toSet()
+        commonDatasetKeys.forEach { key ->
             val localUpdatedAt = localMeta.optJSONObject(key)?.optLong("updatedAt", 0L) ?: 0L
             val remoteUpdatedAt = remoteMeta.optJSONObject(key)?.optLong("updatedAt", 0L) ?: 0L
             val choice = (resolutions[key]
@@ -897,6 +880,14 @@ class LocalSyncManager(
                 }
             )
         }
+        allSyncDatasets()
+            .filter { it !in commonDatasetKeys && localPayload.has(it) }
+            .forEach { key ->
+                metadata.put(
+                    key,
+                    localMeta.optJSONObject(key) ?: JSONObject()
+                )
+            }
 
         merged.put("metadata", metadata)
         return merged
@@ -1584,6 +1575,25 @@ class LocalSyncManager(
         )
         dao.upsertSyncProfile(profile)
         return profile
+    }
+
+    private fun commonDatasets(localPayload: JSONObject, remotePayload: JSONObject): List<String> {
+        return allSyncDatasets().filter { key ->
+            localPayload.has(key) && remotePayload.has(key)
+        }
+    }
+
+    private fun allSyncDatasets(): List<String> {
+        return listOf(
+            SchedulerRepository.DATASET_TASKS,
+            SchedulerRepository.DATASET_PLANS,
+            SchedulerRepository.DATASET_LESSONS,
+            SchedulerRepository.DATASET_DAY_TYPES,
+            SchedulerRepository.DATASET_LONG_BREAKS,
+            SchedulerRepository.DATASET_CANCELLED_LESSONS,
+            SchedulerRepository.DATASET_CHANGED_LESSONS,
+            SchedulerRepository.DATASET_LESSON_NOTES
+        )
     }
 
     private fun datasetLabel(key: String): String {

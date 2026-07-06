@@ -8,7 +8,9 @@ import android.provider.Settings
 import android.content.pm.PackageManager
 import android.text.method.LinkMovementMethod
 import android.widget.TextView
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,6 +27,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -54,6 +58,7 @@ import androidx.core.content.FileProvider
 import io.noties.markwon.Markwon
 import io.noties.markwon.ext.tables.TablePlugin
 import jp.linkserver.nittcsc.R
+import jp.linkserver.nittcsc.update.AppReleaseNoteInfo
 import jp.linkserver.nittcsc.update.AppUpdateInfo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -245,7 +250,104 @@ fun UpdateOverviewScreen(
                     modifier = Modifier.padding(16.dp)
                 )
             }
+            if (updateInfo.intermediateReleaseNotes.isNotEmpty()) {
+                IntermediateReleaseNotesSection(updateInfo.intermediateReleaseNotes)
+            }
             Spacer(Modifier.height(84.dp))
+        }
+    }
+}
+
+@Composable
+private fun IntermediateReleaseNotesSection(
+    releaseNotes: List<AppReleaseNoteInfo>
+) {
+    var expanded by remember(releaseNotes) { mutableStateOf(false) }
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.update_intermediate_release_notes_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = stringResource(
+                            R.string.update_intermediate_release_notes_count,
+                            releaseNotes.size
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Icon(
+                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null
+                )
+            }
+            AnimatedVisibility(visible = expanded) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    releaseNotes.forEach { releaseNote ->
+                        IntermediateReleaseNoteCard(releaseNote)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun IntermediateReleaseNoteCard(
+    releaseNote: AppReleaseNoteInfo
+) {
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = releaseNote.tagName,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                AssistChip(
+                    onClick = {},
+                    label = { Text(releaseNote.channel.toLocalizedChannelLabel()) }
+                )
+            }
+            ReleaseNotesMarkdown(
+                markdown = releaseNote.releaseNotes,
+                emptyText = stringResource(R.string.update_release_notes_empty)
+            )
         }
     }
 }

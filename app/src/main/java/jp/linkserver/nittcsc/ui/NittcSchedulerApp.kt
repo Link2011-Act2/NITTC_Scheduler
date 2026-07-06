@@ -200,6 +200,7 @@ import jp.linkserver.nittcsc.update.dismissUpdateNotificationUntilNextVersion
 import jp.linkserver.nittcsc.update.isShowLatestReleaseForTestingEnabled
 import jp.linkserver.nittcsc.update.isUpdateNotificationDismissed
 import jp.linkserver.nittcsc.update.markUpdateCheckFinished
+import jp.linkserver.nittcsc.update.resolveUpdateCurrentVersionForTesting
 import jp.linkserver.nittcsc.update.shouldCheckForUpdates
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -602,7 +603,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
             val result = withContext(Dispatchers.IO) {
                 checkGitHubReleaseUpdate(
                     repositoryUrl = repositoryUrl,
-                    currentVersion = currentVersionName,
+                    currentVersion = resolveUpdateCurrentVersionForTesting(context, currentVersionName),
                     showLatestForTesting = isShowLatestReleaseForTestingEnabled(context, currentVersionName)
                 )
             }

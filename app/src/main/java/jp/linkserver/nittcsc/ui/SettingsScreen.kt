@@ -94,9 +94,11 @@ import jp.linkserver.nittcsc.data.LessonStartNotificationChipMode
 import jp.linkserver.nittcsc.data.LongBreakEntity
 import jp.linkserver.nittcsc.logic.generateClassSlots
 import jp.linkserver.nittcsc.update.clearDismissedUpdateNotification
+import jp.linkserver.nittcsc.update.getUpdateCurrentVersionOverrideForTesting
 import jp.linkserver.nittcsc.update.isIntDevBuild
 import jp.linkserver.nittcsc.update.isShowLatestReleaseForTestingEnabled
 import jp.linkserver.nittcsc.update.setShowLatestReleaseForTestingEnabled
+import jp.linkserver.nittcsc.update.setUpdateCurrentVersionOverrideForTesting
 import jp.linkserver.nittcsc.viewmodel.SchedulerUiState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -260,6 +262,9 @@ fun SettingsScreen(
     val isIntDev = remember(currentVersionName) { isIntDevBuild(currentVersionName) }
     var showLatestReleaseForTesting by remember {
         mutableStateOf(isShowLatestReleaseForTestingEnabled(context, currentVersionName))
+    }
+    var updateCurrentVersionOverrideForTesting by remember {
+        mutableStateOf(getUpdateCurrentVersionOverrideForTesting(context, currentVersionName))
     }
     val defaultPeriodDuration = periodDurationMin.toIntOrNull()?.coerceIn(10, 300) ?: 90
     val defaultBreakDuration = breakBetweenPeriodsMin.toIntOrNull()?.coerceIn(0, 120) ?: 10
@@ -1107,6 +1112,31 @@ fun SettingsScreen(
                                     showLatestReleaseForTesting = enabled
                                     setShowLatestReleaseForTestingEnabled(context, currentVersionName, enabled)
                                 }
+                            )
+                            OutlinedTextField(
+                                value = updateCurrentVersionOverrideForTesting,
+                                onValueChange = { value ->
+                                    updateCurrentVersionOverrideForTesting = value
+                                    setUpdateCurrentVersionOverrideForTesting(
+                                        context,
+                                        currentVersionName,
+                                        value
+                                    )
+                                },
+                                label = { Text(stringResource(R.string.label_update_current_version_override_for_testing)) },
+                                supportingText = {
+                                    Text(
+                                        stringResource(
+                                            R.string.desc_update_current_version_override_for_testing,
+                                            currentVersionName
+                                        )
+                                    )
+                                },
+                                singleLine = true,
+                                placeholder = { Text(currentVersionName) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
                             )
                             Row(
                                 modifier = Modifier

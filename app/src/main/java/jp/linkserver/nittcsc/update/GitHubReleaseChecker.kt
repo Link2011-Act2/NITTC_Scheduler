@@ -10,7 +10,16 @@ private const val UPDATE_PREFS = "github_release_updates"
 private const val KEY_LAST_CHECK_MS = "last_check_ms"
 private const val KEY_DISMISSED_UPDATE_TAG = "dismissed_update_tag"
 private const val KEY_SHOW_LATEST_FOR_TESTING = "show_latest_release_for_testing"
+private const val KEY_CURRENT_VERSION_OVERRIDE_FOR_TESTING = "current_version_override_for_testing"
 private const val CHECK_INTERVAL_MS = 8L * 60L * 60L * 1000L
+
+data class AppReleaseNoteInfo(
+    val tagName: String,
+    val channel: String,
+    val releaseNotes: String,
+    val releaseUrl: String,
+    val isPrerelease: Boolean
+)
 
 data class AppUpdateInfo(
     val tagName: String,
@@ -19,7 +28,8 @@ data class AppUpdateInfo(
     val releaseUrl: String,
     val apkAssetName: String?,
     val apkDownloadUrl: String?,
-    val isPrerelease: Boolean
+    val isPrerelease: Boolean,
+    val intermediateReleaseNotes: List<AppReleaseNoteInfo> = emptyList()
 )
 
 suspend fun checkGitHubReleaseUpdate(
@@ -32,10 +42,19 @@ suspend fun checkGitHubReleaseUpdate(
         val repository = parseGitHubRepository(repositoryUrl)
             ?: error("Unsupported GitHub repository URL")
         val releases = fetchReleases(repository.owner, repository.name, "$userAgentName/$currentVersion")
-        val candidates = releases
-            .map { it.toUpdateInfo() }
+        val releaseInfos = releases.map { it.toUpdateInfo() }
+        val candidates = releaseInfos
             .filter { showLatestForTesting || isNewerRelease(it.tagName, currentVersion, it.isPrerelease) }
-        candidates.maxWithOrNull(::compareUpdateInfo)
+        val latest = candidates.maxWithOrNull(::compareUpdateInfo) ?: return@runCatching null
+        val intermediateReleaseNotes = releaseInfos
+            .asSequence()
+            .filter { !it.tagName.equals(latest.tagName, ignoreCase = true) }
+            .filter { isNewerRelease(it.tagName, currentVersion, it.isPrerelease) }
+            .filter { compareUpdateInfo(it, latest) < 0 }
+            .sortedWith { left, right -> compareUpdateInfo(right, left) }
+            .map { it.toReleaseNoteInfo() }
+            .toList()
+        latest.copy(intermediateReleaseNotes = intermediateReleaseNotes)
     }
 }
 
@@ -89,6 +108,32 @@ fun setShowLatestReleaseForTestingEnabled(context: Context, currentVersion: Stri
         .edit()
         .putBoolean(KEY_SHOW_LATEST_FOR_TESTING, appliedValue)
         .apply()
+}
+
+fun getUpdateCurrentVersionOverrideForTesting(context: Context, currentVersion: String): String {
+    if (!isIntDevBuild(currentVersion)) {
+        return ""
+    }
+    return context.getSharedPreferences(UPDATE_PREFS, Context.MODE_PRIVATE)
+        .getString(KEY_CURRENT_VERSION_OVERRIDE_FOR_TESTING, null)
+        .orEmpty()
+}
+
+fun setUpdateCurrentVersionOverrideForTesting(context: Context, currentVersion: String, override: String) {
+    val prefs = context.getSharedPreferences(UPDATE_PREFS, Context.MODE_PRIVATE)
+    val trimmedOverride = override.trim()
+    val editor = prefs.edit()
+    if (!isIntDevBuild(currentVersion) || trimmedOverride.isBlank()) {
+        editor.remove(KEY_CURRENT_VERSION_OVERRIDE_FOR_TESTING)
+    } else {
+        editor.putString(KEY_CURRENT_VERSION_OVERRIDE_FOR_TESTING, trimmedOverride)
+    }
+    editor.apply()
+}
+
+fun resolveUpdateCurrentVersionForTesting(context: Context, currentVersion: String): String {
+    return getUpdateCurrentVersionOverrideForTesting(context, currentVersion)
+        .ifBlank { currentVersion }
 }
 
 private data class GitHubRepository(val owner: String, val name: String)
@@ -195,6 +240,16 @@ private fun GitHubRelease.toUpdateInfo(): AppUpdateInfo {
         releaseUrl = htmlUrl,
         apkAssetName = apkAsset?.name,
         apkDownloadUrl = apkAsset?.browserDownloadUrl,
+        isPrerelease = isPrerelease
+    )
+}
+
+private fun AppUpdateInfo.toReleaseNoteInfo(): AppReleaseNoteInfo {
+    return AppReleaseNoteInfo(
+        tagName = tagName,
+        channel = channel,
+        releaseNotes = releaseNotes,
+        releaseUrl = releaseUrl,
         isPrerelease = isPrerelease
     )
 }

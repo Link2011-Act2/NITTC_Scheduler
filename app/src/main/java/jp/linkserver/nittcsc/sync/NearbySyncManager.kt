@@ -436,7 +436,7 @@ class NearbySyncManager(
     }
 
     private fun isConsistentPayload(local: JSONObject, remote: JSONObject): Boolean {
-        return datasets.all { key ->
+        return commonDatasets(local, remote).all { key ->
             val localContent = local.opt(key)?.toString() ?: ""
             val remoteContent = remote.opt(key)?.toString() ?: ""
             localContent == remoteContent
@@ -460,7 +460,7 @@ class NearbySyncManager(
         val localMeta = local.getJSONObject("metadata")
         val remoteMeta = remote.getJSONObject("metadata")
         val conflicts = mutableListOf<SyncConflict>()
-        datasets.forEach { key ->
+        commonDatasets(local, remote).forEach { key ->
             val localContent = local.opt(key)?.toString() ?: ""
             val remoteContent = remote.opt(key)?.toString() ?: ""
             if (localContent == remoteContent) return@forEach
@@ -501,7 +501,8 @@ class NearbySyncManager(
         val localMeta = local.getJSONObject("metadata")
         val remoteMeta = remote.getJSONObject("metadata")
         val newMeta = JSONObject()
-        datasets.forEach { key ->
+        val commonDatasetKeys = commonDatasets(local, remote).toSet()
+        commonDatasetKeys.forEach { key ->
             val localTs = localMeta.optJSONObject(key)?.optLong("updatedAt", 0L) ?: 0L
             val remoteTs = remoteMeta.optJSONObject(key)?.optLong("updatedAt", 0L) ?: 0L
             val useRemote = when (
@@ -519,7 +520,16 @@ class NearbySyncManager(
                 newMeta.put(key, localMeta.optJSONObject(key) ?: JSONObject())
             }
         }
+        datasets
+            .filter { it !in commonDatasetKeys && local.has(it) }
+            .forEach { key ->
+                newMeta.put(key, localMeta.optJSONObject(key) ?: JSONObject())
+            }
         merged.put("metadata", newMeta)
         return merged
+    }
+
+    private fun commonDatasets(local: JSONObject, remote: JSONObject): List<String> {
+        return datasets.filter { key -> local.has(key) && remote.has(key) }
     }
 }
