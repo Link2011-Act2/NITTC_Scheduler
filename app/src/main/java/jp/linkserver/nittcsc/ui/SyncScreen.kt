@@ -1003,6 +1003,31 @@ fun SyncScreen(
                     ) {
                         Text(stringResource(R.string.sync_btn_conflict_use_newer_all))
                     }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                pendingConflicts.forEach { conflict ->
+                                    conflictChoices[conflict.datasetKey] = SyncChoice.LOCAL
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(stringResource(R.string.sync_btn_conflict_use_local_all))
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                pendingConflicts.forEach { conflict ->
+                                    conflictChoices[conflict.datasetKey] = SyncChoice.REMOTE
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(stringResource(R.string.sync_btn_conflict_use_remote_all))
+                        }
+                    }
                     pendingConflicts.forEach { conflict ->
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceContainerLow,
