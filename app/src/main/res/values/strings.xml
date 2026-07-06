@@ -368,12 +368,16 @@
     <string name="desc_search_day_preview">「%1$s」に一致する授業を強調しています。</string>
     <string name="label_search_slot_time">%1$s-%2$s</string>
     <string name="label_search_match">一致</string>
-    <string name="cd_open_task_plan_calendar_menu">課題・予定のカレンダー操作</string>
-    <string name="menu_task_plan_calendar">課題・予定カレンダー</string>
+    <string name="cd_open_task_search">タスク検索を開く</string>
+    <string name="cd_open_task_plan_actions_menu">課題・予定の追加操作</string>
+    <string name="menu_task_plan_calendar">タスク検索</string>
     <string name="menu_sync_tasks_to_device_calendar">端末カレンダーへ同期</string>
-    <string name="title_task_plan_calendar">課題・予定カレンダー</string>
+    <string name="title_task_plan_calendar">タスク検索</string>
+    <string name="label_task_plan_calendar_query">タスクを検索</string>
+    <string name="hint_task_plan_calendar_query">例: レポート、英語、山田</string>
     <string name="msg_task_plan_calendar_select_date">日付を選択してください。</string>
     <string name="msg_task_plan_calendar_empty">この日の課題・予定はありません。</string>
+    <string name="msg_task_plan_calendar_search_empty">この日に一致する課題・予定はありません。</string>
 
     <!-- Content Descriptions (missing from existing) -->
     <string name="cd_ai_import">AI自動インポート</string>0
@@ -708,6 +712,8 @@
     <string name="sync_dialog_conflict_title">競合を解決</string>
     <string name="sync_dialog_conflict_message">データの更新日時が異なります。どちらのデータを使うか選択してください。</string>
     <string name="sync_btn_conflict_use_newer_all">すべて新しい方を採用</string>
+    <string name="sync_btn_conflict_use_local_all">この端末をすべて採用</string>
+    <string name="sync_btn_conflict_use_remote_all">相手端末をすべて採用</string>
     <string name="sync_btn_apply_with_choices">この内容で同期</string>
     <string name="sync_dialog_auto_conflict_title">新しいデータを優先して同期</string>
     <string name="sync_dialog_auto_conflict_message">次の内容でデータを書き換えます。キャンセルしない場合は10秒後に自動で承認します。</string>

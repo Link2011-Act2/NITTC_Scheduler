@@ -70,6 +70,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TableChart
@@ -1445,6 +1446,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                         state = uiState,
                         classSlots = currentClassSlots,
                         resolveLesson = ::resolveDisplayedLesson,
+                        dayTypeEntityForDate = { date -> uiState.dayTypeEntities[date] },
                         changedLessonForDate = { date, slotIndex ->
                             uiState.changedLessons[date to slotIndex]
                         },
@@ -1459,6 +1461,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                         tasks = uiState.tasks,
                         plans = uiState.plans,
                         showWeekdayOnDates = uiState.settings?.showWeekdayOnDates ?: false,
+                        dayTypeEntityForDate = { date -> uiState.dayTypeEntities[date] },
                         onBack = { showTaskPlanCalendar = false },
                         onOpenTask = { task ->
                             showTaskPlanCalendar = false
@@ -2189,32 +2192,28 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                         },
                                         actions = {
                                             if (showTaskPlanActions) {
-                                                Box {
-                                                    IconButton(
-                                                        onClick = { showTaskPlanActionsMenu = true }
-                                                    ) {
-                                                        Icon(
-                                                            Icons.Filled.CalendarMonth,
-                                                            contentDescription = stringResource(R.string.cd_open_task_plan_calendar_menu)
-                                                        )
-                                                    }
-                                                    DropdownMenu(
-                                                        expanded = showTaskPlanActionsMenu,
-                                                        onDismissRequest = { showTaskPlanActionsMenu = false }
-                                                    ) {
-                                                        DropdownMenuItem(
-                                                            text = {
-                                                                Text(stringResource(R.string.menu_task_plan_calendar))
-                                                            },
-                                                            leadingIcon = {
-                                                                Icon(Icons.Filled.CalendarMonth, contentDescription = null)
-                                                            },
-                                                            onClick = {
-                                                                showTaskPlanActionsMenu = false
-                                                                showTaskPlanCalendar = true
-                                                            }
-                                                        )
-                                                        if (showTaskSyncAction) {
+                                                IconButton(
+                                                    onClick = { showTaskPlanCalendar = true }
+                                                ) {
+                                                    Icon(
+                                                        Icons.Filled.Search,
+                                                        contentDescription = stringResource(R.string.cd_open_task_search)
+                                                    )
+                                                }
+                                                if (showTaskSyncAction) {
+                                                    Box {
+                                                        IconButton(
+                                                            onClick = { showTaskPlanActionsMenu = true }
+                                                        ) {
+                                                            Icon(
+                                                                Icons.Filled.MoreVert,
+                                                                contentDescription = stringResource(R.string.cd_open_task_plan_actions_menu)
+                                                            )
+                                                        }
+                                                        DropdownMenu(
+                                                            expanded = showTaskPlanActionsMenu,
+                                                            onDismissRequest = { showTaskPlanActionsMenu = false }
+                                                        ) {
                                                             DropdownMenuItem(
                                                                 text = {
                                                                     Text(stringResource(R.string.menu_sync_tasks_to_device_calendar))
@@ -3690,6 +3689,7 @@ private fun TaskPlanCalendarScreen(
     tasks: List<TaskEntity>,
     plans: List<PlanEntity>,
     showWeekdayOnDates: Boolean,
+    dayTypeEntityForDate: (LocalDate) -> DayTypeEntity?,
     onBack: () -> Unit,
     onOpenTask: (TaskEntity) -> Unit,
     onOpenPlan: (PlanEntity) -> Unit
@@ -3713,13 +3713,21 @@ private fun TaskPlanCalendarScreen(
         initialPage = monthPagerCenterPage,
         pageCount = { monthPagerPageCount }
     )
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    val searchTokens = remember(searchQuery) { taskPlanCalendarSearchTokens(searchQuery) }
+    val filteredTasks = remember(tasks, searchTokens) {
+        if (searchTokens.isEmpty()) tasks else tasks.filter { it.matchesTaskPlanCalendarSearch(searchTokens) }
+    }
+    val filteredPlans = remember(plans, searchTokens) {
+        if (searchTokens.isEmpty()) plans else plans.filter { it.matchesTaskPlanCalendarSearch(searchTokens) }
+    }
     var observedMonthPagerPage by remember { mutableStateOf(monthPagerState.settledPage) }
     var selectedDateEpochDay by rememberSaveable {
         mutableStateOf<Long?>(today.toEpochDay())
     }
     val selectedDate = selectedDateEpochDay?.let(LocalDate::ofEpochDay)
-    val tasksByDate = remember(tasks) { tasks.groupBy { it.dueDate } }
-    val plansByDate = remember(plans) { plans.groupBy { it.dueDate } }
+    val tasksByDate = remember(filteredTasks) { filteredTasks.groupBy { it.dueDate } }
+    val plansByDate = remember(filteredPlans) { filteredPlans.groupBy { it.dueDate } }
     val selectedTasks = selectedDate
         ?.let { tasksByDate[it] }
         .orEmpty()
@@ -3758,6 +3766,20 @@ private fun TaskPlanCalendarScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    leadingIcon = {
+                        Icon(Icons.Filled.Search, contentDescription = null)
+                    },
+                    label = { Text(stringResource(R.string.label_task_plan_calendar_query)) },
+                    placeholder = { Text(stringResource(R.string.hint_task_plan_calendar_query)) }
+                )
+            }
+
+            item {
                 CalendarPagerCard(
                     state = monthPagerState,
                     anchorMonth = monthPagerAnchor.minusMonths(monthPagerCenterPage.toLong()),
@@ -3788,6 +3810,7 @@ private fun TaskPlanCalendarScreen(
                                 dateTasksForCell.all { it.isCompleted },
                             allPlansCompleted = datePlansForCell.isNotEmpty() &&
                                 datePlansForCell.all { it.isCompleted },
+                            examLabel = dayTypeEntityForDate(date)?.holidaySpecialLabel,
                             isToday = date == today,
                             isSelected = date == selectedDate,
                             onClick = {
@@ -3863,7 +3886,11 @@ private fun TaskPlanCalendarScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = stringResource(R.string.msg_task_plan_calendar_empty),
+                            text = if (searchTokens.isEmpty()) {
+                                stringResource(R.string.msg_task_plan_calendar_empty)
+                            } else {
+                                stringResource(R.string.msg_task_plan_calendar_search_empty)
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -3909,6 +3936,7 @@ private fun TaskPlanCalendarDayCell(
     planCount: Int,
     allTasksCompleted: Boolean,
     allPlansCompleted: Boolean,
+    examLabel: HolidaySpecialLabel?,
     isToday: Boolean,
     isSelected: Boolean,
     onClick: () -> Unit,
@@ -3925,6 +3953,7 @@ private fun TaskPlanCalendarDayCell(
         isToday -> MaterialTheme.colorScheme.onSecondaryContainer
         else -> MaterialTheme.colorScheme.onSurface
     }
+    val examLabelText = examCalendarLabelText(examLabel)
 
     Surface(
         modifier = modifier
@@ -3951,6 +3980,15 @@ private fun TaskPlanCalendarDayCell(
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal
             )
+            if (examLabelText != null) {
+                Text(
+                    text = examLabelText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                 if (taskCount > 0) {
                     CalendarItemCountDot(
@@ -4092,6 +4130,7 @@ private fun LessonSearchScreen(
     state: SchedulerUiState,
     classSlots: List<ClassSlot>,
     resolveLesson: (LocalDate, Int) -> ResolvedLesson?,
+    dayTypeEntityForDate: (LocalDate) -> DayTypeEntity?,
     changedLessonForDate: (LocalDate, Int) -> ChangedLessonEntity?,
     isLessonCancelled: (LocalDate, Int) -> Boolean,
     onBack: () -> Unit
@@ -4285,6 +4324,7 @@ private fun LessonSearchScreen(
                         resultsByDate = resultsByDate,
                         classSlots = classSlots,
                         resolveLesson = resolveLesson,
+                        dayTypeEntityForDate = dayTypeEntityForDate,
                         changedLessonForDate = changedLessonForDate,
                         isLessonCancelled = isLessonCancelled,
                         onDisplayedMonthChange = { month ->
@@ -4323,6 +4363,7 @@ private fun LessonSearchCalendarView(
     resultsByDate: Map<LocalDate, List<LessonSearchResult>>,
     classSlots: List<ClassSlot>,
     resolveLesson: (LocalDate, Int) -> ResolvedLesson?,
+    dayTypeEntityForDate: (LocalDate) -> DayTypeEntity?,
     changedLessonForDate: (LocalDate, Int) -> ChangedLessonEntity?,
     isLessonCancelled: (LocalDate, Int) -> Boolean,
     onDisplayedMonthChange: (YearMonth) -> Unit,
@@ -4400,6 +4441,7 @@ private fun LessonSearchCalendarView(
                         matchCount = resultsByDate[date]?.size ?: 0,
                         isToday = date == today,
                         isSelected = date == selectedDate,
+                        examLabel = dayTypeEntityForDate(date)?.holidaySpecialLabel,
                         enabled = date in searchStart..searchEnd,
                         onClick = { onSelectDate(date) },
                         modifier = cellModifier
@@ -4591,6 +4633,7 @@ private fun SearchCalendarDayCell(
     matchCount: Int,
     isToday: Boolean,
     isSelected: Boolean,
+    examLabel: HolidaySpecialLabel?,
     enabled: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -4606,6 +4649,7 @@ private fun SearchCalendarDayCell(
         isToday -> MaterialTheme.colorScheme.onSecondaryContainer
         else -> MaterialTheme.colorScheme.onSurface
     }
+    val examLabelText = examCalendarLabelText(examLabel)
 
     Surface(
         modifier = modifier
@@ -4632,6 +4676,15 @@ private fun SearchCalendarDayCell(
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = if (isSelected || matchCount > 0 || isToday) FontWeight.Bold else FontWeight.Normal
             )
+            if (examLabelText != null) {
+                Text(
+                    text = examLabelText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+            }
             if (matchCount > 0) {
                 Surface(
                     shape = CircleShape,
@@ -7083,6 +7136,77 @@ private fun dayTypeDisplayText(
         return baseLabel
     }
     return "$baseLabel(${stringResource(dayOfWeekRes(DayOfWeek.of(overrideLessonDayOfWeek)))})"
+}
+
+@Composable
+private fun examCalendarLabelText(label: HolidaySpecialLabel?): String? = when (label) {
+    HolidaySpecialLabel.MIDTERM,
+    HolidaySpecialLabel.FINAL -> stringResource(holidaySpecialLabelShortRes(label))
+    else -> null
+}
+
+private fun taskPlanCalendarSearchTokens(query: String): List<String> {
+    return query
+        .trim()
+        .split(Regex("""[\s　]+"""))
+        .map(::normalizeLessonSearchText)
+        .filter { it.isNotBlank() }
+}
+
+private fun TaskEntity.matchesTaskPlanCalendarSearch(tokens: List<String>): Boolean {
+    return taskPlanCalendarSearchText(
+        type = "課題",
+        title = title,
+        subject = subject,
+        teacher = teacher,
+        description = description,
+        dueDate = dueDate,
+        hour = dueHour,
+        minute = dueMinute
+    ).let { searchableText ->
+        tokens.all(searchableText::contains)
+    }
+}
+
+private fun PlanEntity.matchesTaskPlanCalendarSearch(tokens: List<String>): Boolean {
+    return taskPlanCalendarSearchText(
+        type = "予定",
+        title = title,
+        subject = subject,
+        teacher = teacher,
+        description = description,
+        dueDate = dueDate,
+        hour = dueHour,
+        minute = dueMinute
+    ).let { searchableText ->
+        tokens.all(searchableText::contains)
+    }
+}
+
+private fun taskPlanCalendarSearchText(
+    type: String,
+    title: String,
+    subject: String,
+    teacher: String?,
+    description: String?,
+    dueDate: LocalDate,
+    hour: Int,
+    minute: Int
+): String {
+    val timeText = "%02d:%02d %d時%d分".format(hour, minute, hour, minute)
+    return normalizeLessonSearchText(
+        listOf(
+            type,
+            title,
+            subject,
+            teacher.orEmpty(),
+            description.orEmpty(),
+            dueDate.toString(),
+            dueDate.format(dateFormatter),
+            japaneseDayOfWeekSearchText(dueDate.dayOfWeek),
+            timeText
+        ).joinToString(" ")
+    )
 }
 
 private fun normalizeTeacherCandidates(value: String): List<String> {
