@@ -70,7 +70,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TableChart
@@ -2174,8 +2173,6 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                             }
                             val showTaskPlanActions =
                                 selectedTab == AppTab.Tasks || selectedTab == AppTab.Plans
-                            val showTaskSyncAction = (selectedTab == AppTab.Tasks || selectedTab == AppTab.Plans) && uiState.settings?.addTasksToCalendar == true
-                            var showTaskPlanActionsMenu by remember { mutableStateOf(false) }
 
                             Scaffold(
                                 snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
@@ -2204,35 +2201,6 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                                         Icons.Filled.Search,
                                                         contentDescription = stringResource(R.string.cd_open_task_search)
                                                     )
-                                                }
-                                                if (showTaskSyncAction) {
-                                                    Box {
-                                                        IconButton(
-                                                            onClick = { showTaskPlanActionsMenu = true }
-                                                        ) {
-                                                            Icon(
-                                                                Icons.Filled.MoreVert,
-                                                                contentDescription = stringResource(R.string.cd_open_task_plan_actions_menu)
-                                                            )
-                                                        }
-                                                        DropdownMenu(
-                                                            expanded = showTaskPlanActionsMenu,
-                                                            onDismissRequest = { showTaskPlanActionsMenu = false }
-                                                        ) {
-                                                            DropdownMenuItem(
-                                                                text = {
-                                                                    Text(stringResource(R.string.menu_sync_tasks_to_device_calendar))
-                                                                },
-                                                                leadingIcon = {
-                                                                    Icon(Icons.Filled.Autorenew, contentDescription = null)
-                                                                },
-                                                                onClick = {
-                                                                    showTaskPlanActionsMenu = false
-                                                                    showTaskCalendarSyncDialog = true
-                                                                }
-                                                            )
-                                                        }
-                                                    }
                                                 }
                                             }
                                             if (uiState.settings?.enableLocalAi == true) {
