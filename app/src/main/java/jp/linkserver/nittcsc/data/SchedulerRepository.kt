@@ -685,7 +685,9 @@ class SchedulerRepository(private val db: AppDatabase) {
         return SettingsEntity(
             id = 1,
             termStart = LocalDate.of(fiscalStartYear, Month.APRIL, 1),
-            termEnd = LocalDate.of(fiscalStartYear + 1, Month.MARCH, 31)
+            termEnd = LocalDate.of(fiscalStartYear + 1, Month.MARCH, 31),
+            arrivalHour = 8,
+            arrivalMinute = 30
         )
     }
 
@@ -1747,8 +1749,8 @@ class SchedulerRepository(private val db: AppDatabase) {
                 useDrawerNavigation = s.optBoolean("useDrawerNavigation", false),
                 addTasksToCalendar = s.optBoolean("addTasksToCalendar", false),
                 showCurrentTimeMarker = s.optBoolean("showCurrentTimeMarker", false),
-                arrivalHour = s.optInt("arrivalHour", -1),
-                arrivalMinute = s.optInt("arrivalMinute", -1),
+                arrivalHour = s.optInt("arrivalHour", 8),
+                arrivalMinute = s.optInt("arrivalMinute", 30),
                 departureHour = s.optInt("departureHour", -1),
                 departureMinute = s.optInt("departureMinute", -1),
                 unifyTaskPlanView = s.optBoolean("unifyTaskPlanView", false),

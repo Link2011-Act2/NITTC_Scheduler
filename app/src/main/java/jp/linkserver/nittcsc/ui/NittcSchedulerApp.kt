@@ -3358,7 +3358,7 @@ private fun OutputScreen(
     val arrivalMin: Int? = remember(state.settings, classSlots) {
         val s = state.settings
         if (s != null && s.arrivalHour >= 0) s.arrivalHour * 60 + s.arrivalMinute
-        else classSlots.firstOrNull()?.let { it.start.hour * 60 }
+        else 8 * 60 + 30
     }
     val departureMin: Int? = remember(state.settings, classSlots) {
         val s = state.settings
@@ -3609,16 +3609,8 @@ private fun OutputScreen(
                         val shouldRenderPageDetails = page == pagerState.settledPage
 
                         if (displayMode == OutputDisplayMode.DAY) {
-                            val pageTasks = if (shouldRenderPageDetails) {
-                                tasksByDueDate[pageDate].orEmpty()
-                            } else {
-                                emptyList()
-                            }
-                            val pagePlans = if (shouldRenderPageDetails) {
-                                plansByDueDate[pageDate].orEmpty()
-                            } else {
-                                emptyList()
-                            }
+                            val pageTasks = tasksByDueDate[pageDate].orEmpty()
+                            val pagePlans = plansByDueDate[pageDate].orEmpty()
                             DayScheduleTable(
                                 date = pageDate,
                                 dayType = dayTypeForDate(pageDate),
@@ -3634,6 +3626,7 @@ private fun OutputScreen(
                                 arrivalMin = arrivalMin,
                                 departureMin = departureMin,
                                 showCurrentTimeMarker = showCurrentTimeMarker && pageDate == today,
+                                showTaskPlanDetails = shouldRenderPageDetails,
                                 onAddFromLesson = onAddFromLesson,
                                 onSetLessonCancelled = onSetLessonCancelled,
                                 onEditChangedLesson = onEditChangedLesson,
@@ -3647,19 +3640,11 @@ private fun OutputScreen(
                             val pageWeekDates = remember(pageDate) {
                                 (0L..4L).map { pageWeekStart.plusDays(it) }
                             }
-                            val pageTasks = remember(pageWeekDates, tasksByDueDate, shouldRenderPageDetails) {
-                                if (shouldRenderPageDetails) {
-                                    pageWeekDates.flatMap { tasksByDueDate[it].orEmpty() }
-                                } else {
-                                    emptyList()
-                                }
+                            val pageTasks = remember(pageWeekDates, tasksByDueDate) {
+                                pageWeekDates.flatMap { tasksByDueDate[it].orEmpty() }
                             }
-                            val pagePlans = remember(pageWeekDates, plansByDueDate, shouldRenderPageDetails) {
-                                if (shouldRenderPageDetails) {
-                                    pageWeekDates.flatMap { plansByDueDate[it].orEmpty() }
-                                } else {
-                                    emptyList()
-                                }
+                            val pagePlans = remember(pageWeekDates, plansByDueDate) {
+                                pageWeekDates.flatMap { plansByDueDate[it].orEmpty() }
                             }
                             WeekScheduleTable(
                                 dates = pageWeekDates,
@@ -5064,6 +5049,7 @@ private fun DayScheduleTable(
     arrivalMin: Int? = null,
     departureMin: Int? = null,
     showCurrentTimeMarker: Boolean = false,
+    showTaskPlanDetails: Boolean = true,
     onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean, date: LocalDate, time: LocalTime) -> Unit)? = null,
     onSetLessonCancelled: (LocalDate, Int, Boolean) -> Unit,
     onEditChangedLesson: (LocalDate, Int) -> Unit,
@@ -5193,47 +5179,55 @@ private fun DayScheduleTable(
         val color: Color
     )
 
-    val taskDueTicks = dateTasks.mapNotNull { task ->
-        val dueMinuteOfDay = task.dueHour * 60 + task.dueMinute
-        val matchedSlots = if (isHoliday) {
-            emptyList()
-        } else {
-            classSlots.filter { slot ->
-                val lesson = resolveLesson(date, slot.index)
-                lesson != null && taskMatchesLesson(task, lesson)
+    val taskDueTicks = if (showTaskPlanDetails) {
+        dateTasks.mapNotNull { task ->
+            val dueMinuteOfDay = task.dueHour * 60 + task.dueMinute
+            val matchedSlots = if (isHoliday) {
+                emptyList()
+            } else {
+                classSlots.filter { slot ->
+                    val lesson = resolveLesson(date, slot.index)
+                    lesson != null && taskMatchesLesson(task, lesson)
+                }
+            }
+            if (matchedSlots.isEmpty()) {
+                DueTick(dueMinuteOfDay, task.title, task.description?.trim()?.ifBlank { null }, task = task, color = MaterialTheme.colorScheme.error)
+            } else {
+                val overlapsAnyMatchedSlot = matchedSlots.any { slot ->
+                    val slotStart = slot.start.hour * 60 + slot.start.minute
+                    val slotEnd = slot.end.hour * 60 + slot.end.minute
+                    dueMinuteOfDay in slotStart until slotEnd
+                }
+                if (overlapsAnyMatchedSlot) null else DueTick(dueMinuteOfDay, task.title, task.description?.trim()?.ifBlank { null }, task = task, color = MaterialTheme.colorScheme.error)
             }
         }
-        if (matchedSlots.isEmpty()) {
-            DueTick(dueMinuteOfDay, task.title, task.description?.trim()?.ifBlank { null }, task = task, color = MaterialTheme.colorScheme.error)
-        } else {
-            val overlapsAnyMatchedSlot = matchedSlots.any { slot ->
-                val slotStart = slot.start.hour * 60 + slot.start.minute
-                val slotEnd = slot.end.hour * 60 + slot.end.minute
-                dueMinuteOfDay in slotStart until slotEnd
-            }
-            if (overlapsAnyMatchedSlot) null else DueTick(dueMinuteOfDay, task.title, task.description?.trim()?.ifBlank { null }, task = task, color = MaterialTheme.colorScheme.error)
-        }
+    } else {
+        emptyList()
     }
-    val planDueTicks = datePlans.mapNotNull { plan ->
-        val dueMinuteOfDay = plan.dueHour * 60 + plan.dueMinute
-        val matchedSlots = if (isHoliday) {
-            emptyList()
-        } else {
-            classSlots.filter { slot ->
-                val lesson = resolveLesson(date, slot.index)
-                lesson != null && planMatchesLesson(plan, lesson)
+    val planDueTicks = if (showTaskPlanDetails) {
+        datePlans.mapNotNull { plan ->
+            val dueMinuteOfDay = plan.dueHour * 60 + plan.dueMinute
+            val matchedSlots = if (isHoliday) {
+                emptyList()
+            } else {
+                classSlots.filter { slot ->
+                    val lesson = resolveLesson(date, slot.index)
+                    lesson != null && planMatchesLesson(plan, lesson)
+                }
+            }
+            if (matchedSlots.isEmpty()) {
+                DueTick(dueMinuteOfDay, plan.title, plan.description?.trim()?.ifBlank { null }, plan = plan, color = MaterialTheme.colorScheme.primary)
+            } else {
+                val overlapsAnyMatchedSlot = matchedSlots.any { slot ->
+                    val slotStart = slot.start.hour * 60 + slot.start.minute
+                    val slotEnd = slot.end.hour * 60 + slot.end.minute
+                    dueMinuteOfDay in slotStart until slotEnd
+                }
+                if (overlapsAnyMatchedSlot) null else DueTick(dueMinuteOfDay, plan.title, plan.description?.trim()?.ifBlank { null }, plan = plan, color = MaterialTheme.colorScheme.primary)
             }
         }
-        if (matchedSlots.isEmpty()) {
-            DueTick(dueMinuteOfDay, plan.title, plan.description?.trim()?.ifBlank { null }, plan = plan, color = MaterialTheme.colorScheme.primary)
-        } else {
-            val overlapsAnyMatchedSlot = matchedSlots.any { slot ->
-                val slotStart = slot.start.hour * 60 + slot.start.minute
-                val slotEnd = slot.end.hour * 60 + slot.end.minute
-                dueMinuteOfDay in slotStart until slotEnd
-            }
-            if (overlapsAnyMatchedSlot) null else DueTick(dueMinuteOfDay, plan.title, plan.description?.trim()?.ifBlank { null }, plan = plan, color = MaterialTheme.colorScheme.primary)
-        }
+    } else {
+        emptyList()
     }
     val outOfSlotDueTicks = (taskDueTicks + planDueTicks).sortedBy { it.minuteOfDay }
 
@@ -5451,7 +5445,7 @@ private fun DayScheduleTable(
                 compressedTotalDpAdjusted != null -> compressedTotalDpAdjusted.dp
                 else -> rawHeightDp
             }
-            val lessonTasks = if (lesson != null && slot != null) {
+            val lessonTasksForBadges = if (lesson != null && slot != null) {
                 dateTasks.filter { task ->
                     taskMatchesLesson(task, lesson) && run {
                         val dueMinuteOfDay = task.dueHour * 60 + task.dueMinute
@@ -5463,7 +5457,7 @@ private fun DayScheduleTable(
             } else {
                 emptyList()
             }
-            val lessonPlans = if (lesson != null && slot != null) {
+            val lessonPlansForBadges = if (lesson != null && slot != null) {
                 datePlans.filter { plan ->
                     planMatchesLesson(plan, lesson) && run {
                         val dueMinuteOfDay = plan.dueHour * 60 + plan.dueMinute
@@ -5475,13 +5469,15 @@ private fun DayScheduleTable(
             } else {
                 emptyList()
             }
+            val lessonTasks = if (showTaskPlanDetails) lessonTasksForBadges else emptyList()
+            val lessonPlans = if (showTaskPlanDetails) lessonPlansForBadges else emptyList()
             val lessonMemo = slot?.let { lessonNotesBySlot[it.index]?.text?.trim()?.ifBlank { null } }
-            val hasLessonTask = lessonTasks.isNotEmpty()
-            val hasLessonPlan = lessonPlans.isNotEmpty()
+            val hasLessonTask = lessonTasksForBadges.isNotEmpty()
+            val hasLessonPlan = lessonPlansForBadges.isNotEmpty()
             val hasLessonMemo = lessonMemo != null
-            val hasLessonDetails = hasLessonTask || hasLessonPlan || hasLessonMemo
-            val primaryTask = lessonTasks.firstOrNull()
-            val primaryPlan = lessonPlans.firstOrNull()
+            val hasLessonDetails = showTaskPlanDetails && (lessonTasks.isNotEmpty() || lessonPlans.isNotEmpty() || hasLessonMemo)
+            val primaryTask = lessonTasksForBadges.firstOrNull()
+            val primaryPlan = lessonPlansForBadges.firstOrNull()
             val lessonNoteCount = lessonTasks.count { !it.description.isNullOrBlank() } +
                 lessonPlans.count { !it.description.isNullOrBlank() }
             val shouldShowLessonNotes = lessonNoteCount < 2
