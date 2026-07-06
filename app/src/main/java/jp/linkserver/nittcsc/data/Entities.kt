@@ -98,6 +98,18 @@ data class ChangedLessonEntity(
     val createdAt: Long = System.currentTimeMillis()
 )
 
+@Entity(
+    tableName = "lesson_notes",
+    primaryKeys = ["date", "slotIndex"],
+    indices = [Index(value = ["date"])]
+)
+data class LessonNoteEntity(
+    val date: LocalDate,
+    val slotIndex: Int,
+    val text: String,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
 @Entity(tableName = "lesson_notification_exclusions")
 data class LessonNotificationExclusionEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -248,6 +260,7 @@ data class SyncRegisteredDeviceEntity(
     val lastLongBreaksSyncAt: Long = 0L,
     val lastCancelledLessonsSyncAt: Long = 0L,
     val lastChangedLessonsSyncAt: Long = 0L,
+    val lastLessonNotesSyncAt: Long = 0L,
     val serverCertFingerprint: String = ""
 )
 

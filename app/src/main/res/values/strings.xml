@@ -309,6 +309,11 @@
     <string name="dialog_add_from_lesson_title">授業から追加</string>
     <string name="dialog_add_task_from_lesson">課題を追加</string>
     <string name="dialog_add_plan_from_lesson">予定を追加</string>
+    <string name="dialog_edit_lesson_note">メモを追加/編集</string>
+    <string name="dialog_lesson_note_title">授業メモ</string>
+    <string name="label_lesson_note_text">メモ</string>
+    <string name="hint_lesson_note_text">この授業のメモを入力</string>
+    <string name="btn_delete_lesson_note">削除</string>
     <string name="dialog_change_lesson">授業変更</string>
     <string name="dialog_mark_lesson_cancelled">休講にする</string>
     <string name="dialog_unmark_lesson_cancelled">休講を解除</string>

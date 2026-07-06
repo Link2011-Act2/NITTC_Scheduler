@@ -173,6 +173,7 @@ import jp.linkserver.nittcsc.data.HolidaySpecialLabel
 import jp.linkserver.nittcsc.data.LessonDraft
 import jp.linkserver.nittcsc.data.LessonEntity
 import jp.linkserver.nittcsc.data.LessonMode
+import jp.linkserver.nittcsc.data.LessonNoteEntity
 import jp.linkserver.nittcsc.data.LongBreakEntity
 import jp.linkserver.nittcsc.data.PlanEntity
 import jp.linkserver.nittcsc.data.ResolvedLesson
@@ -1981,6 +1982,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                         resolveLesson = ::resolveDisplayedLesson,
                                         resolveOriginalLesson = ::resolveOriginalLesson,
                                         changedLessonForDate = { date, slot -> uiState.changedLessons[date to slot] },
+                                        lessonNotes = uiState.lessonNotes,
                                         onShiftDate = viewModel::shiftResultDate,
                                         onPickDate = viewModel::setResultDate,
                                         onOpenLessonSearch = { showLessonSearch = true },
@@ -2025,6 +2027,8 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                            },
                                         onSetLessonCancelled = ::setLessonCancelledWithPrompt,
                                         onEditChangedLesson = ::openLessonChangeEditor,
+                                        onSaveLessonNote = viewModel::saveLessonNote,
+                                        onDeleteLessonNote = viewModel::deleteLessonNote,
                                         isLessonCancelled = { date, slotIndex ->
                                             viewModel.isLessonCancelled(date, slotIndex, uiState.cancelledLessons)
                                         }
@@ -3283,6 +3287,7 @@ private fun OutputScreen(
     resolveLesson: (LocalDate, Int) -> ResolvedLesson?,
     resolveOriginalLesson: (LocalDate, Int) -> ResolvedLesson?,
     changedLessonForDate: (LocalDate, Int) -> ChangedLessonEntity?,
+    lessonNotes: List<LessonNoteEntity>,
     onShiftDate: (Long) -> Unit,
     onPickDate: (LocalDate) -> Unit,
     onOpenLessonSearch: () -> Unit,
@@ -3293,6 +3298,8 @@ private fun OutputScreen(
     onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean, date: LocalDate, time: LocalTime) -> Unit)? = null,
     onSetLessonCancelled: (LocalDate, Int, Boolean) -> Unit,
     onEditChangedLesson: (LocalDate, Int) -> Unit,
+    onSaveLessonNote: (LocalDate, Int, String) -> Unit,
+    onDeleteLessonNote: (LocalDate, Int) -> Unit,
     isLessonCancelled: (LocalDate, Int) -> Boolean
 ) {
     val context = LocalContext.current
@@ -3620,6 +3627,7 @@ private fun OutputScreen(
                                 changedLessonForDate = changedLessonForDate,
                                 tasks = pageTasks,
                                 plans = pagePlans,
+                                lessonNotes = lessonNotes,
                                 onOpenTask = onOpenTask,
                                 onOpenPlan = onOpenPlan,
                                 classSlots = classSlots,
@@ -3629,6 +3637,8 @@ private fun OutputScreen(
                                 onAddFromLesson = onAddFromLesson,
                                 onSetLessonCancelled = onSetLessonCancelled,
                                 onEditChangedLesson = onEditChangedLesson,
+                                onSaveLessonNote = onSaveLessonNote,
+                                onDeleteLessonNote = onDeleteLessonNote,
                                 isLessonCancelled = isLessonCancelled,
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -3660,6 +3670,7 @@ private fun OutputScreen(
                                 changedLessonForDate = changedLessonForDate,
                                 tasks = pageTasks,
                                 plans = pagePlans,
+                                lessonNotes = lessonNotes,
                                 classSlots = classSlots,
                                 showCurrentTimeMarker = showCurrentTimeMarker && pageWeekDates.contains(today),
                                 onSaveLessonOverride = onSaveLessonOverride,
@@ -3667,6 +3678,8 @@ private fun OutputScreen(
                                 onAddFromLesson = onAddFromLesson,
                                 onSetLessonCancelled = onSetLessonCancelled,
                                 onEditChangedLesson = onEditChangedLesson,
+                                onSaveLessonNote = onSaveLessonNote,
+                                onDeleteLessonNote = onDeleteLessonNote,
                                 isLessonCancelled = isLessonCancelled,
                                 onDayClick = { date ->
                                     onPickDate(date)
@@ -5044,6 +5057,7 @@ private fun DayScheduleTable(
     changedLessonForDate: (LocalDate, Int) -> ChangedLessonEntity?,
     tasks: List<TaskEntity>,
     plans: List<PlanEntity>,
+    lessonNotes: List<LessonNoteEntity>,
     onOpenTask: (TaskEntity) -> Unit,
     onOpenPlan: (PlanEntity) -> Unit,
     classSlots: List<ClassSlot> = CLASS_SLOTS,
@@ -5053,6 +5067,8 @@ private fun DayScheduleTable(
     onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean, date: LocalDate, time: LocalTime) -> Unit)? = null,
     onSetLessonCancelled: (LocalDate, Int, Boolean) -> Unit,
     onEditChangedLesson: (LocalDate, Int) -> Unit,
+    onSaveLessonNote: (LocalDate, Int, String) -> Unit,
+    onDeleteLessonNote: (LocalDate, Int) -> Unit,
     isLessonCancelled: (LocalDate, Int) -> Boolean,
     modifier: Modifier = Modifier
 ) {
@@ -5066,7 +5082,14 @@ private fun DayScheduleTable(
         val lessonStartTime: LocalTime,
         val cancelled: Boolean
     )
+    data class LessonNoteEditorData(
+        val date: LocalDate,
+        val slotIndex: Int,
+        val lesson: ResolvedLesson,
+        val currentText: String?
+    )
     var lessonActionDialog by remember { mutableStateOf<LessonActionDialogData?>(null) }
+    var lessonNoteEditor by remember { mutableStateOf<LessonNoteEditorData?>(null) }
     val strAddFromLessonTitle = stringResource(R.string.dialog_add_from_lesson_title)
     if (lessonActionDialog != null) {
         val lessonSnap = lessonActionDialog!!
@@ -5097,6 +5120,35 @@ private fun DayScheduleTable(
             onChangeLesson = {
                 lessonActionDialog = null
                 onEditChangedLesson(date, lessonSnap.slotIndex)
+            },
+            onEditNote = {
+                lessonActionDialog = null
+                val currentNote = lessonNotes.firstOrNull { it.date == date && it.slotIndex == lessonSnap.slotIndex }
+                lessonNoteEditor = LessonNoteEditorData(
+                    date = date,
+                    slotIndex = lessonSnap.slotIndex,
+                    lesson = lessonSnap.lesson,
+                    currentText = currentNote?.text
+                )
+            }
+        )
+    }
+    lessonNoteEditor?.let { editor ->
+        LessonNoteDialog(
+            date = editor.date,
+            slotIndex = editor.slotIndex,
+            lesson = editor.lesson,
+            currentText = editor.currentText,
+            onDismiss = { lessonNoteEditor = null },
+            onSave = { text ->
+                onSaveLessonNote(editor.date, editor.slotIndex, text)
+                lessonNoteEditor = null
+            },
+            onDelete = editor.currentText?.let {
+                {
+                    onDeleteLessonNote(editor.date, editor.slotIndex)
+                    lessonNoteEditor = null
+                }
             }
         )
     }
@@ -5126,6 +5178,11 @@ private fun DayScheduleTable(
 
     val dateTasks = tasks.filter { it.dueDate == date }
     val datePlans = plans.filter { it.dueDate == date }
+    val lessonNotesBySlot = remember(lessonNotes, date) {
+        lessonNotes
+            .filter { it.date == date && it.text.isNotBlank() }
+            .associateBy { it.slotIndex }
+    }
 
     data class DueTick(
         val minuteOfDay: Int,
@@ -5418,9 +5475,11 @@ private fun DayScheduleTable(
             } else {
                 emptyList()
             }
+            val lessonMemo = slot?.let { lessonNotesBySlot[it.index]?.text?.trim()?.ifBlank { null } }
             val hasLessonTask = lessonTasks.isNotEmpty()
             val hasLessonPlan = lessonPlans.isNotEmpty()
-            val hasLessonDetails = hasLessonTask || hasLessonPlan
+            val hasLessonMemo = lessonMemo != null
+            val hasLessonDetails = hasLessonTask || hasLessonPlan || hasLessonMemo
             val primaryTask = lessonTasks.firstOrNull()
             val primaryPlan = lessonPlans.firstOrNull()
             val lessonNoteCount = lessonTasks.count { !it.description.isNullOrBlank() } +
@@ -5433,7 +5492,8 @@ private fun DayScheduleTable(
                 val note: String?,
                 val isCompleted: Boolean,
                 val titleColor: Color,
-                val noteColor: Color
+                val noteColor: Color,
+                val titleFontWeight: FontWeight = FontWeight.Bold
             )
             val lessonDetailItems = buildList {
                 lessonTasks.forEach { task ->
@@ -5475,6 +5535,20 @@ private fun DayScheduleTable(
                             } else {
                                 MaterialTheme.colorScheme.primary
                             }
+                        )
+                    )
+                }
+                lessonMemo?.let { memo ->
+                    add(
+                        LessonDetailItem(
+                            dueHour = 99,
+                            dueMinute = 99,
+                            title = memo,
+                            note = null,
+                            isCompleted = false,
+                            titleColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            noteColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            titleFontWeight = FontWeight.Normal
                         )
                     )
                 }
@@ -5937,7 +6011,7 @@ private fun DayScheduleTable(
                                                             text = if (item.isCompleted) "\u2713 " else "",
                                                             style = MaterialTheme.typography.labelSmall,
                                                             color = item.titleColor,
-                                                            fontWeight = FontWeight.Bold,
+                                                            fontWeight = item.titleFontWeight,
                                                             maxLines = 1,
                                                             modifier = Modifier.width(completionMarkWidth)
                                                         )
@@ -5945,7 +6019,7 @@ private fun DayScheduleTable(
                                                             text = item.title,
                                                             style = MaterialTheme.typography.labelSmall,
                                                             color = item.titleColor,
-                                                            fontWeight = FontWeight.Bold,
+                                                            fontWeight = item.titleFontWeight,
                                                             maxLines = 1,
                                                             overflow = TextOverflow.Ellipsis,
                                                             textAlign = androidx.compose.ui.text.style.TextAlign.End,
@@ -6122,6 +6196,7 @@ private fun WeekScheduleTable(
     changedLessonForDate: (LocalDate, Int) -> ChangedLessonEntity?,
     tasks: List<TaskEntity>,
     plans: List<PlanEntity>,
+    lessonNotes: List<LessonNoteEntity>,
     classSlots: List<ClassSlot> = CLASS_SLOTS,
     showCurrentTimeMarker: Boolean = false,
     onSaveLessonOverride: (LocalDate, Int, DayType) -> Unit,
@@ -6129,6 +6204,8 @@ private fun WeekScheduleTable(
     onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean, date: LocalDate, time: LocalTime) -> Unit)? = null,
     onSetLessonCancelled: (LocalDate, Int, Boolean) -> Unit,
     onEditChangedLesson: (LocalDate, Int) -> Unit,
+    onSaveLessonNote: (LocalDate, Int, String) -> Unit,
+    onDeleteLessonNote: (LocalDate, Int) -> Unit,
     isLessonCancelled: (LocalDate, Int) -> Boolean,
     onDayClick: (LocalDate) -> Unit = {},
     modifier: Modifier = Modifier
@@ -6145,12 +6222,24 @@ private fun WeekScheduleTable(
         val isChanged: Boolean,
         val cancelled: Boolean
     )
+    data class WeekLessonNoteEditorData(
+        val date: LocalDate,
+        val slotIndex: Int,
+        val lesson: ResolvedLesson,
+        val currentText: String?
+    )
     val slotLabelWidth = 44.dp
     val cellHeight = 140.dp
     val currentMinuteOfDay = currentTime?.let { it.hour * 60 + it.minute }
     var overrideEditingDate by remember(dates) { mutableStateOf<LocalDate?>(null) }
     var lessonActionDialog by remember(dates) { mutableStateOf<WeekLessonActionDialogData?>(null) }
+    var lessonNoteEditor by remember(dates) { mutableStateOf<WeekLessonNoteEditorData?>(null) }
     val strCancelled = stringResource(R.string.label_cancelled)
+    val lessonNotesByDateSlot = remember(lessonNotes, dates) {
+        lessonNotes
+            .filter { it.date in dates && it.text.isNotBlank() }
+            .associateBy { it.date to it.slotIndex }
+    }
     val weekendCurrentMarkerSide = remember(dates, today) {
         val firstVisibleDate = dates.firstOrNull()
         val lastVisibleDate = dates.lastOrNull()
@@ -6283,6 +6372,7 @@ private fun WeekScheduleTable(
                     val hasPlan = !isHoliday && lesson != null && plans.any { plan ->
                         plan.dueDate == date && planMatchesLesson(plan, lesson)
                     }
+                    val lessonMemo = lessonNotesByDateSlot[date to slot.index]?.text?.trim()?.ifBlank { null }
                     val isCancelled = !isHoliday && isLessonCancelled(date, slot.index)
                     val bgColor = if (lesson != null) MaterialTheme.colorScheme.surfaceContainerLow
                                   else MaterialTheme.colorScheme.surfaceContainer
@@ -6384,6 +6474,15 @@ private fun WeekScheduleTable(
                                     Column(
                                         modifier = Modifier.align(Alignment.BottomStart)
                                     ) {
+                                        if (!lessonMemo.isNullOrBlank()) {
+                                            Text(
+                                                text = lessonMemo,
+                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
                                         if (lesson.teacher.isNotBlank()) {
                                             Text(
                                                 text = lesson.teacher,
@@ -6451,6 +6550,36 @@ private fun WeekScheduleTable(
             onChangeLesson = {
                 lessonActionDialog = null
                 onEditChangedLesson(target.date, target.slotIndex)
+            },
+            onEditNote = {
+                lessonActionDialog = null
+                val currentNote = lessonNotesByDateSlot[target.date to target.slotIndex]
+                lessonNoteEditor = WeekLessonNoteEditorData(
+                    date = target.date,
+                    slotIndex = target.slotIndex,
+                    lesson = target.lesson,
+                    currentText = currentNote?.text
+                )
+            }
+        )
+    }
+
+    lessonNoteEditor?.let { editor ->
+        LessonNoteDialog(
+            date = editor.date,
+            slotIndex = editor.slotIndex,
+            lesson = editor.lesson,
+            currentText = editor.currentText,
+            onDismiss = { lessonNoteEditor = null },
+            onSave = { text ->
+                onSaveLessonNote(editor.date, editor.slotIndex, text)
+                lessonNoteEditor = null
+            },
+            onDelete = editor.currentText?.let {
+                {
+                    onDeleteLessonNote(editor.date, editor.slotIndex)
+                    lessonNoteEditor = null
+                }
             }
         )
     }
@@ -6726,7 +6855,8 @@ private fun LessonActionDialog(
     onAddTask: (() -> Unit)?,
     onAddPlan: (() -> Unit)?,
     onToggleCancelled: () -> Unit,
-    onChangeLesson: () -> Unit
+    onChangeLesson: () -> Unit,
+    onEditNote: () -> Unit
 ) {
     val strDialogTitle = stringResource(R.string.dialog_lesson_action_title)
     val strAddFromLessonTitle = stringResource(R.string.dialog_add_from_lesson_title)
@@ -6735,6 +6865,7 @@ private fun LessonActionDialog(
     val strSetCancelled = stringResource(R.string.dialog_mark_lesson_cancelled)
     val strClearCancelled = stringResource(R.string.dialog_unmark_lesson_cancelled)
     val strChangeLesson = stringResource(R.string.dialog_change_lesson)
+    val strEditNote = stringResource(R.string.dialog_edit_lesson_note)
     val strCancelDialog = stringResource(R.string.btn_cancel)
     val strActionHint = stringResource(R.string.dialog_lesson_action_hint)
     val strStatusCancelled = stringResource(R.string.label_lesson_status_cancelled)
@@ -6845,10 +6976,85 @@ private fun LessonActionDialog(
                         )
                     }
                 }
+                OutlinedButton(
+                    onClick = onEditNote,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(strEditNote)
+                }
                 TextButton(
                     onClick = onDismiss,
                     modifier = Modifier.fillMaxWidth()
                 ) { Text(strCancelDialog) }
+            }
+        }
+    )
+}
+
+@Composable
+private fun LessonNoteDialog(
+    date: LocalDate,
+    slotIndex: Int,
+    lesson: ResolvedLesson,
+    currentText: String?,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+    onDelete: (() -> Unit)?
+) {
+    var text by remember(date, slotIndex, currentText) { mutableStateOf(currentText.orEmpty()) }
+    val trimmed = text.trim()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.dialog_lesson_note_title)) },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = stringResource(
+                        R.string.label_lesson_slot_info,
+                        date.format(dateFormatter),
+                        slotIndex + 1
+                    ),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = lesson.subject,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.label_lesson_note_text)) },
+                    placeholder = { Text(stringResource(R.string.hint_lesson_note_text)) },
+                    minLines = 3,
+                    maxLines = 5
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = trimmed.isNotBlank(),
+                onClick = { onSave(trimmed) }
+            ) {
+                Text(stringResource(R.string.btn_save))
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (onDelete != null) {
+                    OutlinedButton(onClick = onDelete) {
+                        Text(stringResource(R.string.btn_delete_lesson_note))
+                    }
+                }
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.btn_cancel))
+                }
             }
         }
     )

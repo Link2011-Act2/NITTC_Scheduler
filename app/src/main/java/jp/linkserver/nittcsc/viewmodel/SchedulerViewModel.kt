@@ -11,6 +11,7 @@ import jp.linkserver.nittcsc.data.LessonNotificationExclusionEntity
 import jp.linkserver.nittcsc.data.LessonDraft
 import jp.linkserver.nittcsc.data.LessonEntity
 import jp.linkserver.nittcsc.data.LessonMode
+import jp.linkserver.nittcsc.data.LessonNoteEntity
 import jp.linkserver.nittcsc.data.LessonStartNotificationChipMode
 import jp.linkserver.nittcsc.data.LongBreakEntity
 import jp.linkserver.nittcsc.data.ResolvedLesson
@@ -56,7 +57,8 @@ private data class CoreDataState(
     val tasks: List<TaskEntity>,
     val incompleteTasks: List<TaskEntity>,
     val plans: List<PlanEntity>,
-    val incompletePlans: List<PlanEntity>
+    val incompletePlans: List<PlanEntity>,
+    val lessonNotes: List<LessonNoteEntity>
 )
 
 private data class SettingsBundle(
@@ -79,6 +81,7 @@ data class SchedulerUiState(
     val incompleteTasks: List<TaskEntity> = emptyList(),
     val plans: List<PlanEntity> = emptyList(),
     val incompletePlans: List<PlanEntity> = emptyList(),
+    val lessonNotes: List<LessonNoteEntity> = emptyList(),
     val selectedDayOfWeek: Int = DayOfWeek.MONDAY.value,
     val selectedResultDate: LocalDate = LocalDate.now(),
     val initialized: Boolean = false,
@@ -120,8 +123,9 @@ class SchedulerViewModel(
             Pair(baseData, Triple(lessons, tasks, incompleteTasks))
         },
         repository.plansFlow,
-        repository.incompletePlansFlow
-    ) { base, plans: List<PlanEntity>, incompletePlans: List<PlanEntity> ->
+        repository.incompletePlansFlow,
+        repository.lessonNotesFlow
+    ) { base, plans: List<PlanEntity>, incompletePlans: List<PlanEntity>, lessonNotes: List<LessonNoteEntity> ->
         val (baseData, taskPart) = base
         val (lessons, tasks, incompleteTasks) = taskPart
         CoreDataState(
@@ -135,7 +139,8 @@ class SchedulerViewModel(
             tasks = tasks,
             incompleteTasks = incompleteTasks,
             plans = plans,
-            incompletePlans = incompletePlans
+            incompletePlans = incompletePlans,
+            lessonNotes = lessonNotes
         )
     }
 
@@ -158,6 +163,7 @@ class SchedulerViewModel(
                 incompleteTasks = core.incompleteTasks,
                 plans = core.plans,
                 incompletePlans = core.incompletePlans,
+                lessonNotes = core.lessonNotes,
                 selectedDayOfWeek = dayOfWeek,
                 selectedResultDate = resultDate,
                 initialized = isInitialized
@@ -342,6 +348,20 @@ class SchedulerViewModel(
 
     suspend fun clearChangedLessonDirect(date: LocalDate, slotIndex: Int) {
         repository.deleteChangedLesson(date, slotIndex)
+    }
+
+    fun saveLessonNote(date: LocalDate, slotIndex: Int, text: String) {
+        viewModelScope.launch {
+            repository.upsertLessonNote(date, slotIndex, text)
+            _snackbarMessages.emit("授業メモを保存しました。")
+        }
+    }
+
+    fun deleteLessonNote(date: LocalDate, slotIndex: Int) {
+        viewModelScope.launch {
+            repository.deleteLessonNote(date, slotIndex)
+            _snackbarMessages.emit("授業メモを削除しました。")
+        }
     }
 
     fun isLessonCancelled(date: LocalDate, slotIndex: Int, cancelledLessons: Set<Pair<LocalDate, Int>>): Boolean {

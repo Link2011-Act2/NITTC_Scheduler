@@ -76,6 +76,24 @@ interface SchedulerDao {
     @Query("DELETE FROM changed_lessons")
     suspend fun deleteAllChangedLessons()
 
+    @Query("SELECT * FROM lesson_notes ORDER BY date, slotIndex")
+    fun observeLessonNotes(): Flow<List<LessonNoteEntity>>
+
+    @Query("SELECT * FROM lesson_notes ORDER BY date, slotIndex")
+    suspend fun getLessonNotesOnce(): List<LessonNoteEntity>
+
+    @Query("SELECT * FROM lesson_notes WHERE date = :date AND slotIndex = :slotIndex LIMIT 1")
+    suspend fun getLessonNote(date: LocalDate, slotIndex: Int): LessonNoteEntity?
+
+    @Upsert
+    suspend fun upsertLessonNote(note: LessonNoteEntity)
+
+    @Query("DELETE FROM lesson_notes WHERE date = :date AND slotIndex = :slotIndex")
+    suspend fun deleteLessonNote(date: LocalDate, slotIndex: Int)
+
+    @Query("DELETE FROM lesson_notes")
+    suspend fun deleteAllLessonNotes()
+
     @Query("SELECT * FROM lesson_notification_exclusions ORDER BY subject, teacher")
     fun observeLessonNotificationExclusions(): Flow<List<LessonNotificationExclusionEntity>>
 

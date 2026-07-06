@@ -810,7 +810,8 @@ class LocalSyncManager(
             SchedulerRepository.DATASET_DAY_TYPES,
             SchedulerRepository.DATASET_LONG_BREAKS,
             SchedulerRepository.DATASET_CANCELLED_LESSONS,
-            SchedulerRepository.DATASET_CHANGED_LESSONS
+            SchedulerRepository.DATASET_CHANGED_LESSONS,
+            SchedulerRepository.DATASET_LESSON_NOTES
         ).forEach { key ->
             val localContent = localPayload.opt(key)?.toString() ?: ""
             val remoteContent = remotePayload.opt(key)?.toString() ?: ""
@@ -838,6 +839,7 @@ class LocalSyncManager(
                     SchedulerRepository.DATASET_LONG_BREAKS -> it.lastLongBreaksSyncAt
                     SchedulerRepository.DATASET_CANCELLED_LESSONS -> it.lastCancelledLessonsSyncAt
                     SchedulerRepository.DATASET_CHANGED_LESSONS -> it.lastChangedLessonsSyncAt
+                    SchedulerRepository.DATASET_LESSON_NOTES -> it.lastLessonNotesSyncAt
                     else -> 0L
                 }
             } ?: 0L
@@ -876,7 +878,8 @@ class LocalSyncManager(
             SchedulerRepository.DATASET_DAY_TYPES,
             SchedulerRepository.DATASET_LONG_BREAKS,
             SchedulerRepository.DATASET_CANCELLED_LESSONS,
-            SchedulerRepository.DATASET_CHANGED_LESSONS
+            SchedulerRepository.DATASET_CHANGED_LESSONS,
+            SchedulerRepository.DATASET_LESSON_NOTES
         ).forEach { key ->
             val localUpdatedAt = localMeta.optJSONObject(key)?.optLong("updatedAt", 0L) ?: 0L
             val remoteUpdatedAt = remoteMeta.optJSONObject(key)?.optLong("updatedAt", 0L) ?: 0L
@@ -909,13 +912,14 @@ class LocalSyncManager(
                 host = target.host,
                 port = target.port,
                 lastSeenAt = System.currentTimeMillis(),
-                lastTasksSyncAt = meta.getJSONObject(SchedulerRepository.DATASET_TASKS).optLong("updatedAt", existing.lastTasksSyncAt),
-                lastPlansSyncAt = meta.getJSONObject(SchedulerRepository.DATASET_PLANS).optLong("updatedAt", existing.lastPlansSyncAt),
-                lastLessonsSyncAt = meta.getJSONObject(SchedulerRepository.DATASET_LESSONS).optLong("updatedAt", existing.lastLessonsSyncAt),
-                lastDayTypesSyncAt = meta.getJSONObject(SchedulerRepository.DATASET_DAY_TYPES).optLong("updatedAt", existing.lastDayTypesSyncAt),
-                lastLongBreaksSyncAt = meta.getJSONObject(SchedulerRepository.DATASET_LONG_BREAKS).optLong("updatedAt", existing.lastLongBreaksSyncAt),
-                lastCancelledLessonsSyncAt = meta.getJSONObject(SchedulerRepository.DATASET_CANCELLED_LESSONS).optLong("updatedAt", existing.lastCancelledLessonsSyncAt),
-                lastChangedLessonsSyncAt = meta.getJSONObject(SchedulerRepository.DATASET_CHANGED_LESSONS).optLong("updatedAt", existing.lastChangedLessonsSyncAt)
+                lastTasksSyncAt = meta.optJSONObject(SchedulerRepository.DATASET_TASKS)?.optLong("updatedAt", existing.lastTasksSyncAt) ?: existing.lastTasksSyncAt,
+                lastPlansSyncAt = meta.optJSONObject(SchedulerRepository.DATASET_PLANS)?.optLong("updatedAt", existing.lastPlansSyncAt) ?: existing.lastPlansSyncAt,
+                lastLessonsSyncAt = meta.optJSONObject(SchedulerRepository.DATASET_LESSONS)?.optLong("updatedAt", existing.lastLessonsSyncAt) ?: existing.lastLessonsSyncAt,
+                lastDayTypesSyncAt = meta.optJSONObject(SchedulerRepository.DATASET_DAY_TYPES)?.optLong("updatedAt", existing.lastDayTypesSyncAt) ?: existing.lastDayTypesSyncAt,
+                lastLongBreaksSyncAt = meta.optJSONObject(SchedulerRepository.DATASET_LONG_BREAKS)?.optLong("updatedAt", existing.lastLongBreaksSyncAt) ?: existing.lastLongBreaksSyncAt,
+                lastCancelledLessonsSyncAt = meta.optJSONObject(SchedulerRepository.DATASET_CANCELLED_LESSONS)?.optLong("updatedAt", existing.lastCancelledLessonsSyncAt) ?: existing.lastCancelledLessonsSyncAt,
+                lastChangedLessonsSyncAt = meta.optJSONObject(SchedulerRepository.DATASET_CHANGED_LESSONS)?.optLong("updatedAt", existing.lastChangedLessonsSyncAt) ?: existing.lastChangedLessonsSyncAt,
+                lastLessonNotesSyncAt = meta.optJSONObject(SchedulerRepository.DATASET_LESSON_NOTES)?.optLong("updatedAt", existing.lastLessonNotesSyncAt) ?: existing.lastLessonNotesSyncAt
             )
         )
     }
@@ -1591,6 +1595,7 @@ class LocalSyncManager(
             SchedulerRepository.DATASET_LONG_BREAKS -> "長期休み"
             SchedulerRepository.DATASET_CANCELLED_LESSONS -> "休講情報"
             SchedulerRepository.DATASET_CHANGED_LESSONS -> "授業変更"
+            SchedulerRepository.DATASET_LESSON_NOTES -> "授業メモ"
             else -> key
         }
     }

@@ -320,6 +320,31 @@ fun NearbySyncScreen(
                     ) {
                         Text(stringResource(R.string.sync_btn_conflict_use_newer_all))
                     }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                nearbyState.pendingConflicts.forEach { conflict ->
+                                    conflictChoices[conflict.datasetKey] = SyncChoice.LOCAL
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(stringResource(R.string.sync_btn_conflict_use_local_all))
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                nearbyState.pendingConflicts.forEach { conflict ->
+                                    conflictChoices[conflict.datasetKey] = SyncChoice.REMOTE
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(stringResource(R.string.sync_btn_conflict_use_remote_all))
+                        }
+                    }
                     nearbyState.pendingConflicts.forEach { conflict ->
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -366,18 +391,6 @@ fun NearbySyncScreen(
                     onApplyConflictResolutions(resolutions)
                 }) {
                     Text(stringResource(R.string.sync_btn_apply_with_choices))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    val resolutions = nearbyState.pendingConflicts.associate { conflict ->
-                        conflict.datasetKey to
-                            if (conflict.remoteUpdatedAt > conflict.localUpdatedAt) SyncChoice.REMOTE else SyncChoice.LOCAL
-                    }
-                    conflictSubmitting = true
-                    onApplyConflictResolutions(resolutions)
-                }) {
-                    Text(stringResource(R.string.sync_btn_conflict_use_newer_all))
                 }
             }
         )

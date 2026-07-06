@@ -20,7 +20,7 @@ class SchedulerRepository(private val db: AppDatabase) {
     private val dao: SchedulerDao = db.schedulerDao()
 
     companion object {
-        private const val CURRENT_EXPORT_VERSION = 7
+        private const val CURRENT_EXPORT_VERSION = 8
         private const val MIN_SUPPORTED_IMPORT_VERSION = 1
         private const val MAX_FUTURE_META_DRIFT_MS = 5 * 60 * 1000L
         const val DATASET_TASKS = "tasks"
@@ -30,6 +30,7 @@ class SchedulerRepository(private val db: AppDatabase) {
         const val DATASET_LONG_BREAKS = "longBreaks"
         const val DATASET_CANCELLED_LESSONS = "cancelledLessons"
         const val DATASET_CHANGED_LESSONS = "changedLessons"
+        const val DATASET_LESSON_NOTES = "lessonNotes"
         val SYNC_DATASET_KEYS = listOf(
             DATASET_TASKS,
             DATASET_PLANS,
@@ -37,7 +38,8 @@ class SchedulerRepository(private val db: AppDatabase) {
             DATASET_DAY_TYPES,
             DATASET_LONG_BREAKS,
             DATASET_CANCELLED_LESSONS,
-            DATASET_CHANGED_LESSONS
+            DATASET_CHANGED_LESSONS,
+            DATASET_LESSON_NOTES
         )
     }
 
@@ -45,6 +47,7 @@ class SchedulerRepository(private val db: AppDatabase) {
     val dayTypesFlow: Flow<List<DayTypeEntity>> = dao.observeDayTypes()
     val cancelledLessonsFlow: Flow<List<CancelledLessonEntity>> = dao.observeCancelledLessons()
     val changedLessonsFlow: Flow<List<ChangedLessonEntity>> = dao.observeChangedLessons()
+    val lessonNotesFlow: Flow<List<LessonNoteEntity>> = dao.observeLessonNotes()
     val lessonNotificationExclusionsFlow: Flow<List<LessonNotificationExclusionEntity>> = dao.observeLessonNotificationExclusions()
     val longBreaksFlow: Flow<List<LongBreakEntity>> = dao.observeLongBreaks()
     val lessonsFlow: Flow<List<LessonEntity>> = dao.observeLessons()
@@ -427,6 +430,32 @@ class SchedulerRepository(private val db: AppDatabase) {
         db.withTransaction {
             dao.deleteChangedLesson(date, slotIndex)
             touchSyncDatasetMeta(DATASET_CHANGED_LESSONS)
+        }
+    }
+
+    suspend fun upsertLessonNote(date: LocalDate, slotIndex: Int, text: String) {
+        val trimmed = text.trim()
+        db.withTransaction {
+            if (trimmed.isBlank()) {
+                dao.deleteLessonNote(date, slotIndex)
+            } else {
+                dao.upsertLessonNote(
+                    LessonNoteEntity(
+                        date = date,
+                        slotIndex = slotIndex,
+                        text = trimmed,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+            }
+            touchSyncDatasetMeta(DATASET_LESSON_NOTES)
+        }
+    }
+
+    suspend fun deleteLessonNote(date: LocalDate, slotIndex: Int) {
+        db.withTransaction {
+            dao.deleteLessonNote(date, slotIndex)
+            touchSyncDatasetMeta(DATASET_LESSON_NOTES)
         }
     }
 
@@ -1135,6 +1164,7 @@ class SchedulerRepository(private val db: AppDatabase) {
         val plans = dao.getPlansOnce()
         val cancelledLessons = dao.getCancelledLessonsOnce()
         val changedLessons = dao.getChangedLessonsOnce()
+        val lessonNotes = dao.getLessonNotesOnce()
         val lessonNotificationExclusions = dao.getLessonNotificationExclusionsOnce()
 
         val root = org.json.JSONObject()
@@ -1296,6 +1326,17 @@ class SchedulerRepository(private val db: AppDatabase) {
             }
         })
 
+        root.put("lessonNotes", org.json.JSONArray().also { arr ->
+            lessonNotes.forEach { note ->
+                arr.put(org.json.JSONObject().also { obj ->
+                    obj.put("date", note.date.toString())
+                    obj.put("slotIndex", note.slotIndex)
+                    obj.put("text", note.text)
+                    obj.put("updatedAt", note.updatedAt)
+                })
+            }
+        })
+
         root.put("lessonNotificationExclusions", org.json.JSONArray().also { arr ->
             lessonNotificationExclusions.forEach { exclusion ->
                 arr.put(org.json.JSONObject().also { obj ->
@@ -1317,6 +1358,7 @@ class SchedulerRepository(private val db: AppDatabase) {
         val tasks = dao.getTasksOnce()
         val plans = dao.getPlansOnce()
         val changedLessons = dao.getChangedLessonsOnce()
+        val lessonNotes = dao.getLessonNotesOnce()
         val profile = dao.getSyncProfile()
         val now = System.currentTimeMillis()
         val datasetMetaByKey = dao.getAllSyncDatasetMeta().associateBy { it.datasetKey }
@@ -1446,6 +1488,17 @@ class SchedulerRepository(private val db: AppDatabase) {
                     obj.put("teacher", changed.teacher)
                     if (changed.location != null) obj.put("location", changed.location)
                     obj.put("createdAt", changed.createdAt)
+                })
+            }
+        })
+
+        root.put(DATASET_LESSON_NOTES, org.json.JSONArray().also { arr ->
+            lessonNotes.forEach { note ->
+                arr.put(org.json.JSONObject().also { obj ->
+                    obj.put("date", note.date.toString())
+                    obj.put("slotIndex", note.slotIndex)
+                    obj.put("text", note.text)
+                    obj.put("updatedAt", note.updatedAt)
                 })
             }
         })
@@ -1612,6 +1665,26 @@ class SchedulerRepository(private val db: AppDatabase) {
                         teacher = obj.optString("teacher", "").trim(),
                         location = obj.optString("location", "").takeIf { it.isNotBlank() },
                         createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+                    )
+                )
+            }
+        }
+
+        payload.optJSONArray(DATASET_LESSON_NOTES)?.let { arr ->
+            touchedDatasets += DATASET_LESSON_NOTES
+            dao.deleteAllLessonNotes()
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val date = runCatching { java.time.LocalDate.parse(obj.optString("date")) }.getOrNull() ?: continue
+                val slotIndex = obj.optInt("slotIndex", -1)
+                val text = obj.optString("text", "").trim()
+                if (slotIndex < 0 || text.isBlank()) continue
+                dao.upsertLessonNote(
+                    LessonNoteEntity(
+                        date = date,
+                        slotIndex = slotIndex,
+                        text = text,
+                        updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
                     )
                 )
             }
@@ -1860,6 +1933,25 @@ class SchedulerRepository(private val db: AppDatabase) {
             }
         }
 
+        val lessonNoteEntities = mutableListOf<LessonNoteEntity>()
+        normalizedRoot.optJSONArray("lessonNotes")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                try {
+                    val date = LocalDate.parse(obj.getString("date"))
+                    val slotIndex = obj.getInt("slotIndex")
+                    val text = obj.optString("text", "").trim()
+                    if (slotIndex < 0 || text.isBlank()) continue
+                    lessonNoteEntities += LessonNoteEntity(
+                        date = date,
+                        slotIndex = slotIndex,
+                        text = text,
+                        updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
+                    )
+                } catch (_: Exception) { }
+            }
+        }
+
         val lessonNotificationExclusionEntities = mutableListOf<LessonNotificationExclusionEntity>()
         normalizedRoot.optJSONArray("lessonNotificationExclusions")?.let { arr ->
             for (i in 0 until arr.length()) {
@@ -1908,6 +2000,11 @@ class SchedulerRepository(private val db: AppDatabase) {
                 changedLessonEntities.forEach { dao.upsertChangedLesson(it) }
             }
 
+            dao.deleteAllLessonNotes()
+            if (lessonNoteEntities.isNotEmpty()) {
+                lessonNoteEntities.forEach { dao.upsertLessonNote(it) }
+            }
+
             dao.deleteAllLessonNotificationExclusions()
             if (lessonNotificationExclusionEntities.isNotEmpty()) {
                 lessonNotificationExclusionEntities.forEach { dao.upsertLessonNotificationExclusion(it) }
@@ -1921,7 +2018,8 @@ class SchedulerRepository(private val db: AppDatabase) {
                 DATASET_TASKS,
                 DATASET_PLANS,
                 DATASET_CANCELLED_LESSONS,
-                DATASET_CHANGED_LESSONS
+                DATASET_CHANGED_LESSONS,
+                DATASET_LESSON_NOTES
             )
         }
     }
