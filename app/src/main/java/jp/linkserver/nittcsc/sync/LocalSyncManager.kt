@@ -127,6 +127,7 @@ class LocalSyncManager(
 ) {
     private val appContext = context.applicationContext
     private val dao = db.schedulerDao()
+    private val payloadCoordinator = SyncPayloadCoordinator()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val nsdManager = appContext.getSystemService(Context.NSD_SERVICE) as? NsdManager
     private var serverSocket: ServerSocket? = null
@@ -799,56 +800,12 @@ class LocalSyncManager(
         remoteDeviceId: String,
         forceConflictOnDifference: Boolean
     ): List<SyncConflict> {
-        val registered = dao.getSyncRegisteredDevice(remoteDeviceId)
-        val localDeviceName = localPayload.getJSONObject("device").optString("deviceName", "この端末")
-        val remoteDeviceName = remotePayload.getJSONObject("device").optString("deviceName", "相手端末")
-        val conflicts = mutableListOf<SyncConflict>()
-        commonDatasets(localPayload, remotePayload).forEach { key ->
-            val localContent = localPayload.opt(key)?.toString() ?: ""
-            val remoteContent = remotePayload.opt(key)?.toString() ?: ""
-            if (localContent == remoteContent) return@forEach
-
-            val localUpdatedAt = localPayload.getJSONObject("metadata").optJSONObject(key)?.optLong("updatedAt", 0L) ?: 0L
-            val remoteUpdatedAt = remotePayload.getJSONObject("metadata").optJSONObject(key)?.optLong("updatedAt", 0L) ?: 0L
-            if (forceConflictOnDifference) {
-                conflicts += SyncConflict(
-                    datasetKey = key,
-                    label = datasetLabel(key),
-                    localUpdatedAt = localUpdatedAt,
-                    remoteUpdatedAt = remoteUpdatedAt,
-                    localDeviceName = localDeviceName,
-                    remoteDeviceName = remoteDeviceName
-                )
-                return@forEach
-            }
-            val lastSyncedAt = registered?.let {
-                when (key) {
-                    SchedulerRepository.DATASET_TASKS -> it.lastTasksSyncAt
-                    SchedulerRepository.DATASET_PLANS -> it.lastPlansSyncAt
-                    SchedulerRepository.DATASET_LESSONS -> it.lastLessonsSyncAt
-                    SchedulerRepository.DATASET_DAY_TYPES -> it.lastDayTypesSyncAt
-                    SchedulerRepository.DATASET_LONG_BREAKS -> it.lastLongBreaksSyncAt
-                    SchedulerRepository.DATASET_CANCELLED_LESSONS -> it.lastCancelledLessonsSyncAt
-                    SchedulerRepository.DATASET_CHANGED_LESSONS -> it.lastChangedLessonsSyncAt
-                    SchedulerRepository.DATASET_LESSON_NOTES -> it.lastLessonNotesSyncAt
-                    SchedulerRepository.DATASET_EXAM_TIMETABLES -> it.lastExamTimetablesSyncAt
-                    else -> 0L
-                }
-            } ?: 0L
-            val localChanged = localUpdatedAt > lastSyncedAt
-            val remoteChanged = remoteUpdatedAt > lastSyncedAt
-            if (localChanged && remoteChanged) {
-                conflicts += SyncConflict(
-                    datasetKey = key,
-                    label = datasetLabel(key),
-                    localUpdatedAt = localUpdatedAt,
-                    remoteUpdatedAt = remoteUpdatedAt,
-                    localDeviceName = localDeviceName,
-                    remoteDeviceName = remoteDeviceName
-                )
-            }
-        }
-        return conflicts
+        return payloadCoordinator.detectConflicts(
+            localPayload = localPayload,
+            remotePayload = remotePayload,
+            registeredDevice = dao.getSyncRegisteredDevice(remoteDeviceId),
+            forceConflictOnDifference = forceConflictOnDifference
+        )
     }
 
     private fun buildMergedPayload(
@@ -857,43 +814,13 @@ class LocalSyncManager(
         target: DiscoveredSyncDevice,
         resolutions: Map<String, SyncChoice>
     ): JSONObject {
-        val merged = JSONObject(localPayload.toString())
-        val metadata = JSONObject()
-        val now = System.currentTimeMillis()
-        val localMeta = localPayload.getJSONObject("metadata")
-        val remoteMeta = remotePayload.getJSONObject("metadata")
-
-        val commonDatasetKeys = commonDatasets(localPayload, remotePayload).toSet()
-        commonDatasetKeys.forEach { key ->
-            val localUpdatedAt = localMeta.optJSONObject(key)?.optLong("updatedAt", 0L) ?: 0L
-            val remoteUpdatedAt = remoteMeta.optJSONObject(key)?.optLong("updatedAt", 0L) ?: 0L
-            val choice = (resolutions[key]
-                ?: if (key == SchedulerRepository.DATASET_CANCELLED_LESSONS) resolutions[SchedulerRepository.DATASET_LESSONS] else null)
-                ?: if (remoteUpdatedAt > localUpdatedAt) SyncChoice.REMOTE else SyncChoice.LOCAL
-            val sourcePayload = if (choice == SyncChoice.LOCAL || !remotePayload.has(key)) localPayload else remotePayload
-            val sourceMeta = if (sourcePayload === localPayload) localMeta else remoteMeta
-            merged.put(key, sourcePayload.get(key))
-            metadata.put(
-                key,
-                JSONObject().also { obj ->
-                    obj.put("updatedAt", maxOf(now, sourceMeta.optJSONObject(key)?.optLong("updatedAt", 0L) ?: 0L))
-                    obj.put("updatedByDeviceId", sourceMeta.optJSONObject(key)?.optString("updatedByDeviceId", if (sourcePayload === localPayload) "" else target.deviceId) ?: "")
-                }
-            )
-        }
-        allSyncDatasets()
-            .filter { it !in commonDatasetKeys && localPayload.has(it) }
-            .forEach { key ->
-                metadata.put(
-                    key,
-                    localMeta.optJSONObject(key) ?: JSONObject()
-                )
-            }
-
-        merged.put("metadata", metadata)
-        return merged
+        return payloadCoordinator.buildMergedPayload(
+            localPayload = localPayload,
+            remotePayload = remotePayload,
+            remoteDeviceId = target.deviceId,
+            resolutions = resolutions
+        )
     }
-
     private suspend fun updateRegisteredDeviceAfterSync(target: DiscoveredSyncDevice, mergedPayload: JSONObject) {
         val existing = dao.getSyncRegisteredDevice(target.deviceId) ?: return
         val meta = mergedPayload.getJSONObject("metadata")
@@ -1577,41 +1504,6 @@ class LocalSyncManager(
         )
         dao.upsertSyncProfile(profile)
         return profile
-    }
-
-    private fun commonDatasets(localPayload: JSONObject, remotePayload: JSONObject): List<String> {
-        return allSyncDatasets().filter { key ->
-            localPayload.has(key) && remotePayload.has(key)
-        }
-    }
-
-    private fun allSyncDatasets(): List<String> {
-        return listOf(
-            SchedulerRepository.DATASET_TASKS,
-            SchedulerRepository.DATASET_PLANS,
-            SchedulerRepository.DATASET_LESSONS,
-            SchedulerRepository.DATASET_DAY_TYPES,
-            SchedulerRepository.DATASET_LONG_BREAKS,
-            SchedulerRepository.DATASET_CANCELLED_LESSONS,
-            SchedulerRepository.DATASET_CHANGED_LESSONS,
-            SchedulerRepository.DATASET_LESSON_NOTES,
-            SchedulerRepository.DATASET_EXAM_TIMETABLES
-        )
-    }
-
-    private fun datasetLabel(key: String): String {
-        return when (key) {
-            SchedulerRepository.DATASET_TASKS -> "課題"
-            SchedulerRepository.DATASET_PLANS -> "予定"
-            SchedulerRepository.DATASET_LESSONS -> "時間割"
-            SchedulerRepository.DATASET_DAY_TYPES -> "A/B表"
-            SchedulerRepository.DATASET_LONG_BREAKS -> "長期休み"
-            SchedulerRepository.DATASET_CANCELLED_LESSONS -> "休講情報"
-            SchedulerRepository.DATASET_CHANGED_LESSONS -> "授業変更"
-            SchedulerRepository.DATASET_LESSON_NOTES -> "授業メモ"
-            SchedulerRepository.DATASET_EXAM_TIMETABLES -> "テスト時間割"
-            else -> key
-        }
     }
 
     fun formatTimestamp(value: Long): String {

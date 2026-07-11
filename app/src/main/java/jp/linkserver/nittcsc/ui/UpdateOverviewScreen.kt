@@ -536,12 +536,10 @@ private fun openPackageInstaller(context: Context, apkFile: File) {
         "${context.packageName}.provider",
         apkFile
     )
-    val intent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
-        data = apkUri
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(apkUri, "application/vnd.android.package-archive")
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
-        putExtra(Intent.EXTRA_RETURN_RESULT, false)
     }
     val packageManager = context.packageManager
     val resolved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

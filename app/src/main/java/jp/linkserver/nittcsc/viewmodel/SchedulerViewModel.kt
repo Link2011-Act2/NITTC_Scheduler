@@ -116,6 +116,16 @@ class SchedulerViewModel(
 
     val snackbarMessages = _snackbarMessages.asSharedFlow()
 
+    private fun launchRepositoryUpdate(
+        successMessage: String? = null,
+        action: suspend () -> Unit
+    ) {
+        viewModelScope.launch {
+            action()
+            successMessage?.let { _snackbarMessages.emit(it) }
+        }
+    }
+
     private val examDataFlow = combine(
         repository.examDaySchedulesFlow,
         repository.examLessonsFlow
@@ -454,27 +464,19 @@ class SchedulerViewModel(
     }
 
     fun toggleLocalAi(enabled: Boolean) {
-        viewModelScope.launch {
-            repository.toggleLocalAi(enabled)
-        }
+        launchRepositoryUpdate { repository.toggleLocalAi(enabled) }
     }
 
     fun toggleNaturalLanguageTaskAdd(enabled: Boolean) {
-        viewModelScope.launch {
-            repository.toggleNaturalLanguageTaskAdd(enabled)
-        }
+        launchRepositoryUpdate { repository.toggleNaturalLanguageTaskAdd(enabled) }
     }
 
     fun toggleLessonNotes(enabled: Boolean) {
-        viewModelScope.launch {
-            repository.toggleLessonNotes(enabled)
-        }
+        launchRepositoryUpdate { repository.toggleLessonNotes(enabled) }
     }
 
     fun toggleExamTimetable(enabled: Boolean) {
-        viewModelScope.launch {
-            repository.toggleExamTimetable(enabled)
-        }
+        launchRepositoryUpdate { repository.toggleExamTimetable(enabled) }
     }
 
     fun updateExamTimetableSettings(
@@ -531,51 +533,35 @@ class SchedulerViewModel(
     }
 
     fun toggleDrawerNavigation(enabled: Boolean) {
-        viewModelScope.launch {
-            repository.toggleDrawerNavigation(enabled)
-        }
+        launchRepositoryUpdate { repository.toggleDrawerNavigation(enabled) }
     }
 
     fun toggleAddTasksToCalendar(enabled: Boolean) {
-        viewModelScope.launch {
-            repository.toggleAddTasksToCalendar(enabled)
-        }
+        launchRepositoryUpdate { repository.toggleAddTasksToCalendar(enabled) }
     }
 
     fun toggleSyncLessonsToCalendar(enabled: Boolean) {
-        viewModelScope.launch {
-            repository.toggleSyncLessonsToCalendar(enabled)
-        }
+        launchRepositoryUpdate { repository.toggleSyncLessonsToCalendar(enabled) }
     }
 
     fun enableSyncLessonsToCalendar(start: LocalDate, end: LocalDate) {
-        viewModelScope.launch {
-            repository.enableSyncLessonsToCalendar(start, end)
-        }
+        launchRepositoryUpdate { repository.enableSyncLessonsToCalendar(start, end) }
     }
 
     fun updateLessonCalendarSyncRange(start: LocalDate, end: LocalDate) {
-        viewModelScope.launch {
-            repository.updateLessonCalendarSyncRange(start, end)
-        }
+        launchRepositoryUpdate { repository.updateLessonCalendarSyncRange(start, end) }
     }
 
     fun toggleCurrentTimeMarker(enabled: Boolean) {
-        viewModelScope.launch {
-            repository.toggleCurrentTimeMarker(enabled)
-        }
+        launchRepositoryUpdate { repository.toggleCurrentTimeMarker(enabled) }
     }
 
     fun toggleUnifyTaskPlanView(enabled: Boolean) {
-        viewModelScope.launch {
-            repository.toggleUnifyTaskPlanView(enabled)
-        }
+        launchRepositoryUpdate { repository.toggleUnifyTaskPlanView(enabled) }
     }
 
     fun toggleShowWeekdayOnDates(enabled: Boolean) {
-        viewModelScope.launch {
-            repository.toggleShowWeekdayOnDates(enabled)
-        }
+        launchRepositoryUpdate { repository.toggleShowWeekdayOnDates(enabled) }
     }
 
     fun toggleTlsSync(enabled: Boolean) {
@@ -586,45 +572,31 @@ class SchedulerViewModel(
     }
 
     fun toggleAdvancedTimeSettingsUi(enabled: Boolean) {
-        viewModelScope.launch {
-            repository.toggleAdvancedTimeSettingsUi(enabled)
-        }
+        launchRepositoryUpdate { repository.toggleAdvancedTimeSettingsUi(enabled) }
     }
 
     fun toggleLessonStartNotifications(enabled: Boolean) {
-        viewModelScope.launch {
-            repository.toggleLessonStartNotifications(enabled)
-        }
+        launchRepositoryUpdate { repository.toggleLessonStartNotifications(enabled) }
     }
 
     fun updateLessonStartNotificationMinutesBefore(minutesBefore: Int) {
-        viewModelScope.launch {
-            repository.updateLessonStartNotificationMinutesBefore(minutesBefore)
-        }
+        launchRepositoryUpdate { repository.updateLessonStartNotificationMinutesBefore(minutesBefore) }
     }
 
     fun toggleLessonStartNotificationLiveUpdates(enabled: Boolean) {
-        viewModelScope.launch {
-            repository.toggleLessonStartNotificationLiveUpdates(enabled)
-        }
+        launchRepositoryUpdate { repository.toggleLessonStartNotificationLiveUpdates(enabled) }
     }
 
     fun toggleLessonStartNotificationProgressCountsDown(enabled: Boolean) {
-        viewModelScope.launch {
-            repository.toggleLessonStartNotificationProgressCountsDown(enabled)
-        }
+        launchRepositoryUpdate { repository.toggleLessonStartNotificationProgressCountsDown(enabled) }
     }
 
     fun updateLessonStartNotificationLiveUpdateEarlyMinutes(minutes: Int) {
-        viewModelScope.launch {
-            repository.updateLessonStartNotificationLiveUpdateEarlyMinutes(minutes)
-        }
+        launchRepositoryUpdate { repository.updateLessonStartNotificationLiveUpdateEarlyMinutes(minutes) }
     }
 
     fun updateLessonStartNotificationChipMode(mode: LessonStartNotificationChipMode) {
-        viewModelScope.launch {
-            repository.updateLessonStartNotificationChipMode(mode)
-        }
+        launchRepositoryUpdate { repository.updateLessonStartNotificationChipMode(mode) }
     }
 
     fun addLessonNotificationExclusion(subject: String, teacher: String?, matchTeacher: Boolean) {
@@ -689,9 +661,7 @@ class SchedulerViewModel(
     }
 
     fun updateHfToken(token: String?) {
-        viewModelScope.launch {
-            repository.updateHfToken(token)
-        }
+        launchRepositoryUpdate { repository.updateHfToken(token) }
     }
 
     fun saveLongBreak(id: Long?, name: String, startDate: LocalDate, endDate: LocalDate) {
@@ -782,10 +752,7 @@ class SchedulerViewModel(
     // Task 管理メソッド
 
     fun saveTask(task: TaskEntity) {
-        viewModelScope.launch {
-            repository.upsertTask(task)
-            _snackbarMessages.emit("課題を保存しました。")
-        }
+        launchRepositoryUpdate("課題を保存しました。") { repository.upsertTask(task) }
     }
 
     suspend fun saveTaskDirect(task: TaskEntity): TaskEntity {
@@ -793,30 +760,19 @@ class SchedulerViewModel(
     }
 
     fun saveTasksSilently(tasks: List<TaskEntity>) {
-        viewModelScope.launch {
-            repository.upsertTasks(tasks)
-        }
+        launchRepositoryUpdate { repository.upsertTasks(tasks) }
     }
 
     fun deleteTask(task: TaskEntity) {
-        viewModelScope.launch {
-            repository.deleteTask(task.id)
-            _snackbarMessages.emit("課題を削除しました。")
-        }
+        launchRepositoryUpdate("課題を削除しました。") { repository.deleteTask(task.id) }
     }
 
     fun markTaskAsComplete(task: TaskEntity) {
-        viewModelScope.launch {
-            repository.markTaskAsComplete(task.id)
-            _snackbarMessages.emit("課題を完了しました。")
-        }
+        launchRepositoryUpdate("課題を完了しました。") { repository.markTaskAsComplete(task.id) }
     }
 
     fun markTaskAsIncomplete(task: TaskEntity) {
-        viewModelScope.launch {
-            repository.markTaskAsIncomplete(task.id)
-            _snackbarMessages.emit("課題を未完了に戻しました。")
-        }
+        launchRepositoryUpdate("課題を未完了に戻しました。") { repository.markTaskAsIncomplete(task.id) }
     }
 
     suspend fun getTasksForDate(date: LocalDate): List<TaskEntity> {
@@ -828,10 +784,7 @@ class SchedulerViewModel(
     }
 
     fun savePlan(plan: PlanEntity) {
-        viewModelScope.launch {
-            repository.upsertPlan(plan)
-            _snackbarMessages.emit("予定を保存しました。")
-        }
+        launchRepositoryUpdate("予定を保存しました。") { repository.upsertPlan(plan) }
     }
 
     suspend fun savePlanDirect(plan: PlanEntity): PlanEntity {
@@ -839,30 +792,19 @@ class SchedulerViewModel(
     }
 
     fun savePlansSilently(plans: List<PlanEntity>) {
-        viewModelScope.launch {
-            repository.upsertPlans(plans)
-        }
+        launchRepositoryUpdate { repository.upsertPlans(plans) }
     }
 
     fun deletePlan(plan: PlanEntity) {
-        viewModelScope.launch {
-            repository.deletePlan(plan.id)
-            _snackbarMessages.emit("予定を削除しました。")
-        }
+        launchRepositoryUpdate("予定を削除しました。") { repository.deletePlan(plan.id) }
     }
 
     fun markPlanAsComplete(plan: PlanEntity) {
-        viewModelScope.launch {
-            repository.markPlanAsComplete(plan.id)
-            _snackbarMessages.emit("予定を完了しました。")
-        }
+        launchRepositoryUpdate("予定を完了しました。") { repository.markPlanAsComplete(plan.id) }
     }
 
     fun markPlanAsIncomplete(plan: PlanEntity) {
-        viewModelScope.launch {
-            repository.markPlanAsIncomplete(plan.id)
-            _snackbarMessages.emit("予定を未完了に戻しました。")
-        }
+        launchRepositoryUpdate("予定を未完了に戻しました。") { repository.markPlanAsIncomplete(plan.id) }
     }
 
     suspend fun getPlansForDate(date: LocalDate): List<PlanEntity> {
