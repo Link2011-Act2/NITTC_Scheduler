@@ -76,8 +76,11 @@ class TaskReminderWorker(
             .setContentIntent(openAppPendingIntent)
             .build()
 
-        NotificationManagerCompat.from(applicationContext)
-            .notify(taskReminderNotificationId(task.id), notification)
+        NotificationManagerCompat.from(applicationContext).notifyIfAllowed(
+            applicationContext,
+            taskReminderNotificationId(task.id),
+            notification
+        )
 
         return Result.success()
     }

@@ -20,7 +20,7 @@ class SchedulerRepository(private val db: AppDatabase) {
     private val dao: SchedulerDao = db.schedulerDao()
 
     companion object {
-        private const val CURRENT_EXPORT_VERSION = 9
+        private const val CURRENT_EXPORT_VERSION = 11
         private const val MIN_SUPPORTED_IMPORT_VERSION = 1
         private const val MAX_FUTURE_META_DRIFT_MS = 5 * 60 * 1000L
         const val DATASET_TASKS = "tasks"
@@ -31,6 +31,7 @@ class SchedulerRepository(private val db: AppDatabase) {
         const val DATASET_CANCELLED_LESSONS = "cancelledLessons"
         const val DATASET_CHANGED_LESSONS = "changedLessons"
         const val DATASET_LESSON_NOTES = "lessonNotes"
+        const val DATASET_EXAM_TIMETABLES = "examTimetables"
         val SYNC_DATASET_KEYS = listOf(
             DATASET_TASKS,
             DATASET_PLANS,
@@ -39,7 +40,8 @@ class SchedulerRepository(private val db: AppDatabase) {
             DATASET_LONG_BREAKS,
             DATASET_CANCELLED_LESSONS,
             DATASET_CHANGED_LESSONS,
-            DATASET_LESSON_NOTES
+            DATASET_LESSON_NOTES,
+            DATASET_EXAM_TIMETABLES
         )
     }
 
@@ -48,6 +50,8 @@ class SchedulerRepository(private val db: AppDatabase) {
     val cancelledLessonsFlow: Flow<List<CancelledLessonEntity>> = dao.observeCancelledLessons()
     val changedLessonsFlow: Flow<List<ChangedLessonEntity>> = dao.observeChangedLessons()
     val lessonNotesFlow: Flow<List<LessonNoteEntity>> = dao.observeLessonNotes()
+    val examDaySchedulesFlow: Flow<List<ExamDayScheduleEntity>> = dao.observeExamDaySchedules()
+    val examLessonsFlow: Flow<List<ExamLessonEntity>> = dao.observeExamLessons()
     val lessonNotificationExclusionsFlow: Flow<List<LessonNotificationExclusionEntity>> = dao.observeLessonNotificationExclusions()
     val longBreaksFlow: Flow<List<LongBreakEntity>> = dao.observeLongBreaks()
     val lessonsFlow: Flow<List<LessonEntity>> = dao.observeLessons()
@@ -150,6 +154,85 @@ class SchedulerRepository(private val db: AppDatabase) {
     suspend fun toggleLessonNotes(enabled: Boolean) {
         val current = dao.getSettings() ?: return
         dao.upsertSettings(current.copy(enableLessonNotes = enabled))
+    }
+
+    suspend fun toggleExamTimetable(enabled: Boolean) {
+        val current = dao.getSettings() ?: return
+        dao.upsertSettings(current.copy(enableExamTimetable = enabled))
+    }
+
+    suspend fun updateExamTimetableSettings(
+        periodsPerDay: Int,
+        periodDurationMin: Int,
+        breakBetweenPeriodsMin: Int,
+        lunchBreakMin: Int,
+        lunchAfterPeriod: Int,
+        firstPeriodStartHour: Int,
+        firstPeriodStartMinute: Int,
+        arrivalHour: Int,
+        arrivalMinute: Int
+    ) {
+        val current = dao.getSettings() ?: return
+        val normalizedPeriods = periodsPerDay.coerceIn(1, 12)
+        dao.upsertSettings(
+            current.copy(
+                examPeriodsPerDay = normalizedPeriods,
+                examPeriodDurationMin = periodDurationMin.coerceIn(10, 180),
+                examBreakBetweenPeriodsMin = breakBetweenPeriodsMin.coerceIn(0, 120),
+                examLunchBreakMin = lunchBreakMin.coerceIn(0, 180),
+                examLunchAfterPeriod = lunchAfterPeriod.coerceIn(0, normalizedPeriods),
+                examFirstPeriodStartHour = firstPeriodStartHour.coerceIn(0, 23),
+                examFirstPeriodStartMinute = firstPeriodStartMinute.coerceIn(0, 59),
+                examArrivalHour = arrivalHour.coerceIn(0, 23),
+                examArrivalMinute = arrivalMinute.coerceIn(0, 59)
+            )
+        )
+    }
+
+    suspend fun saveExamDaySchedule(
+        schedule: ExamDayScheduleEntity,
+        lessons: List<ExamLessonEntity>
+    ) {
+        db.withTransaction {
+            dao.upsertExamDaySchedule(schedule)
+            dao.deleteExamLessonsForDate(schedule.date)
+            val normalizedLessons = lessons
+                .filter { it.date == schedule.date }
+                .sortedBy { it.slotIndex }
+            if (normalizedLessons.isNotEmpty()) {
+                dao.upsertExamLessons(normalizedLessons)
+            }
+            touchSyncDatasetMeta(DATASET_EXAM_TIMETABLES)
+        }
+    }
+
+    suspend fun saveExamPeriodSchedules(
+        schedules: List<ExamDayScheduleEntity>,
+        lessons: List<ExamLessonEntity>
+    ) {
+        if (schedules.isEmpty()) return
+        db.withTransaction {
+            schedules.forEach { schedule ->
+                dao.upsertExamDaySchedule(schedule)
+                dao.deleteExamLessonsForDate(schedule.date)
+            }
+            val targetDates = schedules.map { it.date }.toSet()
+            val normalizedLessons = lessons
+                .filter { it.date in targetDates }
+                .sortedWith(compareBy<ExamLessonEntity> { it.date }.thenBy { it.slotIndex })
+            if (normalizedLessons.isNotEmpty()) {
+                dao.upsertExamLessons(normalizedLessons)
+            }
+            touchSyncDatasetMeta(DATASET_EXAM_TIMETABLES)
+        }
+    }
+
+    suspend fun deleteExamDaySchedule(date: LocalDate) {
+        db.withTransaction {
+            dao.deleteExamLessonsForDate(date)
+            dao.deleteExamDaySchedule(date)
+            touchSyncDatasetMeta(DATASET_EXAM_TIMETABLES)
+        }
     }
 
     suspend fun toggleDrawerNavigation(enabled: Boolean) {
@@ -558,6 +641,23 @@ class SchedulerRepository(private val db: AppDatabase) {
         val lessons = dao.getLessonsOnce().associateBy { it.dayOfWeek to it.slotIndex }
         val cancelledLessons = dao.getCancelledLessonsOnce()
             .mapTo(mutableSetOf()) { it.date to it.slotIndex }
+        val examLessonsByDate = if (settings.enableExamTimetable) {
+            dao.getExamLessonsOnce().groupBy { it.date }
+        } else {
+            emptyMap()
+        }
+        val examScheduleDates = if (settings.enableExamTimetable) {
+            dao.getExamDaySchedulesOnce()
+                .map { it.date }
+                .filterTo(mutableSetOf()) { date ->
+                    examLessonsByDate[date].orEmpty().any { it.hasEnteredContent() } && when (dayTypeMap[date]?.holidaySpecialLabel) {
+                        HolidaySpecialLabel.MIDTERM, HolidaySpecialLabel.FINAL -> true
+                        else -> false
+                    }
+                }
+        } else {
+            emptySet()
+        }
 
         val dateBounds = when (range) {
             is ExportRange.Custom -> range.start..range.end
@@ -578,6 +678,27 @@ class SchedulerRepository(private val db: AppDatabase) {
 
         return buildList {
             for (date in dateBounds.start.toDateRange(dateBounds.endInclusive)) {
+                if (date in examScheduleDates) {
+                    examLessonsByDate[date].orEmpty()
+                        .sortedBy { it.slotIndex }
+                        .filter { it.subject.isNotBlank() }
+                        .forEach { exam ->
+                            add(
+                                GeneratedLesson(
+                                    date = date,
+                                    slot = jp.linkserver.nittcsc.logic.ClassSlot(
+                                        index = exam.slotIndex,
+                                        label = "${exam.slotIndex + 1}時間目",
+                                        start = LocalTime.of(exam.startHour, exam.startMinute),
+                                        end = LocalTime.of(exam.endHour, exam.endMinute)
+                                    ),
+                                    subject = exam.subject,
+                                    teacher = exam.teacher
+                                )
+                            )
+                        }
+                    continue
+                }
                 if (date.dayOfWeek == DayOfWeek.SATURDAY || date.dayOfWeek == DayOfWeek.SUNDAY) continue
 
                 val dayTypeEntity = dayTypeMap[date]
@@ -1172,6 +1293,8 @@ class SchedulerRepository(private val db: AppDatabase) {
         val cancelledLessons = dao.getCancelledLessonsOnce()
         val changedLessons = dao.getChangedLessonsOnce()
         val lessonNotes = dao.getLessonNotesOnce()
+        val examDaySchedules = dao.getExamDaySchedulesOnce()
+        val examLessons = dao.getExamLessonsOnce()
         val lessonNotificationExclusions = dao.getLessonNotificationExclusionsOnce()
 
         val root = org.json.JSONObject()
@@ -1219,6 +1342,16 @@ class SchedulerRepository(private val db: AppDatabase) {
                 s.put("syncLessonsToCalendar", settings.syncLessonsToCalendar)
                 if (settings.lessonCalendarSyncStart != null) s.put("lessonCalendarSyncStart", settings.lessonCalendarSyncStart.toString())
                 if (settings.lessonCalendarSyncEnd != null) s.put("lessonCalendarSyncEnd", settings.lessonCalendarSyncEnd.toString())
+                s.put("enableExamTimetable", settings.enableExamTimetable)
+                s.put("examPeriodsPerDay", settings.examPeriodsPerDay)
+                s.put("examPeriodDurationMin", settings.examPeriodDurationMin)
+                s.put("examBreakBetweenPeriodsMin", settings.examBreakBetweenPeriodsMin)
+                s.put("examLunchBreakMin", settings.examLunchBreakMin)
+                s.put("examLunchAfterPeriod", settings.examLunchAfterPeriod)
+                s.put("examFirstPeriodStartHour", settings.examFirstPeriodStartHour)
+                s.put("examFirstPeriodStartMinute", settings.examFirstPeriodStartMinute)
+                s.put("examArrivalHour", settings.examArrivalHour)
+                s.put("examArrivalMinute", settings.examArrivalMinute)
             })
         }
 
@@ -1345,6 +1478,24 @@ class SchedulerRepository(private val db: AppDatabase) {
             }
         })
 
+        root.put("examDaySchedules", org.json.JSONArray().also { arr ->
+            examDaySchedules.forEach { schedule ->
+                arr.put(org.json.JSONObject().also { obj ->
+                    obj.put("date", schedule.date.toString())
+                    obj.put("arrivalHour", schedule.arrivalHour)
+                    obj.put("arrivalMinute", schedule.arrivalMinute)
+                    obj.put("examName", schedule.examName)
+                    obj.put("updatedAt", schedule.updatedAt)
+                })
+            }
+        })
+
+        root.put("examLessons", org.json.JSONArray().also { arr ->
+            examLessons.forEach { lesson ->
+                arr.put(examLessonToJson(lesson))
+            }
+        })
+
         root.put("lessonNotificationExclusions", org.json.JSONArray().also { arr ->
             lessonNotificationExclusions.forEach { exclusion ->
                 arr.put(org.json.JSONObject().also { obj ->
@@ -1367,6 +1518,8 @@ class SchedulerRepository(private val db: AppDatabase) {
         val plans = dao.getPlansOnce()
         val changedLessons = dao.getChangedLessonsOnce()
         val lessonNotes = dao.getLessonNotesOnce()
+        val examDaySchedules = dao.getExamDaySchedulesOnce()
+        val examLessons = dao.getExamLessonsOnce()
         val profile = dao.getSyncProfile()
         val now = System.currentTimeMillis()
         val datasetMetaByKey = dao.getAllSyncDatasetMeta().associateBy { it.datasetKey }
@@ -1509,6 +1662,23 @@ class SchedulerRepository(private val db: AppDatabase) {
                     obj.put("updatedAt", note.updatedAt)
                 })
             }
+        })
+
+        root.put(DATASET_EXAM_TIMETABLES, org.json.JSONObject().also { exam ->
+            exam.put("days", org.json.JSONArray().also { arr ->
+                examDaySchedules.forEach { schedule ->
+                    arr.put(org.json.JSONObject().also { obj ->
+                        obj.put("date", schedule.date.toString())
+                        obj.put("arrivalHour", schedule.arrivalHour)
+                        obj.put("arrivalMinute", schedule.arrivalMinute)
+                        obj.put("examName", schedule.examName)
+                        obj.put("updatedAt", schedule.updatedAt)
+                    })
+                }
+            })
+            exam.put("lessons", org.json.JSONArray().also { arr ->
+                examLessons.forEach { lesson -> arr.put(examLessonToJson(lesson)) }
+            })
         })
 
         return root
@@ -1698,6 +1868,36 @@ class SchedulerRepository(private val db: AppDatabase) {
             }
         }
 
+        payload.optJSONObject(DATASET_EXAM_TIMETABLES)?.let { exam ->
+            touchedDatasets += DATASET_EXAM_TIMETABLES
+            dao.deleteAllExamLessons()
+            dao.deleteAllExamDaySchedules()
+            exam.optJSONArray("days")?.let { days ->
+                for (i in 0 until days.length()) {
+                    val obj = days.optJSONObject(i) ?: continue
+                    val date = runCatching { LocalDate.parse(obj.optString("date")) }.getOrNull() ?: continue
+                    dao.upsertExamDaySchedule(
+                        ExamDayScheduleEntity(
+                            date = date,
+                            arrivalHour = obj.optInt("arrivalHour", 8).coerceIn(0, 23),
+                            arrivalMinute = obj.optInt("arrivalMinute", 30).coerceIn(0, 59),
+                            examName = obj.optString("examName", "").trim(),
+                            updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
+                        )
+                    )
+                }
+            }
+            val importedLessons = mutableListOf<ExamLessonEntity>()
+            exam.optJSONArray("lessons")?.let { lessons ->
+                for (i in 0 until lessons.length()) {
+                    examLessonFromJson(lessons.optJSONObject(i))?.let(importedLessons::add)
+                }
+            }
+            if (importedLessons.isNotEmpty()) {
+                dao.upsertExamLessons(importedLessons)
+            }
+        }
+
         val now = System.currentTimeMillis()
         val metadata = payload.optJSONObject("metadata")
         if (metadata != null && touchedDatasets.isNotEmpty()) {
@@ -1779,7 +1979,20 @@ class SchedulerRepository(private val db: AppDatabase) {
                 }.getOrDefault(LessonStartNotificationChipMode.MINUTE_TEXT),
                 syncLessonsToCalendar = s.optBoolean("syncLessonsToCalendar", false),
                 lessonCalendarSyncStart = s.optString("lessonCalendarSyncStart", "").takeIf { it.isNotBlank() }?.let(LocalDate::parse),
-                lessonCalendarSyncEnd = s.optString("lessonCalendarSyncEnd", "").takeIf { it.isNotBlank() }?.let(LocalDate::parse)
+                lessonCalendarSyncEnd = s.optString("lessonCalendarSyncEnd", "").takeIf { it.isNotBlank() }?.let(LocalDate::parse),
+                enableExamTimetable = s.optBoolean("enableExamTimetable", false),
+                examPeriodsPerDay = s.optInt("examPeriodsPerDay", 4).coerceIn(1, 12),
+                examPeriodDurationMin = s.optInt("examPeriodDurationMin", 50).coerceIn(10, 180),
+                examBreakBetweenPeriodsMin = s.optInt("examBreakBetweenPeriodsMin", 20).coerceIn(0, 120),
+                examLunchBreakMin = s.optInt("examLunchBreakMin", 50).coerceIn(0, 180),
+                examLunchAfterPeriod = s.optInt("examLunchAfterPeriod", 3).coerceIn(
+                    0,
+                    s.optInt("examPeriodsPerDay", 4).coerceIn(1, 12)
+                ),
+                examFirstPeriodStartHour = s.optInt("examFirstPeriodStartHour", 8).coerceIn(0, 23),
+                examFirstPeriodStartMinute = s.optInt("examFirstPeriodStartMinute", 50).coerceIn(0, 59),
+                examArrivalHour = s.optInt("examArrivalHour", 8).coerceIn(0, 23),
+                examArrivalMinute = s.optInt("examArrivalMinute", 30).coerceIn(0, 59)
             )
         }
 
@@ -1961,6 +2174,28 @@ class SchedulerRepository(private val db: AppDatabase) {
             }
         }
 
+        val examDayScheduleEntities = mutableListOf<ExamDayScheduleEntity>()
+        normalizedRoot.optJSONArray("examDaySchedules")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val date = runCatching { LocalDate.parse(obj.optString("date")) }.getOrNull() ?: continue
+                examDayScheduleEntities += ExamDayScheduleEntity(
+                    date = date,
+                    arrivalHour = obj.optInt("arrivalHour", 8).coerceIn(0, 23),
+                    arrivalMinute = obj.optInt("arrivalMinute", 30).coerceIn(0, 59),
+                    examName = obj.optString("examName", "").trim(),
+                    updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
+                )
+            }
+        }
+
+        val examLessonEntities = mutableListOf<ExamLessonEntity>()
+        normalizedRoot.optJSONArray("examLessons")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                examLessonFromJson(arr.optJSONObject(i))?.let(examLessonEntities::add)
+            }
+        }
+
         val lessonNotificationExclusionEntities = mutableListOf<LessonNotificationExclusionEntity>()
         normalizedRoot.optJSONArray("lessonNotificationExclusions")?.let { arr ->
             for (i in 0 until arr.length()) {
@@ -2014,6 +2249,15 @@ class SchedulerRepository(private val db: AppDatabase) {
                 lessonNoteEntities.forEach { dao.upsertLessonNote(it) }
             }
 
+            dao.deleteAllExamLessons()
+            dao.deleteAllExamDaySchedules()
+            if (examDayScheduleEntities.isNotEmpty()) {
+                examDayScheduleEntities.forEach { dao.upsertExamDaySchedule(it) }
+            }
+            if (examLessonEntities.isNotEmpty()) {
+                dao.upsertExamLessons(examLessonEntities)
+            }
+
             dao.deleteAllLessonNotificationExclusions()
             if (lessonNotificationExclusionEntities.isNotEmpty()) {
                 lessonNotificationExclusionEntities.forEach { dao.upsertLessonNotificationExclusion(it) }
@@ -2028,9 +2272,51 @@ class SchedulerRepository(private val db: AppDatabase) {
                 DATASET_PLANS,
                 DATASET_CANCELLED_LESSONS,
                 DATASET_CHANGED_LESSONS,
-                DATASET_LESSON_NOTES
+                DATASET_LESSON_NOTES,
+                DATASET_EXAM_TIMETABLES
             )
         }
+    }
+
+    private fun examLessonToJson(lesson: ExamLessonEntity): org.json.JSONObject {
+        return org.json.JSONObject().also { obj ->
+            obj.put("date", lesson.date.toString())
+            obj.put("slotIndex", lesson.slotIndex)
+            obj.put("startHour", lesson.startHour)
+            obj.put("startMinute", lesson.startMinute)
+            obj.put("endHour", lesson.endHour)
+            obj.put("endMinute", lesson.endMinute)
+            obj.put("subject", lesson.subject)
+            obj.put("teacher", lesson.teacher)
+            obj.put("location", lesson.location)
+            obj.put("memo", lesson.memo)
+            obj.put("updatedAt", lesson.updatedAt)
+        }
+    }
+
+    private fun examLessonFromJson(obj: org.json.JSONObject?): ExamLessonEntity? {
+        obj ?: return null
+        val date = runCatching { LocalDate.parse(obj.optString("date")) }.getOrNull() ?: return null
+        val slotIndex = obj.optInt("slotIndex", -1)
+        if (slotIndex !in 0..11) return null
+        val startHour = obj.optInt("startHour", 8).coerceIn(0, 23)
+        val startMinute = obj.optInt("startMinute", 50).coerceIn(0, 59)
+        val endHour = obj.optInt("endHour", 9).coerceIn(0, 23)
+        val endMinute = obj.optInt("endMinute", 40).coerceIn(0, 59)
+        if (endHour * 60 + endMinute <= startHour * 60 + startMinute) return null
+        return ExamLessonEntity(
+            date = date,
+            slotIndex = slotIndex,
+            startHour = startHour,
+            startMinute = startMinute,
+            endHour = endHour,
+            endMinute = endMinute,
+            subject = obj.optString("subject", "").trim(),
+            teacher = obj.optString("teacher", "").trim(),
+            location = obj.optString("location", "").trim(),
+            memo = obj.optString("memo", "").trim(),
+            updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
+        )
     }
 
     private fun normalizeImportRoot(root: org.json.JSONObject, importVersion: Int): org.json.JSONObject {

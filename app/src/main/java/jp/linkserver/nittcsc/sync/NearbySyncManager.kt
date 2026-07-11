@@ -451,7 +451,8 @@ class NearbySyncManager(
         SchedulerRepository.DATASET_LONG_BREAKS,
         SchedulerRepository.DATASET_CANCELLED_LESSONS,
         SchedulerRepository.DATASET_CHANGED_LESSONS,
-        SchedulerRepository.DATASET_LESSON_NOTES
+        SchedulerRepository.DATASET_LESSON_NOTES,
+        SchedulerRepository.DATASET_EXAM_TIMETABLES
     )
 
     private fun detectNearbyConflicts(local: JSONObject, remote: JSONObject): List<SyncConflict> {
@@ -480,6 +481,7 @@ class NearbySyncManager(
                         SchedulerRepository.DATASET_CANCELLED_LESSONS -> "休講情報"
                         SchedulerRepository.DATASET_CHANGED_LESSONS -> "授業変更"
                         SchedulerRepository.DATASET_LESSON_NOTES -> "授業メモ"
+                        SchedulerRepository.DATASET_EXAM_TIMETABLES -> "テスト時間割"
                         else -> key
                     },
                     localUpdatedAt = localTs,

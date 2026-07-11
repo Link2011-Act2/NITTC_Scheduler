@@ -831,6 +831,7 @@ class LocalSyncManager(
                     SchedulerRepository.DATASET_CANCELLED_LESSONS -> it.lastCancelledLessonsSyncAt
                     SchedulerRepository.DATASET_CHANGED_LESSONS -> it.lastChangedLessonsSyncAt
                     SchedulerRepository.DATASET_LESSON_NOTES -> it.lastLessonNotesSyncAt
+                    SchedulerRepository.DATASET_EXAM_TIMETABLES -> it.lastExamTimetablesSyncAt
                     else -> 0L
                 }
             } ?: 0L
@@ -910,7 +911,8 @@ class LocalSyncManager(
                 lastLongBreaksSyncAt = meta.optJSONObject(SchedulerRepository.DATASET_LONG_BREAKS)?.optLong("updatedAt", existing.lastLongBreaksSyncAt) ?: existing.lastLongBreaksSyncAt,
                 lastCancelledLessonsSyncAt = meta.optJSONObject(SchedulerRepository.DATASET_CANCELLED_LESSONS)?.optLong("updatedAt", existing.lastCancelledLessonsSyncAt) ?: existing.lastCancelledLessonsSyncAt,
                 lastChangedLessonsSyncAt = meta.optJSONObject(SchedulerRepository.DATASET_CHANGED_LESSONS)?.optLong("updatedAt", existing.lastChangedLessonsSyncAt) ?: existing.lastChangedLessonsSyncAt,
-                lastLessonNotesSyncAt = meta.optJSONObject(SchedulerRepository.DATASET_LESSON_NOTES)?.optLong("updatedAt", existing.lastLessonNotesSyncAt) ?: existing.lastLessonNotesSyncAt
+                lastLessonNotesSyncAt = meta.optJSONObject(SchedulerRepository.DATASET_LESSON_NOTES)?.optLong("updatedAt", existing.lastLessonNotesSyncAt) ?: existing.lastLessonNotesSyncAt,
+                lastExamTimetablesSyncAt = meta.optJSONObject(SchedulerRepository.DATASET_EXAM_TIMETABLES)?.optLong("updatedAt", existing.lastExamTimetablesSyncAt) ?: existing.lastExamTimetablesSyncAt
             )
         )
     }
@@ -1592,7 +1594,8 @@ class LocalSyncManager(
             SchedulerRepository.DATASET_LONG_BREAKS,
             SchedulerRepository.DATASET_CANCELLED_LESSONS,
             SchedulerRepository.DATASET_CHANGED_LESSONS,
-            SchedulerRepository.DATASET_LESSON_NOTES
+            SchedulerRepository.DATASET_LESSON_NOTES,
+            SchedulerRepository.DATASET_EXAM_TIMETABLES
         )
     }
 
@@ -1606,6 +1609,7 @@ class LocalSyncManager(
             SchedulerRepository.DATASET_CANCELLED_LESSONS -> "休講情報"
             SchedulerRepository.DATASET_CHANGED_LESSONS -> "授業変更"
             SchedulerRepository.DATASET_LESSON_NOTES -> "授業メモ"
+            SchedulerRepository.DATASET_EXAM_TIMETABLES -> "テスト時間割"
             else -> key
         }
     }

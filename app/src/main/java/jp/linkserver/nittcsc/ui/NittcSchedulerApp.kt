@@ -70,6 +70,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Quiz
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TableChart
@@ -108,7 +109,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -151,6 +152,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.platform.ViewConfiguration
 import androidx.compose.ui.res.painterResource
@@ -168,6 +170,8 @@ import jp.linkserver.nittcsc.calendar.TaskCalendarSync
 import jp.linkserver.nittcsc.data.DayType
 import jp.linkserver.nittcsc.data.DayTypeEntity
 import jp.linkserver.nittcsc.data.ChangedLessonEntity
+import jp.linkserver.nittcsc.data.ExamLessonEntity
+import jp.linkserver.nittcsc.data.hasEnteredContent
 import jp.linkserver.nittcsc.data.HolidaySpecialLabel
 import jp.linkserver.nittcsc.data.LessonDraft
 import jp.linkserver.nittcsc.data.LessonEntity
@@ -185,6 +189,10 @@ import jp.linkserver.nittcsc.logic.ExportResult
 import jp.linkserver.nittcsc.logic.NaturalLanguageLessonCandidate
 import jp.linkserver.nittcsc.logic.NaturalLanguageTaskParser
 import jp.linkserver.nittcsc.logic.generateClassSlots
+import jp.linkserver.nittcsc.logic.japaneseDayOfWeekSearchText
+import jp.linkserver.nittcsc.logic.matchesTaskPlanSearch
+import jp.linkserver.nittcsc.logic.normalizeSearchText
+import jp.linkserver.nittcsc.logic.tokenizeSearchQuery
 import jp.linkserver.nittcsc.ml.ModelDownloadManager
 import jp.linkserver.nittcsc.ml.VlmInferenceEngine
 import jp.linkserver.nittcsc.ml.VlmInferenceService
@@ -208,7 +216,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.text.Normalizer
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -219,7 +226,7 @@ import java.time.temporal.TemporalAdjusters
 import java.time.temporal.WeekFields
 
 enum class AppTab(
-    @StringRes val labelRes: Int,
+    @param:StringRes val labelRes: Int,
     val selectedIcon: ImageVector,
     val unselectedIcon: ImageVector
 ) {
@@ -250,12 +257,12 @@ enum class AppTab(
     )
 }
 
-private enum class OutputDisplayMode(@StringRes val labelRes: Int) {
+private enum class OutputDisplayMode(@param:StringRes val labelRes: Int) {
     DAY(R.string.display_mode_day),
     WEEK(R.string.display_mode_week)
 }
 
-private enum class LessonSearchDisplayMode(@StringRes val labelRes: Int) {
+private enum class LessonSearchDisplayMode(@param:StringRes val labelRes: Int) {
     CALENDAR(R.string.search_display_calendar),
     LIST(R.string.search_display_list)
 }
@@ -315,6 +322,7 @@ private val LegacyTaskBadgeOnContainer = Color(0xFFFFDAD6)
 fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val resources = LocalResources.current
     val naturalLanguageInferenceEngine = remember { VlmInferenceEngine(context) }
     DisposableEffect(naturalLanguageInferenceEngine) {
         onDispose { naturalLanguageInferenceEngine.cancelInference() }
@@ -333,7 +341,10 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     var updateNotification by remember { mutableStateOf<AppUpdateInfo?>(null) }
     var showOssLicenses by rememberSaveable { mutableStateOf(false) }
     var showLessonSearch by rememberSaveable { mutableStateOf(false) }
+    var requestedOutputDayEpochDay by rememberSaveable { mutableStateOf<Long?>(null) }
     var showTaskPlanCalendar by rememberSaveable { mutableStateOf(false) }
+    var showExamTimetablePeriods by rememberSaveable { mutableStateOf(false) }
+    var selectedExamPeriodStartEpochDay by rememberSaveable { mutableStateOf<Long?>(null) }
     var showTaskEditor by rememberSaveable { mutableStateOf(false) }
     var editingTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
     var focusedTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -419,6 +430,12 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     BackHandler(enabled = showVlmImport) { showVlmImport = false }
     BackHandler(enabled = showLessonSearch) { showLessonSearch = false }
     BackHandler(enabled = showTaskPlanCalendar) { showTaskPlanCalendar = false }
+    BackHandler(enabled = selectedExamPeriodStartEpochDay != null) {
+        selectedExamPeriodStartEpochDay = null
+    }
+    BackHandler(enabled = showExamTimetablePeriods && selectedExamPeriodStartEpochDay == null) {
+        showExamTimetablePeriods = false
+    }
     BackHandler(enabled = transientTabOrigin != null && transientTabTarget == selectedTab) {
         selectedTab = transientTabOrigin ?: selectedTab
         transientTabOrigin = null
@@ -470,11 +487,14 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         uiState.settings?.lessonStartNotificationLiveUpdatesEnabled,
         uiState.settings?.lessonStartNotificationProgressCountsDown,
         uiState.settings?.lessonStartNotificationLiveUpdateEarlyMinutes,
+        uiState.settings?.enableExamTimetable,
         uiState.lessonNotificationExclusions,
         uiState.lessons,
         uiState.dayTypeEntities,
         uiState.changedLessons,
-        uiState.cancelledLessons
+        uiState.cancelledLessons,
+        uiState.examDaySchedules,
+        uiState.examLessons
     ) {
         if (uiState.initialized) {
             LessonStartNotificationWorker.rescheduleAll(context)
@@ -496,10 +516,13 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         uiState.settings?.firstPeriodStartHour,
         uiState.settings?.firstPeriodStartMinute,
         uiState.settings?.useKosenMode,
+        uiState.settings?.enableExamTimetable,
         uiState.lessons,
         uiState.dayTypeEntities,
         uiState.changedLessons,
-        uiState.cancelledLessons
+        uiState.cancelledLessons,
+        uiState.examDaySchedules,
+        uiState.examLessons
     ) {
         val settings = uiState.settings ?: return@LaunchedEffect
         if (!uiState.initialized || !hasCalendarPermission(context)) return@LaunchedEffect
@@ -599,7 +622,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
             info.versionName ?: "unknown"
         }.getOrDefault("unknown")
         if (shouldCheckForUpdates(context, currentVersionName)) {
-            val repositoryUrl = context.getString(R.string.about_support_site_url)
+            val repositoryUrl = resources.getString(R.string.about_support_site_url)
             val result = withContext(Dispatchers.IO) {
                 checkGitHubReleaseUpdate(
                     repositoryUrl = repositoryUrl,
@@ -672,7 +695,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                 count
             }
             snackbarHostState.showSnackbar(
-                context.getString(R.string.msg_app_calendar_events_deleted, deletedCount)
+                resources.getString(R.string.msg_app_calendar_events_deleted, deletedCount)
             )
         }
     }
@@ -744,7 +767,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                     viewModel.saveTasksSilently(updatedTasks)
                     viewModel.savePlansSilently(updatedPlans)
                     snackbarHostState.showSnackbar(
-                        context.getString(R.string.msg_tasks_synced_to_calendar, syncedCount)
+                        resources.getString(R.string.msg_tasks_synced_to_calendar, syncedCount)
                     )
                 }
             } else {
@@ -1033,7 +1056,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                 viewModel.saveTasksSilently(updatedTasks)
                 viewModel.savePlansSilently(updatedPlans)
                 snackbarHostState.showSnackbar(
-                    context.getString(R.string.msg_tasks_synced_to_calendar, syncedCount)
+                    resources.getString(R.string.msg_tasks_synced_to_calendar, syncedCount)
                 )
             }
         } else {
@@ -1166,9 +1189,9 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                     }
                 )
             } else if (affectedTasks.isNotEmpty() || affectedPlans.isNotEmpty()) {
-                snackbarHostState.showSnackbar(context.getString(R.string.msg_lesson_change_move_target_not_found))
+                snackbarHostState.showSnackbar(resources.getString(R.string.msg_lesson_change_move_target_not_found))
             } else {
-                snackbarHostState.showSnackbar(context.getString(R.string.msg_lesson_change_saved))
+                snackbarHostState.showSnackbar(resources.getString(R.string.msg_lesson_change_saved))
             }
         }
     }
@@ -1236,9 +1259,16 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                     }
                 )
             } else if (affectedTasks.isNotEmpty() || affectedPlans.isNotEmpty()) {
-                snackbarHostState.showSnackbar(context.getString(R.string.msg_lesson_cancel_move_target_not_found))
+                snackbarHostState.showSnackbar(resources.getString(R.string.msg_lesson_cancel_move_target_not_found))
             }
         }
+    }
+
+    val examPeriods = remember(uiState.dayTypeEntities) {
+        buildExamPeriods(uiState.dayTypeEntities.values)
+    }
+    val selectedExamPeriod = selectedExamPeriodStartEpochDay?.let { epochDay ->
+        examPeriods.firstOrNull { it.startDate.toEpochDay() == epochDay }
     }
 
     val currentScreenResource = when {
@@ -1251,6 +1281,8 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         showVlmImport -> "vlm"
         showSettings -> "settings"
         lessonChangeEditor != null -> "lessonChange"
+        selectedExamPeriod != null -> "examTimetableEditor"
+        showExamTimetablePeriods -> "examTimetablePeriods"
         showLessonSearch -> "lessonSearch"
         showTaskPlanCalendar -> "taskPlanCalendar"
         else -> "main"
@@ -1311,7 +1343,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                         pendingLessonMoveDialog = null
                         appScope.launch {
                             moveLessonItems(currentDialog)
-                            snackbarHostState.showSnackbar(context.getString(R.string.msg_lesson_change_items_moved))
+                            snackbarHostState.showSnackbar(resources.getString(R.string.msg_lesson_change_items_moved))
                         }
                     }
                 ) {
@@ -1323,7 +1355,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                     onClick = {
                         pendingLessonMoveDialog = null
                         appScope.launch {
-                            snackbarHostState.showSnackbar(context.getString(R.string.msg_lesson_change_saved))
+                            snackbarHostState.showSnackbar(resources.getString(R.string.msg_lesson_change_saved))
                         }
                     }
                 ) {
@@ -1435,7 +1467,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                 appScope.launch {
                                     viewModel.clearChangedLessonDirect(editorState.date, editorState.slotIndex)
                                     lessonChangeEditor = null
-                                    snackbarHostState.showSnackbar(context.getString(R.string.msg_lesson_change_cleared))
+                                    snackbarHostState.showSnackbar(resources.getString(R.string.msg_lesson_change_cleared))
                                 }
                             },
                             onBack = { lessonChangeEditor = null }
@@ -1454,8 +1486,44 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                         isLessonCancelled = { date, slotIndex ->
                             viewModel.isLessonCancelled(date, slotIndex, uiState.cancelledLessons)
                         },
+                        onOpenDate = { date ->
+                            viewModel.setResultDate(date)
+                            requestedOutputDayEpochDay = date.toEpochDay()
+                            selectedTab = AppTab.Output
+                            showLessonSearch = false
+                        },
                         onBack = { showLessonSearch = false }
                     )
+                }
+                "examTimetablePeriods" -> {
+                    ExamTimetablePeriodListScreen(
+                        periods = examPeriods,
+                        configuredDates = uiState.examLessons.values
+                            .filter { it.date in uiState.examDaySchedules && it.hasEnteredContent() }
+                            .mapTo(mutableSetOf()) { it.date },
+                        examNames = uiState.examDaySchedules.mapValues { it.value.examName },
+                        onBack = { showExamTimetablePeriods = false },
+                        onOpenPeriod = { period ->
+                            selectedExamPeriodStartEpochDay = period.startDate.toEpochDay()
+                        }
+                    )
+                }
+                "examTimetableEditor" -> {
+                    val period = selectedExamPeriod
+                    val settings = uiState.settings
+                    if (period != null && settings != null) {
+                        ExamTimetableEditorScreen(
+                            period = period,
+                            settings = settings,
+                            existingSchedules = uiState.examDaySchedules,
+                            existingLessons = uiState.examLessons,
+                            onBack = { selectedExamPeriodStartEpochDay = null },
+                            onSave = { schedules, lessons ->
+                                viewModel.saveExamPeriodSchedules(schedules, lessons)
+                                selectedExamPeriodStartEpochDay = null
+                            }
+                        )
+                    }
                 }
                 "taskPlanCalendar" -> {
                     TaskPlanCalendarScreen(
@@ -1536,6 +1604,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                     onToggleLocalAi = viewModel::toggleLocalAi,
                     onToggleNaturalLanguageTaskAdd = viewModel::toggleNaturalLanguageTaskAdd,
                     onToggleLessonNotes = viewModel::toggleLessonNotes,
+                    onToggleExamTimetable = viewModel::toggleExamTimetable,
                     onToggleDrawerNavigation = viewModel::toggleDrawerNavigation,
                     onToggleAddTasksToCalendar = { enabled ->
                         if (enabled && !hasCalendarPermission(context)) {
@@ -1593,6 +1662,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                     onAddLessonNotificationExclusion = viewModel::addLessonNotificationExclusion,
                     onDeleteLessonNotificationExclusion = viewModel::deleteLessonNotificationExclusion,
                     onUpdateScheduleSettings = viewModel::updateScheduleSettingsSilently,
+                    onUpdateExamTimetableSettings = viewModel::updateExamTimetableSettings,
                     onExportAllAsJson = { viewModel.exportAllData() },
                     onImportAllFromJson = viewModel::importAllData
                 )
@@ -1791,7 +1861,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                         throw e
                     } catch (_: Exception) {
                         snackbarHostState.showSnackbar(
-                            context.getString(R.string.msg_natural_language_ai_fallback)
+                            resources.getString(R.string.msg_natural_language_ai_fallback)
                         )
                         null
                     } finally {
@@ -1916,7 +1986,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                             plan = plan,
                                             syncCalendar = shouldSyncTaskToCalendar && hasCalendarPermission(context)
                                         )
-                                        snackbarHostState.showSnackbar(context.getString(R.string.msg_plan_saved))
+                                        snackbarHostState.showSnackbar(resources.getString(R.string.msg_plan_saved))
                                         if (shouldSyncTaskToCalendar && !hasCalendarPermission(context)) {
                                             pendingPlanCalendarSync = savedPlan
                                             calendarPermissionLauncher.launch(
@@ -1938,7 +2008,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                             task = task,
                                             syncCalendar = shouldSyncTaskToCalendar && hasCalendarPermission(context)
                                         )
-                                        snackbarHostState.showSnackbar(context.getString(R.string.msg_task_saved))
+                                        snackbarHostState.showSnackbar(resources.getString(R.string.msg_task_saved))
                                         if (shouldSyncTaskToCalendar && !hasCalendarPermission(context)) {
                                             pendingTaskCalendarSync = savedTask
                                             calendarPermissionLauncher.launch(
@@ -1986,6 +2056,10 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                         lessonNotes = uiState.lessonNotes,
                                         onShiftDate = viewModel::shiftResultDate,
                                         onPickDate = viewModel::setResultDate,
+                                        requestedDayViewEpochDay = requestedOutputDayEpochDay,
+                                        onRequestedDayViewHandled = {
+                                            requestedOutputDayEpochDay = null
+                                        },
                                         onOpenLessonSearch = { showLessonSearch = true },
                                         onSaveLessonOverride = viewModel::saveLessonOverride,
                                         onClearLessonOverride = viewModel::clearLessonOverride,
@@ -2153,6 +2227,9 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                         onUpdateTerm = viewModel::updateTerm,
                                         onSaveBreak = viewModel::saveLongBreak,
                                         onDeleteBreak = viewModel::deleteLongBreak,
+                                        onOpenExamTimetables = {
+                                            showExamTimetablePeriods = true
+                                        },
                                         dayTypeForDate = { date -> viewModel.dayTypeForDate(date, uiState.dayTypeMap) },
                                         dayTypeEntityForDate = { date -> uiState.dayTypeEntities[date] }
                                     )
@@ -2194,13 +2271,26 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                             }
                                         },
                                         actions = {
+                                            if (
+                                                selectedTab == AppTab.Timetable &&
+                                                uiState.settings?.enableExamTimetable == true
+                                            ) {
+                                                IconButton(onClick = { showExamTimetablePeriods = true }) {
+                                                    Icon(
+                                                        Icons.Filled.Quiz,
+                                                        contentDescription = stringResource(R.string.btn_create_exam_timetable),
+                                                        tint = MaterialTheme.colorScheme.primary
+                                                    )
+                                                }
+                                            }
                                             if (showTaskPlanActions) {
                                                 IconButton(
                                                     onClick = { showTaskPlanCalendar = true }
                                                 ) {
                                                     Icon(
                                                         Icons.Filled.Search,
-                                                        contentDescription = stringResource(R.string.cd_open_task_search)
+                                                        contentDescription = stringResource(R.string.cd_open_task_search),
+                                                        tint = MaterialTheme.colorScheme.primary
                                                     )
                                                 }
                                             }
@@ -2713,6 +2803,7 @@ private fun AbTableScreen(
     onUpdateTerm: (LocalDate, LocalDate) -> Unit,
     onSaveBreak: (Long?, String, LocalDate, LocalDate) -> Unit,
     onDeleteBreak: (LongBreakEntity) -> Unit,
+    onOpenExamTimetables: () -> Unit,
     dayTypeForDate: (LocalDate) -> DayType,
     dayTypeEntityForDate: (LocalDate) -> DayTypeEntity?
 ) {
@@ -2792,45 +2883,6 @@ private fun AbTableScreen(
 
         item {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(stringResource(R.string.label_period_settings), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(
-                        stringResource(R.string.label_term_range, settings.termStart.format(dateFormatter), settings.termEnd.format(dateFormatter)),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    DatePickRow(
-                        label = stringResource(R.string.label_start_date_plain),
-                        date = termStart,
-                        showWeekdayOnDates = settings.showWeekdayOnDates,
-                        onDateChange = { termStart = it }
-                    )
-                    DatePickRow(
-                        label = stringResource(R.string.label_end_date_plain),
-                        date = termEnd,
-                        showWeekdayOnDates = settings.showWeekdayOnDates,
-                        onDateChange = { termEnd = it }
-                    )
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { onUpdateTerm(termStart, termEnd) }) {
-                            Icon(Icons.Filled.Event, contentDescription = null)
-                            Spacer(Modifier.width(6.dp))
-                            Text(stringResource(R.string.btn_apply_to_period))
-                        }
-                        OutlinedButton(onClick = onResetFiscalYear) {
-                            Icon(Icons.Filled.Autorenew, contentDescription = null)
-                            Spacer(Modifier.width(6.dp))
-                            Text(stringResource(R.string.btn_back_to_original))
-                        }
-                    }
-                }
-            }
-        }
-
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -2870,7 +2922,12 @@ private fun AbTableScreen(
             }
         }
 
-        item { DayTypeLegend() }
+        item {
+            DayTypeLegend(
+                showExamTimetableButton = settings.enableExamTimetable,
+                onOpenExamTimetables = onOpenExamTimetables
+            )
+        }
         item { WeekHeader() }
         items(displayedWeeks, key = { it.row.weekStart }) { displayWeek ->
             WeekRow(
@@ -2906,6 +2963,45 @@ private fun AbTableScreen(
                 onDragEnd = { commitDragRange() },
                 onDragCancel = { resetDragState() }
             )
+        }
+
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(stringResource(R.string.label_period_settings), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        stringResource(R.string.label_term_range, settings.termStart.format(dateFormatter), settings.termEnd.format(dateFormatter)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    DatePickRow(
+                        label = stringResource(R.string.label_start_date_plain),
+                        date = termStart,
+                        showWeekdayOnDates = settings.showWeekdayOnDates,
+                        onDateChange = { termStart = it }
+                    )
+                    DatePickRow(
+                        label = stringResource(R.string.label_end_date_plain),
+                        date = termEnd,
+                        showWeekdayOnDates = settings.showWeekdayOnDates,
+                        onDateChange = { termEnd = it }
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { onUpdateTerm(termStart, termEnd) }) {
+                            Icon(Icons.Filled.Event, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text(stringResource(R.string.btn_apply_to_period))
+                        }
+                        OutlinedButton(onClick = onResetFiscalYear) {
+                            Icon(Icons.Filled.Autorenew, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text(stringResource(R.string.btn_back_to_original))
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -2985,7 +3081,10 @@ private fun DatePickRow(
 }
 
 @Composable
-private fun DayTypeLegend() {
+private fun DayTypeLegend(
+    showExamTimetableButton: Boolean,
+    onOpenExamTimetables: () -> Unit
+) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
@@ -3007,6 +3106,14 @@ private fun DayTypeLegend() {
                 DayChip(stringResource(R.string.daytype_a), dayTypeVisual(DayType.A))
                 DayChip(stringResource(R.string.daytype_b), dayTypeVisual(DayType.B))
                 DayChip(stringResource(R.string.daytype_holiday), dayTypeVisual(DayType.HOLIDAY))
+            }
+            if (showExamTimetableButton) {
+                OutlinedButton(
+                    onClick = onOpenExamTimetables,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.btn_create_exam_timetable))
+                }
             }
         }
     }
@@ -3260,6 +3367,8 @@ private fun OutputScreen(
     lessonNotes: List<LessonNoteEntity>,
     onShiftDate: (Long) -> Unit,
     onPickDate: (LocalDate) -> Unit,
+    requestedDayViewEpochDay: Long?,
+    onRequestedDayViewHandled: () -> Unit,
     onOpenLessonSearch: () -> Unit,
     onSaveLessonOverride: (LocalDate, Int, DayType) -> Unit,
     onClearLessonOverride: (LocalDate) -> Unit,
@@ -3285,6 +3394,12 @@ private fun OutputScreen(
     }
     val selectedDate = state.selectedResultDate
     var displayMode by rememberSaveable { mutableStateOf(OutputDisplayMode.DAY) }
+    LaunchedEffect(requestedDayViewEpochDay) {
+        if (requestedDayViewEpochDay != null) {
+            displayMode = OutputDisplayMode.DAY
+            onRequestedDayViewHandled()
+        }
+    }
     val isTodayWeekend = today.dayOfWeek == DayOfWeek.SATURDAY || today.dayOfWeek == DayOfWeek.SUNDAY
     val currentWeekReferenceDate = if (isTodayWeekend) defaultWeekFocusDate else today
     val weekDisplayReferenceDate = if (
@@ -3319,6 +3434,49 @@ private fun OutputScreen(
     val lessonNotesEnabled = state.settings?.enableLessonNotes ?: false
     val shiftUnit = if (displayMode == OutputDisplayMode.DAY) 1L else 7L
     val classSlots = remember(state.settings) { state.settings.toClassSlots() }
+    val examLessonsByDate = remember(state.examLessons) {
+        state.examLessons.values.groupBy { it.date }
+    }
+    fun isExamScheduleDate(date: LocalDate): Boolean {
+        val label = state.dayTypeEntities[date]?.holidaySpecialLabel
+        return state.settings?.enableExamTimetable == true &&
+            state.examDaySchedules.containsKey(date) &&
+            examLessonsByDate[date].orEmpty().any { it.hasEnteredContent() } &&
+            (label == HolidaySpecialLabel.MIDTERM || label == HolidaySpecialLabel.FINAL)
+    }
+    fun examSlotsForDate(date: LocalDate): List<ClassSlot> {
+        val savedLessons = examLessonsByDate[date].orEmpty().sortedBy { it.slotIndex }
+        if (savedLessons.isNotEmpty()) {
+            return savedLessons.map { lesson ->
+                ClassSlot(
+                    index = lesson.slotIndex,
+                    label = "${lesson.slotIndex + 1}時間目",
+                    start = LocalTime.of(lesson.startHour, lesson.startMinute),
+                    end = LocalTime.of(lesson.endHour, lesson.endMinute)
+                )
+            }
+        }
+        val settings = state.settings ?: return classSlots
+        return generateClassSlots(
+            periodsPerDay = settings.examPeriodsPerDay,
+            periodDurationMin = settings.examPeriodDurationMin,
+            breakBetweenPeriodsMin = settings.examBreakBetweenPeriodsMin,
+            lunchBreakMin = settings.examLunchBreakMin,
+            firstPeriodStartHour = settings.examFirstPeriodStartHour,
+            firstPeriodStartMinute = settings.examFirstPeriodStartMinute,
+            useKosenMode = false,
+            lunchAfterPeriod = settings.examLunchAfterPeriod
+        )
+    }
+    fun resolveExamLesson(date: LocalDate, slotIndex: Int): ResolvedLesson? {
+        val lesson = state.examLessons[date to slotIndex] ?: return null
+        if (lesson.subject.isBlank()) return null
+        return ResolvedLesson(
+            subject = lesson.subject,
+            teacher = lesson.teacher,
+            location = lesson.location.takeIf { it.isNotBlank() }
+        )
+    }
     val defaultViewConfiguration = LocalViewConfiguration.current
     val timetablePagerViewConfiguration = remember(defaultViewConfiguration) {
         object : ViewConfiguration by defaultViewConfiguration {
@@ -3444,6 +3602,14 @@ private fun OutputScreen(
                                 IconButton(onClick = { onPickDate(dateNavigationBase.minusDays(shiftUnit)) }) { Text("<") }
                                 if (displayMode == OutputDisplayMode.DAY) {
                                     val selectedDayTypeEntity = dayTypeEntityForDate(selectedDate)
+                                    val selectedExamName = if (isExamScheduleDate(selectedDate)) {
+                                        state.examDaySchedules[selectedDate]
+                                            ?.examName
+                                            ?.trim()
+                                            ?.takeIf { it.isNotBlank() }
+                                    } else {
+                                        null
+                                    }
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         modifier = Modifier.combinedClickable(
@@ -3457,7 +3623,7 @@ private fun OutputScreen(
                                         Text(selectedDate.format(dateFormatter), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                                         Text(
                                             "${stringResource(dayOfWeekRes(selectedDate.dayOfWeek))} / ${
-                                                dayTypeDisplayText(
+                                                selectedExamName ?: dayTypeDisplayText(
                                                     dayType,
                                                     selectedDayTypeEntity?.overrideLessonDayOfWeek,
                                                     selectedDayTypeEntity?.holidaySpecialLabel
@@ -3567,6 +3733,7 @@ private fun OutputScreen(
                     HorizontalPager(
                         state = pagerState,
                         pageSpacing = 12.dp,
+                        verticalAlignment = Alignment.Top,
                         beyondViewportPageCount = 1,
                         flingBehavior = PagerDefaults.flingBehavior(
                             state = pagerState,
@@ -3582,10 +3749,29 @@ private fun OutputScreen(
                         if (displayMode == OutputDisplayMode.DAY) {
                             val pageTasks = tasksByDueDate[pageDate].orEmpty()
                             val pagePlans = plansByDueDate[pageDate].orEmpty()
+                            val isExamDate = isExamScheduleDate(pageDate)
+                            val pageClassSlots = if (isExamDate) examSlotsForDate(pageDate) else classSlots
+                            val examSchedule = state.examDaySchedules[pageDate]
+                            val examMemos = if (isExamDate) {
+                                examLessonsByDate[pageDate]
+                                    .orEmpty()
+                                    .mapNotNull { lesson ->
+                                        lesson.memo.trim().takeIf { it.isNotBlank() }?.let { lesson.slotIndex to it }
+                                    }
+                                    .toMap()
+                            } else {
+                                emptyMap()
+                            }
                             DayScheduleTable(
                                 date = pageDate,
                                 dayType = dayTypeForDate(pageDate),
-                                resolveLesson = resolveLesson,
+                                resolveLesson = { date, slotIndex ->
+                                    if (isExamDate && date == pageDate) {
+                                        resolveExamLesson(date, slotIndex)
+                                    } else {
+                                        resolveLesson(date, slotIndex)
+                                    }
+                                },
                                 resolveOriginalLesson = resolveOriginalLesson,
                                 changedLessonForDate = changedLessonForDate,
                                 tasks = pageTasks,
@@ -3594,9 +3780,15 @@ private fun OutputScreen(
                                 lessonNotesEnabled = lessonNotesEnabled,
                                 onOpenTask = onOpenTask,
                                 onOpenPlan = onOpenPlan,
-                                classSlots = classSlots,
-                                arrivalMin = arrivalMin,
-                                departureMin = departureMin,
+                                classSlots = pageClassSlots,
+                                arrivalMin = if (isExamDate && examSchedule != null) {
+                                    examSchedule.arrivalHour * 60 + examSchedule.arrivalMinute
+                                } else {
+                                    arrivalMin
+                                },
+                                departureMin = if (isExamDate) null else departureMin,
+                                isExamSchedule = isExamDate,
+                                examMemos = examMemos,
                                 showCurrentTimeMarker = showCurrentTimeMarker && pageDate == today,
                                 showTaskPlanDetails = shouldRenderPageDetails,
                                 onAddFromLesson = onAddFromLesson,
@@ -3612,6 +3804,32 @@ private fun OutputScreen(
                             val pageWeekDates = remember(pageDate) {
                                 (0L..4L).map { pageWeekStart.plusDays(it) }
                             }
+                            val pageWeekSlotsByDate = remember(
+                                pageWeekDates,
+                                classSlots,
+                                state.settings,
+                                state.dayTypeEntities,
+                                state.examDaySchedules,
+                                state.examLessons
+                            ) {
+                                pageWeekDates.associateWith { date ->
+                                    if (isExamScheduleDate(date)) examSlotsForDate(date) else classSlots
+                                }
+                            }
+                            val pageWeekClassSlots = remember(pageWeekSlotsByDate, classSlots) {
+                                pageWeekSlotsByDate.values
+                                    .flatten()
+                                    .map { it.index }
+                                    .distinct()
+                                    .sorted()
+                                    .mapNotNull { slotIndex ->
+                                        classSlots.firstOrNull { it.index == slotIndex }
+                                            ?: pageWeekSlotsByDate.values
+                                                .asSequence()
+                                                .flatten()
+                                                .firstOrNull { it.index == slotIndex }
+                                    }
+                            }
                             val pageTasks = remember(pageWeekDates, tasksByDueDate) {
                                 pageWeekDates.flatMap { tasksByDueDate[it].orEmpty() }
                             }
@@ -3623,13 +3841,24 @@ private fun OutputScreen(
                                 dayTypeForDate = dayTypeForDate,
                                 dayTypeEntityForDate = dayTypeEntityForDate,
                                 resolveLesson = resolveLesson,
+                                isExamScheduleDate = ::isExamScheduleDate,
+                                resolveExamLesson = ::resolveExamLesson,
+                                examNameForDate = { date ->
+                                    state.examDaySchedules[date]?.examName?.trim()?.takeIf { it.isNotBlank() }
+                                },
+                                examSlotForDate = { date, slotIndex ->
+                                    pageWeekSlotsByDate[date]?.firstOrNull { it.index == slotIndex }
+                                },
+                                examMemoForDate = { date, slotIndex ->
+                                    state.examLessons[date to slotIndex]?.memo?.trim()?.ifBlank { null }
+                                },
                                 resolveOriginalLesson = resolveOriginalLesson,
                                 changedLessonForDate = changedLessonForDate,
                                 tasks = pageTasks,
                                 plans = pagePlans,
                                 lessonNotes = lessonNotes,
                                 lessonNotesEnabled = lessonNotesEnabled,
-                                classSlots = classSlots,
+                                classSlots = pageWeekClassSlots,
                                 showCurrentTimeMarker = showCurrentTimeMarker && pageWeekDates.contains(today),
                                 onSaveLessonOverride = onSaveLessonOverride,
                                 onClearLessonOverride = onClearLessonOverride,
@@ -3685,12 +3914,12 @@ private fun TaskPlanCalendarScreen(
         pageCount = { monthPagerPageCount }
     )
     var searchQuery by rememberSaveable { mutableStateOf("") }
-    val searchTokens = remember(searchQuery) { taskPlanCalendarSearchTokens(searchQuery) }
+    val searchTokens = remember(searchQuery) { tokenizeSearchQuery(searchQuery) }
     val filteredTasks = remember(tasks, searchTokens) {
-        if (searchTokens.isEmpty()) tasks else tasks.filter { it.matchesTaskPlanCalendarSearch(searchTokens) }
+        if (searchTokens.isEmpty()) tasks else tasks.filter { it.matchesTaskPlanSearch(searchTokens) }
     }
     val filteredPlans = remember(plans, searchTokens) {
-        if (searchTokens.isEmpty()) plans else plans.filter { it.matchesTaskPlanCalendarSearch(searchTokens) }
+        if (searchTokens.isEmpty()) plans else plans.filter { it.matchesTaskPlanSearch(searchTokens) }
     }
     var observedMonthPagerPage by remember { mutableStateOf(monthPagerState.settledPage) }
     var selectedDateEpochDay by rememberSaveable {
@@ -3773,22 +4002,22 @@ private fun TaskPlanCalendarScreen(
                 ) { _, date, cellModifier ->
                     val dateTasksForCell = tasksByDate[date].orEmpty()
                     val datePlansForCell = plansByDate[date].orEmpty()
-                        TaskPlanCalendarDayCell(
-                            date = date,
-                            taskCount = dateTasksForCell.size,
-                            planCount = datePlansForCell.size,
-                            allTasksCompleted = dateTasksForCell.isNotEmpty() &&
-                                dateTasksForCell.all { it.isCompleted },
-                            allPlansCompleted = datePlansForCell.isNotEmpty() &&
-                                datePlansForCell.all { it.isCompleted },
-                            examLabel = dayTypeEntityForDate(date)?.holidaySpecialLabel,
-                            isToday = date == today,
-                            isSelected = date == selectedDate,
-                            onClick = {
-                                selectedDateEpochDay = date.toEpochDay()
-                            },
-                            modifier = cellModifier
-                        )
+                    TaskPlanCalendarDayCell(
+                        date = date,
+                        taskCount = dateTasksForCell.size,
+                        planCount = datePlansForCell.size,
+                        allTasksCompleted = dateTasksForCell.isNotEmpty() &&
+                            dateTasksForCell.all { it.isCompleted },
+                        allPlansCompleted = datePlansForCell.isNotEmpty() &&
+                            datePlansForCell.all { it.isCompleted },
+                        dayTypeEntity = dayTypeEntityForDate(date),
+                        isToday = date == today,
+                        isSelected = date == selectedDate,
+                        onClick = {
+                            selectedDateEpochDay = date.toEpochDay()
+                        },
+                        modifier = cellModifier
+                    )
                 }
             }
 
@@ -3907,7 +4136,7 @@ private fun TaskPlanCalendarDayCell(
     planCount: Int,
     allTasksCompleted: Boolean,
     allPlansCompleted: Boolean,
-    examLabel: HolidaySpecialLabel?,
+    dayTypeEntity: DayTypeEntity?,
     isToday: Boolean,
     isSelected: Boolean,
     onClick: () -> Unit,
@@ -3924,7 +4153,8 @@ private fun TaskPlanCalendarDayCell(
         isToday -> MaterialTheme.colorScheme.onSecondaryContainer
         else -> MaterialTheme.colorScheme.onSurface
     }
-    val examLabelText = examCalendarLabelText(examLabel)
+    val examLabelText = examCalendarLabelText(dayTypeEntity?.holidaySpecialLabel)
+    val dateTextColor = calendarDateTextColor(date, dayTypeEntity, contentColor)
 
     Surface(
         modifier = modifier
@@ -3949,6 +4179,7 @@ private fun TaskPlanCalendarDayCell(
             Text(
                 text = date.dayOfMonth.toString(),
                 style = MaterialTheme.typography.bodyMedium,
+                color = dateTextColor,
                 fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal
             )
             if (examLabelText != null) {
@@ -4104,6 +4335,7 @@ private fun LessonSearchScreen(
     dayTypeEntityForDate: (LocalDate) -> DayTypeEntity?,
     changedLessonForDate: (LocalDate, Int) -> ChangedLessonEntity?,
     isLessonCancelled: (LocalDate, Int) -> Boolean,
+    onOpenDate: (LocalDate) -> Unit,
     onBack: () -> Unit
 ) {
     var query by rememberSaveable { mutableStateOf("") }
@@ -4161,11 +4393,7 @@ private fun LessonSearchScreen(
         state.cancelledLessons,
         classSlots
     ) {
-        val tokens = effectiveQuery
-            .trim()
-            .split(Regex("""[\s　]+"""))
-            .map(::normalizeLessonSearchText)
-            .filter { it.isNotBlank() }
+        val tokens = tokenizeSearchQuery(effectiveQuery)
 
         if (tokens.isEmpty()) {
             emptyList()
@@ -4183,7 +4411,7 @@ private fun LessonSearchScreen(
                     val lesson = resolveLesson(date, slot.index) ?: return@forEach
                     if (lesson.subject.isBlank()) return@forEach
 
-                    val searchableText = normalizeLessonSearchText(
+                    val searchableText = normalizeSearchText(
                         listOf(
                             lesson.subject,
                             lesson.teacher,
@@ -4302,7 +4530,14 @@ private fun LessonSearchScreen(
                             displayedMonthText = month.toString()
                         },
                         onSelectDate = { date ->
-                            selectedSearchDateEpochDay = date.toEpochDay()
+                            if (date == selectedSearchDate) {
+                                onOpenDate(date)
+                            } else {
+                                selectedSearchDateEpochDay = date.toEpochDay()
+                            }
+                        },
+                        onOpenDate = { date ->
+                            onOpenDate(date)
                         }
                     )
                     LessonSearchDisplayMode.LIST -> LessonSearchListView(
@@ -4339,6 +4574,7 @@ private fun LessonSearchCalendarView(
     isLessonCancelled: (LocalDate, Int) -> Boolean,
     onDisplayedMonthChange: (YearMonth) -> Unit,
     onSelectDate: (LocalDate) -> Unit,
+    onOpenDate: (LocalDate) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
@@ -4407,16 +4643,16 @@ private fun LessonSearchCalendarView(
                     }
                 }
             ) { _, date, cellModifier ->
-                    SearchCalendarDayCell(
-                        date = date,
-                        matchCount = resultsByDate[date]?.size ?: 0,
-                        isToday = date == today,
-                        isSelected = date == selectedDate,
-                        examLabel = dayTypeEntityForDate(date)?.holidaySpecialLabel,
-                        enabled = date in searchStart..searchEnd,
-                        onClick = { onSelectDate(date) },
-                        modifier = cellModifier
-                    )
+                SearchCalendarDayCell(
+                    date = date,
+                    matchCount = resultsByDate[date]?.size ?: 0,
+                    isToday = date == today,
+                    isSelected = date == selectedDate,
+                    dayTypeEntity = dayTypeEntityForDate(date),
+                    enabled = date in searchStart..searchEnd,
+                    onClick = { onSelectDate(date) },
+                    modifier = cellModifier
+                )
             }
         }
 
@@ -4443,7 +4679,8 @@ private fun LessonSearchCalendarView(
                 classSlots = classSlots,
                 resolveLesson = resolveLesson,
                 changedLessonForDate = changedLessonForDate,
-                isLessonCancelled = isLessonCancelled
+                isLessonCancelled = isLessonCancelled,
+                onOpenDate = onOpenDate
             )
         }
     }
@@ -4515,10 +4752,10 @@ private fun CalendarPagerCard(
                         text = stringResource(dayOfWeekRes(dayOfWeek)),
                         modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.labelMedium,
-                        color = if (dayOfWeek.value >= DayOfWeek.SATURDAY.value) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
+                        color = when (dayOfWeek) {
+                            DayOfWeek.SATURDAY -> MaterialTheme.colorScheme.primary
+                            DayOfWeek.SUNDAY -> MaterialTheme.colorScheme.error
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
                         },
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
@@ -4604,7 +4841,7 @@ private fun SearchCalendarDayCell(
     matchCount: Int,
     isToday: Boolean,
     isSelected: Boolean,
-    examLabel: HolidaySpecialLabel?,
+    dayTypeEntity: DayTypeEntity?,
     enabled: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -4620,7 +4857,8 @@ private fun SearchCalendarDayCell(
         isToday -> MaterialTheme.colorScheme.onSecondaryContainer
         else -> MaterialTheme.colorScheme.onSurface
     }
-    val examLabelText = examCalendarLabelText(examLabel)
+    val examLabelText = examCalendarLabelText(dayTypeEntity?.holidaySpecialLabel)
+    val dateTextColor = calendarDateTextColor(date, dayTypeEntity, contentColor)
 
     Surface(
         modifier = modifier
@@ -4645,6 +4883,7 @@ private fun SearchCalendarDayCell(
             Text(
                 text = date.dayOfMonth.toString(),
                 style = MaterialTheme.typography.bodyMedium,
+                color = dateTextColor,
                 fontWeight = if (isSelected || matchCount > 0 || isToday) FontWeight.Bold else FontWeight.Normal
             )
             if (examLabelText != null) {
@@ -4811,7 +5050,8 @@ private fun LessonSearchSelectedDaySchedule(
     classSlots: List<ClassSlot>,
     resolveLesson: (LocalDate, Int) -> ResolvedLesson?,
     changedLessonForDate: (LocalDate, Int) -> ChangedLessonEntity?,
-    isLessonCancelled: (LocalDate, Int) -> Boolean
+    isLessonCancelled: (LocalDate, Int) -> Boolean,
+    onOpenDate: (LocalDate) -> Unit
 ) {
     val timeFormatter = remember { DateTimeFormatter.ofPattern("H:mm") }
 
@@ -4873,7 +5113,9 @@ private fun LessonSearchSelectedDaySchedule(
                 }
 
                 Surface(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpenDate(date) },
                     shape = RoundedCornerShape(20.dp),
                     color = cardColor
                 ) {
@@ -4985,14 +5227,10 @@ private fun lessonMatchesSearchQuery(
     slot: ClassSlot,
     lesson: ResolvedLesson
 ): Boolean {
-    val tokens = query
-        .trim()
-        .split(Regex("""[\s　]+"""))
-        .map(::normalizeLessonSearchText)
-        .filter { it.isNotBlank() }
+    val tokens = tokenizeSearchQuery(query)
     if (tokens.isEmpty()) return false
 
-    val searchableText = normalizeLessonSearchText(
+    val searchableText = normalizeSearchText(
         listOf(
             lesson.subject,
             lesson.teacher,
@@ -5022,6 +5260,8 @@ private fun DayScheduleTable(
     classSlots: List<ClassSlot> = CLASS_SLOTS,
     arrivalMin: Int? = null,
     departureMin: Int? = null,
+    isExamSchedule: Boolean = false,
+    examMemos: Map<Int, String> = emptyMap(),
     showCurrentTimeMarker: Boolean = false,
     showTaskPlanDetails: Boolean = true,
     onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean, date: LocalDate, time: LocalTime) -> Unit)? = null,
@@ -5123,11 +5363,13 @@ private fun DayScheduleTable(
     val timelineMarkerCenterOffsetDp = 8f
     val timeColWidth = 52.dp
     val strLunchBreak = stringResource(R.string.label_lunch_break)
-    val strNoLesson = stringResource(R.string.label_no_class_short)
+    val strNoLesson = stringResource(
+        if (isExamSchedule) R.string.label_exam_no_test else R.string.label_no_class_short
+    )
     val strHasTask = stringResource(R.string.label_task_exists)
     val strHasPlan = stringResource(R.string.label_plan_exists)
     val strCancelled = stringResource(R.string.label_cancelled)
-    val isHoliday = dayType == DayType.HOLIDAY
+    val isHoliday = dayType == DayType.HOLIDAY && !isExamSchedule
 
     data class TimeSegment(
         val startMin: Int,
@@ -5261,8 +5503,8 @@ private fun DayScheduleTable(
             val rawHeightDp = (seg.durationMin * dpPerMinute).dp
             val slot = if (seg.slotIndex != null) classSlots.find { it.index == seg.slotIndex } else null
             val lesson = if (!isHoliday && seg.slotIndex != null) resolveLesson(date, seg.slotIndex) else null
-            val changedLesson = if (!isHoliday && seg.slotIndex != null) changedLessonForDate(date, seg.slotIndex) else null
-            val originalLesson = if (!isHoliday && seg.slotIndex != null && changedLesson != null) resolveOriginalLesson(date, seg.slotIndex) else null
+            val changedLesson = if (!isHoliday && !isExamSchedule && seg.slotIndex != null) changedLessonForDate(date, seg.slotIndex) else null
+            val originalLesson = if (!isHoliday && !isExamSchedule && seg.slotIndex != null && changedLesson != null) resolveOriginalLesson(date, seg.slotIndex) else null
             val isChangedLesson = changedLesson != null && originalLesson != null
             val segmentEndMin = seg.startMin + seg.durationMin
             val segmentTicks = outOfSlotDueTicks.filter { it.minuteOfDay in seg.startMin until segmentEndMin }
@@ -5453,7 +5695,10 @@ private fun DayScheduleTable(
             }
             val lessonTasks = if (showTaskPlanDetails) lessonTasksForBadges else emptyList()
             val lessonPlans = if (showTaskPlanDetails) lessonPlansForBadges else emptyList()
-            val lessonMemo = slot?.let { lessonNotesBySlot[it.index]?.text?.trim()?.ifBlank { null } }
+            val lessonMemo = slot?.let {
+                examMemos[it.index]?.trim()?.ifBlank { null }
+                    ?: lessonNotesBySlot[it.index]?.text?.trim()?.ifBlank { null }
+            }
             val hasLessonTask = lessonTasksForBadges.isNotEmpty()
             val hasLessonPlan = lessonPlansForBadges.isNotEmpty()
             val hasLessonMemo = lessonMemo != null
@@ -5531,7 +5776,7 @@ private fun DayScheduleTable(
                     )
                 }
             }.sortedWith(compareBy<LessonDetailItem> { it.dueHour }.thenBy { it.dueMinute })
-            val isCancelled = !isHoliday && slot != null && isLessonCancelled(date, slot.index)
+            val isCancelled = !isHoliday && !isExamSchedule && slot != null && isLessonCancelled(date, slot.index)
 
             Row(modifier = Modifier.fillMaxWidth().height(heightDp)) {
                 // 左: 時刻ラベル + 縦線
@@ -5700,7 +5945,7 @@ private fun DayScheduleTable(
                                             primaryPlan != null -> onOpenPlan(primaryPlan)
                                         }
                                     },
-                                    onLongClick = if (lesson != null && lesson.subject.isNotBlank()) {
+                                    onLongClick = if (!isExamSchedule && lesson != null && lesson.subject.isNotBlank()) {
                                         {
                                             hapticDaySchedule.performHapticFeedback(HapticFeedbackType.LongPress)
                                             lessonActionDialog = LessonActionDialogData(
@@ -6170,6 +6415,11 @@ private fun WeekScheduleTable(
     dayTypeForDate: (LocalDate) -> DayType,
     dayTypeEntityForDate: (LocalDate) -> DayTypeEntity?,
     resolveLesson: (LocalDate, Int) -> ResolvedLesson?,
+    isExamScheduleDate: (LocalDate) -> Boolean = { false },
+    resolveExamLesson: (LocalDate, Int) -> ResolvedLesson? = { _, _ -> null },
+    examNameForDate: (LocalDate) -> String? = { null },
+    examSlotForDate: (LocalDate, Int) -> ClassSlot? = { _, _ -> null },
+    examMemoForDate: (LocalDate, Int) -> String? = { _, _ -> null },
     resolveOriginalLesson: (LocalDate, Int) -> ResolvedLesson?,
     changedLessonForDate: (LocalDate, Int) -> ChangedLessonEntity?,
     tasks: List<TaskEntity>,
@@ -6214,6 +6464,7 @@ private fun WeekScheduleTable(
     var lessonActionDialog by remember(dates) { mutableStateOf<WeekLessonActionDialogData?>(null) }
     var lessonNoteEditor by remember(dates) { mutableStateOf<WeekLessonNoteEditorData?>(null) }
     val strCancelled = stringResource(R.string.label_cancelled)
+    val strNoTest = stringResource(R.string.label_exam_no_test)
     val lessonNotesByDateSlot = remember(lessonNotes, dates, lessonNotesEnabled) {
         if (lessonNotesEnabled) {
             lessonNotes
@@ -6249,6 +6500,7 @@ private fun WeekScheduleTable(
                     dates.forEach { date ->
                         val dayType = dayTypeForDate(date)
                         val dayTypeEntity = dayTypeEntityForDate(date)
+                        val examName = if (isExamScheduleDate(date)) examNameForDate(date) else null
                         val isToday = date == today
                         Column(
                             modifier = Modifier
@@ -6280,9 +6532,15 @@ private fun WeekScheduleTable(
                                 )
                             }
                             Text(
-                                text = dayTypeDisplayText(dayType, dayTypeEntity?.overrideLessonDayOfWeek, dayTypeEntity?.holidaySpecialLabel),
+                                text = examName ?: dayTypeDisplayText(
+                                    dayType,
+                                    dayTypeEntity?.overrideLessonDayOfWeek,
+                                    dayTypeEntity?.holidaySpecialLabel
+                                ),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -6337,14 +6595,29 @@ private fun WeekScheduleTable(
                 // 各曜日のセル
                 dates.forEach { date ->
                     val dayType = dayTypeForDate(date)
-                    val isHoliday = dayType == DayType.HOLIDAY
-                    val lesson = if (!isHoliday) resolveLesson(date, slot.index) else null
-                    val changedLesson = if (!isHoliday) changedLessonForDate(date, slot.index) else null
-                    val originalLesson = if (!isHoliday && changedLesson != null) resolveOriginalLesson(date, slot.index) else null
+                    val isExamDate = isExamScheduleDate(date)
+                    val examSlot = if (isExamDate) examSlotForDate(date, slot.index) else null
+                    val dateSlot = examSlot ?: slot
+                    val isExamSlot = isExamDate && examSlot != null
+                    val isHoliday = dayType == DayType.HOLIDAY && !isExamDate
+                    val lesson = when {
+                        isHoliday -> null
+                        isExamSlot -> resolveExamLesson(date, slot.index)
+                        isExamDate -> null
+                        else -> resolveLesson(date, slot.index)
+                    }
+                    val changedLesson = if (!isHoliday && !isExamDate) changedLessonForDate(date, slot.index) else null
+                    val originalLesson = if (!isHoliday && !isExamDate && changedLesson != null) resolveOriginalLesson(date, slot.index) else null
                     val isChangedLesson = changedLesson != null && originalLesson != null
-                    val slotStartMin = slot.start.hour * 60 + slot.start.minute
-                    val slotEndMin = slot.end.hour * 60 + slot.end.minute
-                    val currentTimeOffsetDp = if (showCurrentTimeMarker && date == today && currentMinuteOfDay != null && currentMinuteOfDay in slotStartMin until slotEndMin) {
+                    val slotStartMin = dateSlot.start.hour * 60 + dateSlot.start.minute
+                    val slotEndMin = dateSlot.end.hour * 60 + dateSlot.end.minute
+                    val currentTimeOffsetDp = if (
+                        (!isExamDate || isExamSlot) &&
+                        showCurrentTimeMarker &&
+                        date == today &&
+                        currentMinuteOfDay != null &&
+                        currentMinuteOfDay in slotStartMin until slotEndMin
+                    ) {
                         ((currentMinuteOfDay - slotStartMin).toFloat() / (slotEndMin - slotStartMin).toFloat()) * cellHeight.value
                     } else {
                         null
@@ -6355,8 +6628,9 @@ private fun WeekScheduleTable(
                     val hasPlan = !isHoliday && lesson != null && plans.any { plan ->
                         plan.dueDate == date && planMatchesLesson(plan, lesson)
                     }
-                    val lessonMemo = lessonNotesByDateSlot[date to slot.index]?.text?.trim()?.ifBlank { null }
-                    val isCancelled = !isHoliday && isLessonCancelled(date, slot.index)
+                    val lessonMemo = examMemoForDate(date, slot.index)
+                        ?: lessonNotesByDateSlot[date to slot.index]?.text?.trim()?.ifBlank { null }
+                    val isCancelled = !isHoliday && !isExamDate && isLessonCancelled(date, slot.index)
                     val bgColor = if (lesson != null) MaterialTheme.colorScheme.surfaceContainerLow
                                   else MaterialTheme.colorScheme.surfaceContainer
                     val contentColor = if (lesson != null) MaterialTheme.colorScheme.onSurface
@@ -6373,13 +6647,13 @@ private fun WeekScheduleTable(
                                 .fillMaxSize()
                                 .combinedClickable(
                                     onClick = { onDayClick(date) },
-                                    onLongClick = if (lesson != null && lesson.subject.isNotBlank()) {
+                                    onLongClick = if (!isExamDate && lesson != null && lesson.subject.isNotBlank()) {
                                         {
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                             lessonActionDialog = WeekLessonActionDialogData(
                                                 date = date,
                                                 slotIndex = slot.index,
-                                                lessonStartTime = slot.start,
+                                                lessonStartTime = dateSlot.start,
                                                 lesson = lesson,
                                                 originalLesson = originalLesson,
                                                 isChanged = isChangedLesson,
@@ -6397,6 +6671,19 @@ private fun WeekScheduleTable(
                                         modifier = Modifier.align(Alignment.TopStart),
                                         verticalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
+                                        if (isExamSlot) {
+                                            Text(
+                                                text = "%02d:%02d–%02d:%02d".format(
+                                                    dateSlot.start.hour,
+                                                    dateSlot.start.minute,
+                                                    dateSlot.end.hour,
+                                                    dateSlot.end.minute
+                                                ),
+                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1
+                                            )
+                                        }
                                         Text(
                                             text = lesson.subject,
                                             style = MaterialTheme.typography.bodyMedium,
@@ -6484,6 +6771,29 @@ private fun WeekScheduleTable(
                                                 overflow = TextOverflow.Ellipsis
                                             )
                                         }
+                                    }
+                                } else if (isExamSlot) {
+                                    Column(
+                                        modifier = Modifier.align(Alignment.Center),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        Text(
+                                            text = strNoTest,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            text = "%02d:%02d–%02d:%02d".format(
+                                                dateSlot.start.hour,
+                                                dateSlot.start.minute,
+                                                dateSlot.end.hour,
+                                                dateSlot.end.minute
+                                            ),
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1
+                                        )
                                     }
                                 }
                             }
@@ -7340,68 +7650,24 @@ private fun examCalendarLabelText(label: HolidaySpecialLabel?): String? = when (
     else -> null
 }
 
-private fun taskPlanCalendarSearchTokens(query: String): List<String> {
-    return query
-        .trim()
-        .split(Regex("""[\s　]+"""))
-        .map(::normalizeLessonSearchText)
-        .filter { it.isNotBlank() }
-}
-
-private fun TaskEntity.matchesTaskPlanCalendarSearch(tokens: List<String>): Boolean {
-    return taskPlanCalendarSearchText(
-        type = "課題",
-        title = title,
-        subject = subject,
-        teacher = teacher,
-        description = description,
-        dueDate = dueDate,
-        hour = dueHour,
-        minute = dueMinute
-    ).let { searchableText ->
-        tokens.all(searchableText::contains)
+@Composable
+private fun calendarDateTextColor(
+    date: LocalDate,
+    dayTypeEntity: DayTypeEntity?,
+    defaultColor: Color
+): Color {
+    val specialLabel = dayTypeEntity?.holidaySpecialLabel
+    val ignoresHolidayColor = specialLabel == HolidaySpecialLabel.MIDTERM ||
+        specialLabel == HolidaySpecialLabel.FINAL ||
+        specialLabel == HolidaySpecialLabel.EXCURSION
+    return when {
+        date.dayOfWeek == DayOfWeek.SATURDAY -> MaterialTheme.colorScheme.primary
+        specialLabel == HolidaySpecialLabel.SCHOOL_CLOSED -> MaterialTheme.colorScheme.error
+        date.dayOfWeek == DayOfWeek.SUNDAY -> MaterialTheme.colorScheme.error
+        dayTypeEntity?.dayType == DayType.HOLIDAY && !ignoresHolidayColor ->
+            MaterialTheme.colorScheme.error
+        else -> defaultColor
     }
-}
-
-private fun PlanEntity.matchesTaskPlanCalendarSearch(tokens: List<String>): Boolean {
-    return taskPlanCalendarSearchText(
-        type = "予定",
-        title = title,
-        subject = subject,
-        teacher = teacher,
-        description = description,
-        dueDate = dueDate,
-        hour = dueHour,
-        minute = dueMinute
-    ).let { searchableText ->
-        tokens.all(searchableText::contains)
-    }
-}
-
-private fun taskPlanCalendarSearchText(
-    type: String,
-    title: String,
-    subject: String,
-    teacher: String?,
-    description: String?,
-    dueDate: LocalDate,
-    hour: Int,
-    minute: Int
-): String {
-    val timeText = "%02d:%02d %d時%d分".format(hour, minute, hour, minute)
-    return normalizeLessonSearchText(
-        listOf(
-            type,
-            title,
-            subject,
-            teacher.orEmpty(),
-            description.orEmpty(),
-            dueDate.toString(),
-            dueDate.format(dateFormatter),
-            japaneseDayOfWeekSearchText(dueDate.dayOfWeek),
-            timeText
-        ).joinToString(" ")
-    )
 }
 
 private fun normalizeTeacherCandidates(value: String): List<String> {
@@ -7613,6 +7879,7 @@ private fun NaturalLanguageTaskAddDialog(
     ) -> Boolean
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     val preferences = remember {
         context.getSharedPreferences("natural_language_task_ai", Context.MODE_PRIVATE)
@@ -7749,7 +8016,7 @@ private fun NaturalLanguageTaskAddDialog(
                     val model = selectedModel ?: return@Button
                     isAnalyzing = true
                     showError = false
-                    analysisStatus = context.getString(R.string.msg_natural_language_ai_starting)
+                    analysisStatus = resources.getString(R.string.msg_natural_language_ai_starting)
                     scope.launch {
                         try {
                             val created = onCreateDraft(input, model) { status ->
@@ -7778,7 +8045,7 @@ private fun NaturalLanguageTaskAddDialog(
                 onClick = {
                     if (isAnalyzing) {
                         onCancelInference()
-                        analysisStatus = context.getString(R.string.msg_inference_cancelled)
+                        analysisStatus = resources.getString(R.string.msg_inference_cancelled)
                     } else {
                         onDismiss()
                     }
@@ -7819,7 +8086,7 @@ private fun UnifiedTaskPlanScreen(
     )
 
     Column(modifier = modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = selectedTabIndex) {
+        PrimaryTabRow(selectedTabIndex = selectedTabIndex) {
             tabs.forEach { (label, index) ->
                 Tab(
                     selected = selectedTabIndex == index,
@@ -7990,22 +8257,6 @@ private fun dayOfWeekRes(dayOfWeek: DayOfWeek): Int = when (dayOfWeek) {
     DayOfWeek.FRIDAY -> R.string.weekday_friday
     DayOfWeek.SATURDAY -> R.string.weekday_saturday
     DayOfWeek.SUNDAY -> R.string.weekday_sunday
-}
-
-private fun normalizeLessonSearchText(value: String): String {
-    return Normalizer.normalize(value, Normalizer.Form.NFKC)
-        .lowercase()
-        .replace(Regex("""[\s　,，、・/／\-ー_:.：]+"""), "")
-}
-
-private fun japaneseDayOfWeekSearchText(dayOfWeek: DayOfWeek): String = when (dayOfWeek) {
-    DayOfWeek.MONDAY -> "月曜日 月曜 月"
-    DayOfWeek.TUESDAY -> "火曜日 火曜 火"
-    DayOfWeek.WEDNESDAY -> "水曜日 水曜 水"
-    DayOfWeek.THURSDAY -> "木曜日 木曜 木"
-    DayOfWeek.FRIDAY -> "金曜日 金曜 金"
-    DayOfWeek.SATURDAY -> "土曜日 土曜 土"
-    DayOfWeek.SUNDAY -> "日曜日 日曜 日"
 }
 
 private val dateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy/MM/dd")

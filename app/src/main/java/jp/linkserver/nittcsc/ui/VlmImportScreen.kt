@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -665,7 +666,7 @@ fun VlmImportScreen(
                                                 }
                                             }
                                         )
-                                        Divider()
+                                        HorizontalDivider()
                                         recognizedModels.forEach { fileName ->
                                             val displayName = allModels.find { it.primaryFileName() == fileName }?.name ?: fileName
                                             DropdownMenuItem(
@@ -786,7 +787,7 @@ fun VlmImportScreen(
                             val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://huggingface.co/settings/tokens"))
                             context.startActivity(intent)
                         }) {
-                            Icon(Icons.Default.OpenInNew, contentDescription = null)
+                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
                             Spacer(Modifier.width(4.dp))
                             Text(stringResource(R.string.btn_open_token_page))
                         }

@@ -256,7 +256,7 @@ fun SyncScreen(
                                     return@Button
                                 }
                                 val resolvedDeviceName = deviceName.trim().ifBlank {
-                                    profile?.deviceName?.takeIf { it.isNotBlank() } ?: Build.MODEL
+                                    profile.deviceName.takeIf { it.isNotBlank() } ?: Build.MODEL
                                 }
                                 onSaveProfile(nickname, resolvedDeviceName, pwd, autoSyncEnabled, conflictAutoNewerFirst)
                                 nearbyPermissionLauncher.launch(syncSetupNearbyPermissions())
@@ -490,7 +490,7 @@ fun SyncScreen(
                         Text(stringResource(R.string.sync_no_registered_devices), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
                         state.registeredDevices.forEach { device ->
-                            val expandedKey = device.deviceId.toString()
+                            val expandedKey = device.deviceId
                             var detailExpanded by remember { mutableStateOf(false) }
                             val isSelected = selectedDeviceIds.contains(device.deviceId)
                             val selectionMode = selectedDeviceIds.isNotEmpty()

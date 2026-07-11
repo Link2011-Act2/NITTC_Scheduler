@@ -64,7 +64,17 @@ data class SettingsEntity(
     val lessonStartNotificationChipMode: LessonStartNotificationChipMode = LessonStartNotificationChipMode.MINUTE_TEXT,
     val syncLessonsToCalendar: Boolean = false,
     val lessonCalendarSyncStart: LocalDate? = null,
-    val lessonCalendarSyncEnd: LocalDate? = null
+    val lessonCalendarSyncEnd: LocalDate? = null,
+    val enableExamTimetable: Boolean = false,
+    val examPeriodsPerDay: Int = 4,
+    val examPeriodDurationMin: Int = 50,
+    val examBreakBetweenPeriodsMin: Int = 20,
+    val examLunchBreakMin: Int = 50,
+    val examLunchAfterPeriod: Int = 3,
+    val examFirstPeriodStartHour: Int = 8,
+    val examFirstPeriodStartMinute: Int = 50,
+    val examArrivalHour: Int = 8,
+    val examArrivalMinute: Int = 30
 )
 
 @Entity(tableName = "day_types")
@@ -110,6 +120,41 @@ data class LessonNoteEntity(
     val text: String,
     val updatedAt: Long = System.currentTimeMillis()
 )
+
+@Entity(tableName = "exam_day_schedules")
+data class ExamDayScheduleEntity(
+    @PrimaryKey val date: LocalDate,
+    val arrivalHour: Int = 8,
+    val arrivalMinute: Int = 30,
+    val examName: String = "",
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(
+    tableName = "exam_lessons",
+    primaryKeys = ["date", "slotIndex"],
+    indices = [Index(value = ["date"])]
+)
+data class ExamLessonEntity(
+    val date: LocalDate,
+    val slotIndex: Int,
+    val startHour: Int,
+    val startMinute: Int,
+    val endHour: Int,
+    val endMinute: Int,
+    val subject: String = "",
+    val teacher: String = "",
+    val location: String = "",
+    val memo: String = "",
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+fun ExamLessonEntity.hasEnteredContent(): Boolean {
+    return subject.isNotBlank() ||
+        teacher.isNotBlank() ||
+        location.isNotBlank() ||
+        memo.isNotBlank()
+}
 
 @Entity(tableName = "lesson_notification_exclusions")
 data class LessonNotificationExclusionEntity(
@@ -262,6 +307,7 @@ data class SyncRegisteredDeviceEntity(
     val lastCancelledLessonsSyncAt: Long = 0L,
     val lastChangedLessonsSyncAt: Long = 0L,
     val lastLessonNotesSyncAt: Long = 0L,
+    val lastExamTimetablesSyncAt: Long = 0L,
     val serverCertFingerprint: String = ""
 )
 

@@ -5,6 +5,10 @@ import jp.linkserver.nittcsc.data.AppDatabase
 import jp.linkserver.nittcsc.data.ChangedLessonEntity
 import jp.linkserver.nittcsc.data.DayType
 import jp.linkserver.nittcsc.data.DayTypeEntity
+import jp.linkserver.nittcsc.data.ExamDayScheduleEntity
+import jp.linkserver.nittcsc.data.ExamLessonEntity
+import jp.linkserver.nittcsc.data.hasEnteredContent
+import jp.linkserver.nittcsc.data.HolidaySpecialLabel
 import jp.linkserver.nittcsc.data.LessonEntity
 import jp.linkserver.nittcsc.data.LessonMode
 import jp.linkserver.nittcsc.data.PlanEntity
@@ -29,6 +33,8 @@ data class WidgetData(
     val cancelledLessons: Set<Pair<LocalDate, Int>>,
     val changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity>,
     val lessons: Map<Pair<Int, Int>, LessonEntity>,
+    val examDaySchedules: Map<LocalDate, ExamDayScheduleEntity>,
+    val examLessons: Map<Pair<LocalDate, Int>, ExamLessonEntity>,
     val incompleteTasks: List<TaskEntity>,
     val incompletePlans: List<PlanEntity>
 )
@@ -55,6 +61,8 @@ object WidgetDataHelper {
         val cancelledLessons = dao.getCancelledLessonsOnce().map { it.date to it.slotIndex }.toSet()
         val changedLessons = dao.getChangedLessonsOnce().associateBy { it.date to it.slotIndex }
         val lessons = dao.getLessonsOnce().associate { (it.dayOfWeek to it.slotIndex) to it }
+        val examDaySchedules = dao.getExamDaySchedulesOnce().associateBy { it.date }
+        val examLessons = dao.getExamLessonsOnce().associateBy { it.date to it.slotIndex }
         val incompleteTasks = dao.getIncompleteTasksOnce()
         val incompletePlans = dao.getIncompletePlansOnce()
 
@@ -81,6 +89,8 @@ object WidgetDataHelper {
             cancelledLessons = cancelledLessons,
             changedLessons = changedLessons,
             lessons = lessons,
+            examDaySchedules = examDaySchedules,
+            examLessons = examLessons,
             incompleteTasks = incompleteTasks,
             incompletePlans = incompletePlans
         )
@@ -128,6 +138,64 @@ object WidgetDataHelper {
         }
     }
 
+    fun classSlotsForDate(data: WidgetData, date: LocalDate): List<ClassSlot> {
+        if (!isExamScheduleDate(data, date)) {
+            return data.classSlots
+        }
+        val examSlots = data.examLessons.values
+            .filter { it.date == date }
+            .sortedBy { it.slotIndex }
+            .map { exam ->
+                ClassSlot(
+                    index = exam.slotIndex,
+                    label = "${exam.slotIndex + 1}時間目",
+                    start = LocalTime.of(exam.startHour, exam.startMinute),
+                    end = LocalTime.of(exam.endHour, exam.endMinute)
+                )
+            }
+        val settings = data.settings ?: return data.classSlots
+        return examSlots.ifEmpty {
+            generateClassSlots(
+                periodsPerDay = settings.examPeriodsPerDay,
+                periodDurationMin = settings.examPeriodDurationMin,
+                breakBetweenPeriodsMin = settings.examBreakBetweenPeriodsMin,
+                lunchBreakMin = settings.examLunchBreakMin,
+                firstPeriodStartHour = settings.examFirstPeriodStartHour,
+                firstPeriodStartMinute = settings.examFirstPeriodStartMinute,
+                useKosenMode = false,
+                lunchAfterPeriod = settings.examLunchAfterPeriod
+            )
+        }
+    }
+
+    fun resolveLesson(data: WidgetData, date: LocalDate, slotIndex: Int): ResolvedLesson? {
+        if (isExamScheduleDate(data, date)) {
+            val exam = data.examLessons[date to slotIndex] ?: return null
+            if (exam.subject.isBlank()) return null
+            return ResolvedLesson(
+                exam.subject,
+                exam.teacher,
+                exam.location.takeIf { it.isNotBlank() }
+            )
+        }
+        return resolveLesson(
+            date = date,
+            slotIndex = slotIndex,
+            lessons = data.lessons,
+            dayTypeEntities = data.dayTypeEntities,
+            dayTypeMap = data.dayTypeMap,
+            changedLessons = data.changedLessons
+        )
+    }
+
+    fun isExamScheduleDate(data: WidgetData, date: LocalDate): Boolean {
+        val label = data.dayTypeEntities[date]?.holidaySpecialLabel
+        return data.settings?.enableExamTimetable == true &&
+            date in data.examDaySchedules &&
+            data.examLessons.values.any { it.date == date && it.hasEnteredContent() } &&
+            (label == HolidaySpecialLabel.MIDTERM || label == HolidaySpecialLabel.FINAL)
+    }
+
     /** 今日から先で最も近い授業を返す（授業中ならその授業を含む） */
     fun findNextLesson(data: WidgetData): NextLessonWidgetEntry? {
         val now = LocalTime.now()
@@ -136,17 +204,11 @@ object WidgetDataHelper {
         for (dayOffset in 0..14) {
             val date = data.today.plusDays(dayOffset.toLong())
             if (date == data.today && nowMinuteOfDay >= todayEndMinute) continue
-            for (slot in data.classSlots) {
-                if (data.cancelledLessons.contains(date to slot.index)) continue
+            val isExamDate = isExamScheduleDate(data, date)
+            for (slot in classSlotsForDate(data, date)) {
+                if (!isExamDate && data.cancelledLessons.contains(date to slot.index)) continue
                 if (date == data.today && !slot.end.isAfter(now)) continue
-                val lesson = resolveLesson(
-                    date,
-                    slot.index,
-                    data.lessons,
-                    data.dayTypeEntities,
-                    data.dayTypeMap,
-                    data.changedLessons
-                ) ?: continue
+                val lesson = resolveLesson(data, date, slot.index) ?: continue
                 return NextLessonWidgetEntry(
                     date = date,
                     slot = slot,
@@ -161,11 +223,15 @@ object WidgetDataHelper {
 
     private fun effectiveSchoolEndMinuteOfDay(data: WidgetData): Int {
         val settings = data.settings
+        if (isExamScheduleDate(data, data.today)) {
+            val examEnd = classSlotsForDate(data, data.today).lastOrNull()?.end ?: return 24 * 60
+            return examEnd.hour * 60 + examEnd.minute
+        }
         if (settings != null && settings.departureHour >= 0 && settings.departureMinute >= 0) {
             return settings.departureHour.coerceIn(0, 23) * 60 +
                 settings.departureMinute.coerceIn(0, 59)
         }
-        val lastEnd = data.classSlots.lastOrNull()?.end ?: return 24 * 60
+        val lastEnd = classSlotsForDate(data, data.today).lastOrNull()?.end ?: return 24 * 60
         val roundedEndHour = lastEnd.hour + if (lastEnd.minute > 0) 1 else 0
         return roundedEndHour * 60
     }

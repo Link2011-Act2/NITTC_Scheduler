@@ -57,6 +57,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -95,6 +96,7 @@ fun SyncDeviceDiscoveryScreen(
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val resources = LocalResources.current
     var phase by remember { mutableStateOf(WifiDiscoveryPhase.IDLE) }
     var discoveredDevices by remember { mutableStateOf<List<DiscoveredSyncDevice>>(emptyList()) }
     val selectedDeviceId = remember { mutableStateOf<String?>(null) }
@@ -161,18 +163,18 @@ fun SyncDeviceDiscoveryScreen(
         phase = WifiDiscoveryPhase.SEARCHING
         discoveredDevices = emptyList()
         selectedDeviceId.value = null
-        setMessage(context.getString(R.string.sync_wifi_searching))
+        setMessage(resources.getString(R.string.sync_wifi_searching))
         scope.launch {
             runCatching { onDiscoverDevices() }
                 .onSuccess {
                     discoveredDevices = it
                     setMessage(
-                        if (it.isEmpty()) context.getString(R.string.sync_wifi_no_available_devices)
-                        else context.getString(R.string.sync_wifi_found_count, it.size)
+                        if (it.isEmpty()) resources.getString(R.string.sync_wifi_no_available_devices)
+                        else resources.getString(R.string.sync_wifi_found_count, it.size)
                     )
                 }
                 .onFailure {
-                    setMessage(it.message ?: context.getString(R.string.sync_wifi_search_failed), error = true)
+                    setMessage(it.message ?: resources.getString(R.string.sync_wifi_search_failed), error = true)
                 }
             busy = false
         }
@@ -216,7 +218,7 @@ fun SyncDeviceDiscoveryScreen(
                             onStartDiscovery = { startDiscovery() },
                             onConnectToHost = { host, port ->
                                 busy = true
-                                setMessage(context.getString(R.string.sync_wifi_connecting))
+                                setMessage(resources.getString(R.string.sync_wifi_connecting))
                                 scope.launch {
                                     val result = onConnectToHost(host, port)
                                     val device = result.device
@@ -271,7 +273,7 @@ fun SyncDeviceDiscoveryScreen(
                                             busy = false
                                         }
                                     } else {
-                                        passwordPromptTitle = context.getString(R.string.sync_wifi_prompt_sync_password)
+                                        passwordPromptTitle = resources.getString(R.string.sync_wifi_prompt_sync_password)
                                         passwordPromptAction = { entered ->
                                             syncingFullScreenVisible = true
                                             syncingFullScreenPhase = WifiSyncFullScreenPhase.PREPARING
@@ -283,7 +285,7 @@ fun SyncDeviceDiscoveryScreen(
                                 },
                                 onRegister = {
                                     val target = selectedOne ?: return@WifiSearchingContent
-                                    passwordPromptTitle = context.getString(R.string.sync_wifi_prompt_register_password)
+                                    passwordPromptTitle = resources.getString(R.string.sync_wifi_prompt_register_password)
                                     passwordPromptAction = { entered ->
                                         val result = onRegisterTrustedDevice(target, entered)
                                         setMessage(result.message, error = !result.ok)
@@ -826,6 +828,7 @@ private fun WifiSearchingContent(
     formatTimestamp: (Long) -> String
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     var logsExpanded by remember { mutableStateOf(false) }
 
     fun copyConnectionLogsToClipboard() {
@@ -834,7 +837,7 @@ private fun WifiSearchingContent(
         val text = diagnostics.recentLogs.joinToString(separator = "\n")
         val clip = ClipData.newPlainText("connection_logs", text)
         clipboard.setPrimaryClip(clip)
-        Toast.makeText(context, context.getString(R.string.sync_wifi_logs_copied), Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, resources.getString(R.string.sync_wifi_logs_copied), Toast.LENGTH_SHORT).show()
     }
 
     Column(modifier = Modifier.fillMaxSize()) {

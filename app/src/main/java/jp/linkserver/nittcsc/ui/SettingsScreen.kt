@@ -4,7 +4,6 @@ import android.content.Intent
 import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
-import androidx.annotation.StringRes
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -47,6 +46,7 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -79,7 +79,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalResources
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -92,7 +93,13 @@ import androidx.lifecycle.LifecycleEventObserver
 import jp.linkserver.nittcsc.data.LessonNotificationExclusionEntity
 import jp.linkserver.nittcsc.data.LessonStartNotificationChipMode
 import jp.linkserver.nittcsc.data.LongBreakEntity
+import jp.linkserver.nittcsc.logic.AdvancedTimeValidation
+import jp.linkserver.nittcsc.logic.AdvancedTimeValidationError
+import jp.linkserver.nittcsc.logic.TimeRangeDraft
+import jp.linkserver.nittcsc.logic.buildAdvancedTimeEditorDraft
 import jp.linkserver.nittcsc.logic.generateClassSlots
+import jp.linkserver.nittcsc.logic.resizeTimeRangeDrafts
+import jp.linkserver.nittcsc.logic.validateAdvancedTimeEditor
 import jp.linkserver.nittcsc.update.clearDismissedUpdateNotification
 import jp.linkserver.nittcsc.update.getUpdateCurrentVersionOverrideForTesting
 import jp.linkserver.nittcsc.update.isIntDevBuild
@@ -107,7 +114,6 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
 
@@ -121,6 +127,7 @@ fun SettingsScreen(
     onToggleLocalAi: (Boolean) -> Unit,
     onToggleNaturalLanguageTaskAdd: (Boolean) -> Unit = {},
     onToggleLessonNotes: (Boolean) -> Unit = {},
+    onToggleExamTimetable: (Boolean) -> Unit = {},
     onToggleDrawerNavigation: (Boolean) -> Unit,
     onToggleAddTasksToCalendar: (Boolean) -> Unit,
     onToggleSyncLessonsToCalendar: (Boolean) -> Unit = {},
@@ -142,6 +149,7 @@ fun SettingsScreen(
     onAddLessonNotificationExclusion: (String, String?, Boolean) -> Unit = { _, _, _ -> },
     onDeleteLessonNotificationExclusion: (LessonNotificationExclusionEntity) -> Unit = {},
     onUpdateScheduleSettings: (periodsPerDay: Int, periodDurationMin: Int, breakBetweenPeriodsMin: Int, lunchBreakMin: Int, lunchAfterPeriod: Int, startHour: Int, startMinute: Int, useKosenMode: Boolean, arrivalHour: Int, arrivalMinute: Int, departureHour: Int, departureMinute: Int) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _ -> },
+    onUpdateExamTimetableSettings: (periodsPerDay: Int, periodDurationMin: Int, breakBetweenPeriodsMin: Int, lunchBreakMin: Int, lunchAfterPeriod: Int, startHour: Int, startMinute: Int, arrivalHour: Int, arrivalMinute: Int) -> Unit = { _, _, _, _, _, _, _, _, _ -> },
     onExportAllAsJson: suspend () -> String = { "{}" },
     onImportAllFromJson: (String) -> Unit = {}
 ) {
@@ -150,6 +158,7 @@ fun SettingsScreen(
         InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD &&
             (state.settings?.enableNaturalLanguageTaskAdd ?: false)
     val enabledLessonNotes = state.settings?.enableLessonNotes ?: false
+    val enabledExamTimetable = state.settings?.enableExamTimetable ?: false
     val enabledDrawerNavigation = state.settings?.useDrawerNavigation ?: false
     val enabledTaskCalendarSync = state.settings?.addTasksToCalendar ?: false
     val enabledLessonCalendarSync = state.settings?.syncLessonsToCalendar ?: false
@@ -168,6 +177,7 @@ fun SettingsScreen(
     val lessonStartChipMode =
         state.settings?.lessonStartNotificationChipMode ?: LessonStartNotificationChipMode.MINUTE_TEXT
     var expandTimetableSettings by rememberSaveable { mutableStateOf(true) }
+    var expandExamTimetableSettings by rememberSaveable { mutableStateOf(false) }
     var showLocalAiWarningDialog by remember { mutableStateOf(false) }
     val s = state.settings
     val lessonCalendarSyncStart = s?.lessonCalendarSyncStart ?: s?.termStart ?: LocalDate.now()
@@ -213,6 +223,33 @@ fun SettingsScreen(
     var lessonStartNotificationMinutesBefore by remember(s?.lessonStartNotificationMinutesBefore) {
         mutableStateOf((s?.lessonStartNotificationMinutesBefore ?: 10).toString())
     }
+    var examPeriodsPerDay by remember(s?.examPeriodsPerDay) {
+        mutableStateOf((s?.examPeriodsPerDay ?: 4).toString())
+    }
+    var examPeriodDurationMin by remember(s?.examPeriodDurationMin) {
+        mutableStateOf((s?.examPeriodDurationMin ?: 50).toString())
+    }
+    var examBreakBetweenPeriodsMin by remember(s?.examBreakBetweenPeriodsMin) {
+        mutableStateOf((s?.examBreakBetweenPeriodsMin ?: 20).toString())
+    }
+    var examLunchBreakMin by remember(s?.examLunchBreakMin) {
+        mutableStateOf((s?.examLunchBreakMin ?: 50).toString())
+    }
+    var examLunchAfterPeriod by remember(s?.examLunchAfterPeriod) {
+        mutableStateOf((s?.examLunchAfterPeriod ?: 3).toString())
+    }
+    var examStartHour by remember(s?.examFirstPeriodStartHour) {
+        mutableStateOf((s?.examFirstPeriodStartHour ?: 8).toString())
+    }
+    var examStartMinute by remember(s?.examFirstPeriodStartMinute) {
+        mutableStateOf((s?.examFirstPeriodStartMinute ?: 50).toString().padStart(2, '0'))
+    }
+    var examArrivalHour by remember(s?.examArrivalHour) {
+        mutableStateOf((s?.examArrivalHour ?: 8).toString())
+    }
+    var examArrivalMinute by remember(s?.examArrivalMinute) {
+        mutableStateOf((s?.examArrivalMinute ?: 30).toString().padStart(2, '0'))
+    }
     var advancedPeriodCount by remember(enabledAdvancedTimeSettingsUi) { mutableStateOf(s?.periodsPerDay?.toString() ?: "4") }
     var advancedLunchAfterPeriod by remember(enabledAdvancedTimeSettingsUi) { mutableStateOf(s?.lunchAfterPeriod ?: 2) }
     var advancedPeriodRanges by remember(enabledAdvancedTimeSettingsUi) { mutableStateOf(emptyList<TimeRangeDraft>()) }
@@ -220,7 +257,15 @@ fun SettingsScreen(
     var expandedAdvancedTimeItemKey by rememberSaveable { mutableStateOf<String?>(null) }
     var previewLunchAfterPeriod by remember { mutableStateOf<Int?>(null) }
     var isDraggingLunch by remember { mutableStateOf(false) }
+    var advancedExamPeriodCount by remember(enabledAdvancedTimeSettingsUi) { mutableStateOf(s?.examPeriodsPerDay?.toString() ?: "4") }
+    var advancedExamLunchAfterPeriod by remember(enabledAdvancedTimeSettingsUi) { mutableStateOf(s?.examLunchAfterPeriod ?: 3) }
+    var advancedExamPeriodRanges by remember(enabledAdvancedTimeSettingsUi) { mutableStateOf(emptyList<TimeRangeDraft>()) }
+    var advancedExamLunchRange by remember(enabledAdvancedTimeSettingsUi) { mutableStateOf(TimeRangeDraft("12", "00", "13", "00")) }
+    var expandedAdvancedExamTimeItemKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var previewExamLunchAfterPeriod by remember { mutableStateOf<Int?>(null) }
+    var isDraggingExamLunch by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     var notificationsEnabled by remember {
         mutableStateOf(NotificationManagerCompat.from(context).areNotificationsEnabled())
@@ -268,6 +313,8 @@ fun SettingsScreen(
     }
     val defaultPeriodDuration = periodDurationMin.toIntOrNull()?.coerceIn(10, 300) ?: 90
     val defaultBreakDuration = breakBetweenPeriodsMin.toIntOrNull()?.coerceIn(0, 120) ?: 10
+    val defaultExamPeriodDuration = examPeriodDurationMin.toIntOrNull()?.coerceIn(10, 180) ?: 50
+    val defaultExamBreakDuration = examBreakBetweenPeriodsMin.toIntOrNull()?.coerceIn(0, 120) ?: 20
 
     LaunchedEffect(
         s?.periodsPerDay,
@@ -349,6 +396,86 @@ fun SettingsScreen(
         startMinute = derived.firstPeriodStartMinute.toString().padStart(2, '0')
     }
 
+    LaunchedEffect(
+        s?.examPeriodsPerDay,
+        s?.examPeriodDurationMin,
+        s?.examBreakBetweenPeriodsMin,
+        s?.examLunchBreakMin,
+        s?.examLunchAfterPeriod,
+        s?.examFirstPeriodStartHour,
+        s?.examFirstPeriodStartMinute,
+        enabledAdvancedTimeSettingsUi
+    ) {
+        val settings = s ?: return@LaunchedEffect
+        val draft = buildAdvancedTimeEditorDraft(
+            periodsPerDay = settings.examPeriodsPerDay,
+            periodDurationMin = settings.examPeriodDurationMin,
+            breakBetweenPeriodsMin = settings.examBreakBetweenPeriodsMin,
+            lunchBreakMin = settings.examLunchBreakMin,
+            lunchAfterPeriod = settings.examLunchAfterPeriod,
+            firstPeriodStartHour = settings.examFirstPeriodStartHour,
+            firstPeriodStartMinute = settings.examFirstPeriodStartMinute,
+            useKosenMode = false
+        )
+        advancedExamPeriodCount = settings.examPeriodsPerDay.toString()
+        advancedExamLunchAfterPeriod = settings.examLunchAfterPeriod.coerceIn(0, settings.examPeriodsPerDay)
+        advancedExamPeriodRanges = draft.periodRanges
+        advancedExamLunchRange = draft.lunchRange
+        previewExamLunchAfterPeriod = null
+        isDraggingExamLunch = false
+    }
+
+    LaunchedEffect(advancedExamPeriodCount, enabledAdvancedTimeSettingsUi) {
+        if (!enabledAdvancedTimeSettingsUi) return@LaunchedEffect
+        val targetCount = advancedExamPeriodCount.toIntOrNull()?.coerceIn(1, 12) ?: return@LaunchedEffect
+        if (advancedExamPeriodRanges.size == targetCount) {
+            advancedExamLunchAfterPeriod = advancedExamLunchAfterPeriod.coerceIn(0, targetCount)
+            return@LaunchedEffect
+        }
+        advancedExamPeriodRanges = resizeTimeRangeDrafts(
+            current = advancedExamPeriodRanges,
+            targetCount = targetCount,
+            defaultPeriodDurationMin = defaultExamPeriodDuration,
+            defaultBreakDurationMin = defaultExamBreakDuration,
+            fallbackStartHour = examStartHour.toIntOrNull()?.coerceIn(0, 23) ?: 8,
+            fallbackStartMinute = examStartMinute.toIntOrNull()?.coerceIn(0, 59) ?: 50
+        )
+        advancedExamLunchAfterPeriod = advancedExamLunchAfterPeriod.coerceIn(0, targetCount)
+    }
+
+    val advancedExamTimeValidation = remember(
+        enabledAdvancedTimeSettingsUi,
+        advancedExamPeriodCount,
+        advancedExamLunchAfterPeriod,
+        advancedExamPeriodRanges,
+        advancedExamLunchRange,
+        defaultExamBreakDuration
+    ) {
+        if (!enabledAdvancedTimeSettingsUi) {
+            AdvancedTimeValidation()
+        } else {
+            validateAdvancedTimeEditor(
+                periodCountText = advancedExamPeriodCount,
+                periodRanges = advancedExamPeriodRanges,
+                lunchRange = advancedExamLunchRange,
+                lunchAfterPeriod = advancedExamLunchAfterPeriod,
+                fallbackBreakDurationMin = defaultExamBreakDuration
+            )
+        }
+    }
+
+    LaunchedEffect(enabledAdvancedTimeSettingsUi, advancedExamTimeValidation.derivedSettings) {
+        if (!enabledAdvancedTimeSettingsUi) return@LaunchedEffect
+        val derived = advancedExamTimeValidation.derivedSettings ?: return@LaunchedEffect
+        examPeriodsPerDay = derived.periodsPerDay.toString()
+        examPeriodDurationMin = derived.periodDurationMin.toString()
+        examBreakBetweenPeriodsMin = derived.breakBetweenPeriodsMin.toString()
+        examLunchBreakMin = derived.lunchBreakMin.toString()
+        examLunchAfterPeriod = derived.lunchAfterPeriod.toString()
+        examStartHour = derived.firstPeriodStartHour.toString()
+        examStartMinute = derived.firstPeriodStartMinute.toString().padStart(2, '0')
+    }
+
     // 時間割設定は入力後に自動保存（デバウンス）
     LaunchedEffect(
         periodsPerDay,
@@ -406,6 +533,54 @@ fun SettingsScreen(
         }
     }
 
+    LaunchedEffect(
+        enabledExamTimetable,
+        examPeriodsPerDay,
+        examPeriodDurationMin,
+        examBreakBetweenPeriodsMin,
+        examLunchBreakMin,
+        examLunchAfterPeriod,
+        examStartHour,
+        examStartMinute,
+        examArrivalHour,
+        examArrivalMinute,
+        s
+    ) {
+        if (!enabledExamTimetable) return@LaunchedEffect
+        delay(500)
+        val periods = examPeriodsPerDay.toIntOrNull()?.coerceIn(1, 12) ?: return@LaunchedEffect
+        val duration = examPeriodDurationMin.toIntOrNull()?.coerceIn(10, 180) ?: return@LaunchedEffect
+        val breakMinutes = examBreakBetweenPeriodsMin.toIntOrNull()?.coerceIn(0, 120) ?: return@LaunchedEffect
+        val lunchMinutes = examLunchBreakMin.toIntOrNull()?.coerceIn(0, 180) ?: return@LaunchedEffect
+        val lunchAfter = examLunchAfterPeriod.toIntOrNull()?.coerceIn(0, periods) ?: return@LaunchedEffect
+        val startH = examStartHour.toIntOrNull()?.coerceIn(0, 23) ?: return@LaunchedEffect
+        val startM = examStartMinute.toIntOrNull()?.coerceIn(0, 59) ?: return@LaunchedEffect
+        val arrivalH = examArrivalHour.toIntOrNull()?.coerceIn(0, 23) ?: return@LaunchedEffect
+        val arrivalM = examArrivalMinute.toIntOrNull()?.coerceIn(0, 59) ?: return@LaunchedEffect
+        val changed = s.examPeriodsPerDay != periods ||
+            s.examPeriodDurationMin != duration ||
+            s.examBreakBetweenPeriodsMin != breakMinutes ||
+            s.examLunchBreakMin != lunchMinutes ||
+            s.examLunchAfterPeriod != lunchAfter ||
+            s.examFirstPeriodStartHour != startH ||
+            s.examFirstPeriodStartMinute != startM ||
+            s.examArrivalHour != arrivalH ||
+            s.examArrivalMinute != arrivalM
+        if (changed) {
+            onUpdateExamTimetableSettings(
+                periods,
+                duration,
+                breakMinutes,
+                lunchMinutes,
+                lunchAfter,
+                startH,
+                startM,
+                arrivalH,
+                arrivalM
+            )
+        }
+    }
+
     LaunchedEffect(enabledLessonStartNotifications) {
         refreshNotificationStates()
     }
@@ -433,10 +608,10 @@ fun SettingsScreen(
                 pendingImportJson = jsonText
                 showImportConfirmDialog = true
             } else {
-                Toast.makeText(context, context.getString(R.string.msg_import_read_failed), Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, resources.getString(R.string.msg_import_read_failed), Toast.LENGTH_SHORT).show()
             }
         }.onFailure {
-            Toast.makeText(context, context.getString(R.string.msg_import_read_failed), Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, resources.getString(R.string.msg_import_read_failed), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -611,7 +786,7 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .padding(16.dp)
-                .verticalScroll(settingsScrollState, enabled = !isDraggingLunch),
+                .verticalScroll(settingsScrollState, enabled = !isDraggingLunch && !isDraggingExamLunch),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             // ── 時間割設定 ──────────────────────────────────────────
@@ -678,138 +853,66 @@ fun SettingsScreen(
                         }
 
                         if (enabledAdvancedTimeSettingsUi) {
-                            NumberSettingRow(
-                                label = stringResource(R.string.label_periods_per_day),
-                                value = advancedPeriodCount,
-                                unit = stringResource(R.string.unit_period),
-                                onValueChange = { advancedPeriodCount = it }
-                            )
-
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(
-                                    text = stringResource(R.string.label_timetable_blocks),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    text = stringResource(R.string.desc_advanced_time_settings_reorder),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Surface(
-                                    shape = MaterialTheme.shapes.medium,
-                                    color = MaterialTheme.colorScheme.surface,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column {
-                                        val displayedLunchAfterPeriod = previewLunchAfterPeriod ?: advancedLunchAfterPeriod
-                                        val advancedItems = buildAdvancedTimeItems(
-                                            periodRanges = advancedPeriodRanges,
-                                            lunchRange = advancedLunchRange,
-                                            lunchAfterPeriod = displayedLunchAfterPeriod,
-                                            useKosenMode = useKosenMode,
-                                            arrivalHour = arrivalHour,
-                                            arrivalMinute = arrivalMinute,
-                                            departureHour = departureHour,
-                                            departureMinute = departureMinute
-                                        )
-                                        Column {
-                                            advancedItems.forEachIndexed { index, item ->
-                                                key(item.key) {
-                                                    CompactTimeListRow(
-                                                        item = item,
-                                                        rowIndex = index,
-                                                        lunchAfterPeriod = displayedLunchAfterPeriod,
-                                                        expanded = expandedAdvancedTimeItemKey == item.key,
-                                                        isDraggingLunch = isDraggingLunch && item.isLunch,
-                                                        onToggleExpanded = {
-                                                            expandedAdvancedTimeItemKey =
-                                                                if (expandedAdvancedTimeItemKey == item.key) null else item.key
-                                                        },
-                                                        onRangeChange = { updated ->
-                                                            if (item.isLunch) {
-                                                                advancedLunchRange = updated
-                                                            } else {
-                                                                val slotIndex = item.periodIndex ?: return@CompactTimeListRow
-                                                                advancedPeriodRanges = advancedPeriodRanges.toMutableList().also { it[slotIndex] = updated }
-                                                            }
-                                                        },
-                                                        onPointChange = { updated ->
-                                                            when (item.key) {
-                                                                "start" -> {
-                                                                    arrivalHour = updated.hour
-                                                                    arrivalMinute = updated.minute
-                                                                }
-                                                                "end" -> {
-                                                                    departureHour = updated.hour
-                                                                    departureMinute = updated.minute
-                                                                }
-                                                            }
-                                                        },
-                                                        onLunchDragStart = {
-                                                            expandedAdvancedTimeItemKey = null
-                                                            isDraggingLunch = true
-                                                            previewLunchAfterPeriod = advancedLunchAfterPeriod
-                                                        },
-                                                        onLunchDragPreview = { targetPosition ->
-                                                            val targetCount = advancedPeriodCount.toIntOrNull()?.coerceIn(1, 12)
-                                                                ?: advancedPeriodRanges.size
-                                                            val nextPosition = targetPosition.coerceIn(0, targetCount)
-                                                            previewLunchAfterPeriod = nextPosition
-                                                            nextPosition
-                                                        },
-                                                        onLunchDragEnd = {
-                                                            advancedLunchAfterPeriod = previewLunchAfterPeriod ?: advancedLunchAfterPeriod
-                                                            previewLunchAfterPeriod = null
-                                                            isDraggingLunch = false
-                                                        },
-                                                        onLunchDragCancel = {
-                                                            previewLunchAfterPeriod = null
-                                                            isDraggingLunch = false
-                                                        }
-                                                    )
-                                                }
-                                                if (index < advancedItems.lastIndex) {
-                                                    Surface(
-                                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .padding(horizontal = 12.dp)
-                                                            .height(1.dp)
-                                                    ) {}
-                                                }
-                                            }
+                            AdvancedTimeBlocksEditor(
+                                periodCountLabel = stringResource(R.string.label_periods_per_day),
+                                periodCount = advancedPeriodCount,
+                                periodRanges = advancedPeriodRanges,
+                                lunchRange = advancedLunchRange,
+                                lunchAfterPeriod = advancedLunchAfterPeriod,
+                                previewLunchAfterPeriod = previewLunchAfterPeriod,
+                                useKosenMode = useKosenMode,
+                                arrivalHour = arrivalHour,
+                                arrivalMinute = arrivalMinute,
+                                departureHour = departureHour,
+                                departureMinute = departureMinute,
+                                expandedItemKey = expandedAdvancedTimeItemKey,
+                                isDraggingLunch = isDraggingLunch,
+                                validationError = advancedTimeValidation.error,
+                                onPeriodCountChange = { advancedPeriodCount = it },
+                                onExpandedItemChange = { expandedAdvancedTimeItemKey = it },
+                                onRangeChange = { periodIndex, isLunch, updated ->
+                                    if (isLunch) {
+                                        advancedLunchRange = updated
+                                    } else if (periodIndex != null) {
+                                        advancedPeriodRanges = advancedPeriodRanges.toMutableList().also {
+                                            it[periodIndex] = updated
                                         }
                                     }
-                                }
-                            }
-
-                            advancedTimeValidation.warningMessageRes?.let { warningRes ->
-                                Surface(
-                                    color = MaterialTheme.colorScheme.errorContainer,
-                                    shape = MaterialTheme.shapes.medium,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(12.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                        verticalAlignment = Alignment.Top
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.WarningAmber,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onErrorContainer
-                                        )
-                                        Text(
-                                            text = stringResource(warningRes),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onErrorContainer
-                                        )
+                                },
+                                onPointChange = { key, updated ->
+                                    when (key) {
+                                        "start" -> {
+                                            arrivalHour = updated.hour
+                                            arrivalMinute = updated.minute
+                                        }
+                                        "end" -> {
+                                            departureHour = updated.hour
+                                            departureMinute = updated.minute
+                                        }
                                     }
+                                },
+                                onLunchDragStart = {
+                                    expandedAdvancedTimeItemKey = null
+                                    isDraggingLunch = true
+                                    previewLunchAfterPeriod = advancedLunchAfterPeriod
+                                },
+                                onLunchDragPreview = { targetPosition ->
+                                    val targetCount = advancedPeriodCount.toIntOrNull()?.coerceIn(1, 12)
+                                        ?: advancedPeriodRanges.size
+                                    val nextPosition = targetPosition.coerceIn(0, targetCount)
+                                    previewLunchAfterPeriod = nextPosition
+                                    nextPosition
+                                },
+                                onLunchDragEnd = {
+                                    advancedLunchAfterPeriod = previewLunchAfterPeriod ?: advancedLunchAfterPeriod
+                                    previewLunchAfterPeriod = null
+                                    isDraggingLunch = false
+                                },
+                                onLunchDragCancel = {
+                                    previewLunchAfterPeriod = null
+                                    isDraggingLunch = false
                                 }
-                            }
+                            )
                         } else {
                             NumberSettingRow(label = stringResource(R.string.label_periods_per_day), value = periodsPerDay, unit = stringResource(R.string.unit_period), onValueChange = { periodsPerDay = it })
                             NumberSettingRow(label = stringResource(R.string.label_period_duration), value = periodDurationMin, unit = stringResource(R.string.unit_minute), onValueChange = { periodDurationMin = it })
@@ -861,6 +964,205 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+            }
+
+            if (enabledExamTimetable) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { expandExamTimetableSettings = !expandExamTimetableSettings },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = stringResource(R.string.section_exam_timetable_settings),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Icon(
+                            imageVector = if (expandExamTimetableSettings) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                            contentDescription = if (expandExamTimetableSettings) {
+                                stringResource(R.string.desc_close)
+                            } else {
+                                stringResource(R.string.desc_expand)
+                            },
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    if (expandExamTimetableSettings) Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.desc_exam_timetable_settings),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (enabledAdvancedTimeSettingsUi) {
+                                AdvancedTimeBlocksEditor(
+                                    periodCountLabel = stringResource(R.string.label_exam_periods_per_day),
+                                    periodCount = advancedExamPeriodCount,
+                                    periodRanges = advancedExamPeriodRanges,
+                                    lunchRange = advancedExamLunchRange,
+                                    lunchAfterPeriod = advancedExamLunchAfterPeriod,
+                                    previewLunchAfterPeriod = previewExamLunchAfterPeriod,
+                                    useKosenMode = false,
+                                    arrivalHour = examArrivalHour,
+                                    arrivalMinute = examArrivalMinute,
+                                    departureHour = "",
+                                    departureMinute = "",
+                                    startLabel = stringResource(R.string.label_exam_arrival_time),
+                                    showEndPoint = false,
+                                    startPointOptional = false,
+                                    expandedItemKey = expandedAdvancedExamTimeItemKey,
+                                    isDraggingLunch = isDraggingExamLunch,
+                                    validationError = advancedExamTimeValidation.error,
+                                    onPeriodCountChange = { advancedExamPeriodCount = it },
+                                    onExpandedItemChange = { expandedAdvancedExamTimeItemKey = it },
+                                    onRangeChange = { periodIndex, isLunch, updated ->
+                                        if (isLunch) {
+                                            advancedExamLunchRange = updated
+                                        } else if (periodIndex != null) {
+                                            advancedExamPeriodRanges = advancedExamPeriodRanges.toMutableList().also {
+                                                it[periodIndex] = updated
+                                            }
+                                        }
+                                    },
+                                    onPointChange = { key, updated ->
+                                        if (key == "start") {
+                                            examArrivalHour = updated.hour
+                                            examArrivalMinute = updated.minute
+                                        }
+                                    },
+                                    onLunchDragStart = {
+                                        expandedAdvancedExamTimeItemKey = null
+                                        isDraggingExamLunch = true
+                                        previewExamLunchAfterPeriod = advancedExamLunchAfterPeriod
+                                    },
+                                    onLunchDragPreview = { targetPosition ->
+                                        val targetCount = advancedExamPeriodCount.toIntOrNull()?.coerceIn(1, 12)
+                                            ?: advancedExamPeriodRanges.size
+                                        val nextPosition = targetPosition.coerceIn(0, targetCount)
+                                        previewExamLunchAfterPeriod = nextPosition
+                                        nextPosition
+                                    },
+                                    onLunchDragEnd = {
+                                        advancedExamLunchAfterPeriod = previewExamLunchAfterPeriod
+                                            ?: advancedExamLunchAfterPeriod
+                                        previewExamLunchAfterPeriod = null
+                                        isDraggingExamLunch = false
+                                    },
+                                    onLunchDragCancel = {
+                                        previewExamLunchAfterPeriod = null
+                                        isDraggingExamLunch = false
+                                    }
+                                )
+                            } else {
+                            TimeSettingRow(
+                                label = stringResource(R.string.label_exam_arrival_time),
+                                hour = examArrivalHour,
+                                minute = examArrivalMinute,
+                                onHourChange = { examArrivalHour = it },
+                                onMinuteChange = { examArrivalMinute = it }
+                            )
+                            TimeSettingRow(
+                                label = stringResource(R.string.label_exam_first_period_start),
+                                hour = examStartHour,
+                                minute = examStartMinute,
+                                onHourChange = { examStartHour = it },
+                                onMinuteChange = { examStartMinute = it }
+                            )
+                            NumberSettingRow(
+                                label = stringResource(R.string.label_exam_periods_per_day),
+                                value = examPeriodsPerDay,
+                                unit = stringResource(R.string.unit_period),
+                                onValueChange = { examPeriodsPerDay = it }
+                            )
+                            NumberSettingRow(
+                                label = stringResource(R.string.label_exam_period_duration),
+                                value = examPeriodDurationMin,
+                                unit = stringResource(R.string.unit_minute),
+                                onValueChange = { examPeriodDurationMin = it }
+                            )
+                            NumberSettingRow(
+                                label = stringResource(R.string.label_exam_break_duration),
+                                value = examBreakBetweenPeriodsMin,
+                                unit = stringResource(R.string.unit_minute),
+                                onValueChange = { examBreakBetweenPeriodsMin = it }
+                            )
+                            NumberSettingRow(
+                                label = stringResource(R.string.label_exam_lunch_duration),
+                                value = examLunchBreakMin,
+                                unit = stringResource(R.string.unit_minute),
+                                onValueChange = { examLunchBreakMin = it }
+                            )
+                            NumberSettingRow(
+                                label = stringResource(R.string.label_exam_lunch_after),
+                                value = examLunchAfterPeriod,
+                                unit = stringResource(R.string.unit_after_period),
+                                onValueChange = { examLunchAfterPeriod = it }
+                            )
+
+                            val previewPeriods = examPeriodsPerDay.toIntOrNull()?.coerceIn(1, 12) ?: 4
+                            val previewSlots = generateClassSlots(
+                                periodsPerDay = previewPeriods,
+                                periodDurationMin = examPeriodDurationMin.toIntOrNull()?.coerceIn(10, 180) ?: 50,
+                                breakBetweenPeriodsMin = examBreakBetweenPeriodsMin.toIntOrNull()?.coerceIn(0, 120) ?: 20,
+                                lunchBreakMin = examLunchBreakMin.toIntOrNull()?.coerceIn(0, 180) ?: 50,
+                                firstPeriodStartHour = examStartHour.toIntOrNull()?.coerceIn(0, 23) ?: 8,
+                                firstPeriodStartMinute = examStartMinute.toIntOrNull()?.coerceIn(0, 59) ?: 50,
+                                useKosenMode = false,
+                                lunchAfterPeriod = examLunchAfterPeriod.toIntOrNull()?.coerceIn(0, previewPeriods) ?: 3
+                            )
+                            Surface(
+                                shape = MaterialTheme.shapes.medium,
+                                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(vertical = 6.dp)) {
+                                    previewSlots.forEach { slot ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = stringResource(R.string.label_exam_period_number, slot.index + 1),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Text(
+                                                text = "%02d:%02d–%02d:%02d".format(
+                                                    slot.start.hour,
+                                                    slot.start.minute,
+                                                    slot.end.hour,
+                                                    slot.end.minute
+                                                ),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            }
+                            Text(
+                                text = stringResource(R.string.msg_settings_auto_save),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }
@@ -1083,6 +1385,12 @@ fun SettingsScreen(
                             onCheckedChange = onToggleLessonNotes
                         )
                         SettingsSwitchRow(
+                            title = stringResource(R.string.label_enable_exam_timetable),
+                            description = stringResource(R.string.desc_enable_exam_timetable),
+                            checked = enabledExamTimetable,
+                            onCheckedChange = onToggleExamTimetable
+                        )
+                        SettingsSwitchRow(
                             title = stringResource(R.string.label_local_ai_import),
                             description = stringResource(R.string.desc_local_ai_import),
                             checked = enabledLocalAi,
@@ -1149,7 +1457,7 @@ fun SettingsScreen(
                                         clearDismissedUpdateNotification(context)
                                         Toast.makeText(
                                             context,
-                                            context.getString(R.string.msg_update_dismiss_reset),
+                                            resources.getString(R.string.msg_update_dismiss_reset),
                                             Toast.LENGTH_SHORT
                                         ).show()
                                     }
@@ -1215,13 +1523,13 @@ fun SettingsScreen(
                                             context.startActivity(
                                                 Intent.createChooser(
                                                     shareIntent,
-                                                    context.getString(R.string.btn_export_json)
+                                                    resources.getString(R.string.btn_export_json)
                                                 )
                                             )
                                         }.onSuccess {
-                                            Toast.makeText(context, context.getString(R.string.msg_export_success), Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, resources.getString(R.string.msg_export_success), Toast.LENGTH_SHORT).show()
                                         }.onFailure {
-                                            Toast.makeText(context, context.getString(R.string.msg_export_failed), Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, resources.getString(R.string.msg_export_failed), Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 },
@@ -1323,7 +1631,7 @@ fun SettingsScreen(
                     pendingImportJson = null
                     if (!json.isNullOrBlank()) {
                         onImportAllFromJson(json)
-                        Toast.makeText(context, context.getString(R.string.msg_import_started), Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, resources.getString(R.string.msg_import_started), Toast.LENGTH_SHORT).show()
                     }
                 }) {
                     Text(stringResource(R.string.dialog_import_confirm_action))
@@ -1341,220 +1649,153 @@ fun SettingsScreen(
     }
 }
 
-private data class TimeRangeDraft(
-    val startHour: String,
-    val startMinute: String,
-    val endHour: String,
-    val endMinute: String
-)
-
 private data class TimePointDraft(
     val hour: String,
     val minute: String
 )
 
-private data class TimeRangeValue(
-    val startMin: Int,
-    val endMin: Int
-)
-
-private data class AdvancedTimeEditorDraft(
-    val periodRanges: List<TimeRangeDraft>,
-    val lunchRange: TimeRangeDraft
-)
-
-private data class DerivedScheduleSettings(
-    val periodsPerDay: Int,
-    val periodDurationMin: Int,
-    val breakBetweenPeriodsMin: Int,
-    val lunchBreakMin: Int,
-    val lunchAfterPeriod: Int,
-    val firstPeriodStartHour: Int,
-    val firstPeriodStartMinute: Int
-)
-
-private data class AdvancedTimeValidation(
-    @param:StringRes val warningMessageRes: Int? = null,
-    val derivedSettings: DerivedScheduleSettings? = null
-)
-
-private fun buildAdvancedTimeEditorDraft(
-    periodsPerDay: Int,
-    periodDurationMin: Int,
-    breakBetweenPeriodsMin: Int,
-    lunchBreakMin: Int,
-    lunchAfterPeriod: Int,
-    firstPeriodStartHour: Int,
-    firstPeriodStartMinute: Int,
-    useKosenMode: Boolean
-): AdvancedTimeEditorDraft {
-    val slots = generateClassSlots(
-        periodsPerDay = periodsPerDay,
-        periodDurationMin = periodDurationMin,
-        breakBetweenPeriodsMin = breakBetweenPeriodsMin,
-        lunchBreakMin = lunchBreakMin,
-        firstPeriodStartHour = firstPeriodStartHour,
-        firstPeriodStartMinute = firstPeriodStartMinute,
-        useKosenMode = useKosenMode,
-        lunchAfterPeriod = lunchAfterPeriod
-    )
-    val periodRanges = slots.map { slot ->
-        TimeRangeDraft(
-            startHour = slot.start.hour.toString(),
-            startMinute = slot.start.minute.toString().padStart(2, '0'),
-            endHour = slot.end.hour.toString(),
-            endMinute = slot.end.minute.toString().padStart(2, '0')
-        )
+private val AdvancedTimeValidationError.messageRes: Int
+    get() = when (this) {
+        AdvancedTimeValidationError.INVALID_PERIOD_COUNT -> R.string.warning_advanced_time_invalid_period_count
+        AdvancedTimeValidationError.INVALID_PERIOD_TIME -> R.string.warning_advanced_time_invalid_period_time
+        AdvancedTimeValidationError.INVALID_LUNCH_TIME -> R.string.warning_advanced_time_invalid_lunch_time
+        AdvancedTimeValidationError.PERIOD_END_BEFORE_START -> R.string.warning_advanced_time_period_end_before_start
+        AdvancedTimeValidationError.LUNCH_END_BEFORE_START -> R.string.warning_advanced_time_lunch_end_before_start
+        AdvancedTimeValidationError.PERIOD_DURATION_MISMATCH -> R.string.warning_advanced_time_period_duration_mismatch
+        AdvancedTimeValidationError.PERIODS_OVERLAP -> R.string.warning_advanced_time_periods_overlap
+        AdvancedTimeValidationError.BREAK_DURATION_MISMATCH -> R.string.warning_advanced_time_break_duration_mismatch
+        AdvancedTimeValidationError.LUNCH_FIRST_NOT_CONNECTED -> R.string.warning_advanced_time_lunch_first_not_connected
+        AdvancedTimeValidationError.LUNCH_LAST_NOT_CONNECTED -> R.string.warning_advanced_time_lunch_last_not_connected
+        AdvancedTimeValidationError.LUNCH_MIDDLE_NOT_CONNECTED -> R.string.warning_advanced_time_lunch_middle_not_connected
     }
-    val lunchAfter = lunchAfterPeriod.coerceIn(0, periodsPerDay)
-    val lunchStartMin = when {
-        lunchAfter <= 0 -> {
-            val firstStart = slots.firstOrNull()?.let { it.start.hour * 60 + it.start.minute }
-                ?: (firstPeriodStartHour * 60 + firstPeriodStartMinute)
-            (firstStart - lunchBreakMin).coerceAtLeast(0)
-        }
-        lunchAfter >= slots.size -> {
-            val lastEnd = slots.lastOrNull()?.let { it.end.hour * 60 + it.end.minute }
-                ?: (firstPeriodStartHour * 60 + firstPeriodStartMinute + periodDurationMin)
-            lastEnd
-        }
-        else -> slots[lunchAfter - 1].end.hour * 60 + slots[lunchAfter - 1].end.minute
-    }
-    val lunchEndMin = when {
-        lunchAfter <= 0 -> slots.firstOrNull()?.let { it.start.hour * 60 + it.start.minute } ?: (lunchStartMin + lunchBreakMin)
-        lunchAfter >= slots.size -> lunchStartMin + lunchBreakMin
-        else -> slots[lunchAfter].start.hour * 60 + slots[lunchAfter].start.minute
-    }
-    return AdvancedTimeEditorDraft(
-        periodRanges = periodRanges,
-        lunchRange = timeRangeDraftFromMinutes(lunchStartMin, lunchEndMin)
-    )
-}
 
-private fun resizeTimeRangeDrafts(
-    current: List<TimeRangeDraft>,
-    targetCount: Int,
-    defaultPeriodDurationMin: Int,
-    defaultBreakDurationMin: Int,
-    fallbackStartHour: Int,
-    fallbackStartMinute: Int
-): List<TimeRangeDraft> {
-    if (targetCount <= 0) return emptyList()
-    if (current.size == targetCount) return current
-    if (current.size > targetCount) return current.take(targetCount)
-
-    val result = current.toMutableList()
-    while (result.size < targetCount) {
-        val previous = result.lastOrNull()
-        val nextStartMin = previous?.let {
-            parseTimeRangeDraft(it)?.endMin?.plus(defaultBreakDurationMin)
-        } ?: (fallbackStartHour * 60 + fallbackStartMinute)
-        result += timeRangeDraftFromMinutes(nextStartMin, nextStartMin + defaultPeriodDurationMin)
-    }
-    return result
-}
-
-private fun validateAdvancedTimeEditor(
-    periodCountText: String,
+@Composable
+private fun AdvancedTimeBlocksEditor(
+    periodCountLabel: String,
+    periodCount: String,
     periodRanges: List<TimeRangeDraft>,
     lunchRange: TimeRangeDraft,
     lunchAfterPeriod: Int,
-    fallbackBreakDurationMin: Int
-): AdvancedTimeValidation {
-    val periodCount = periodCountText.toIntOrNull()?.coerceIn(1, 12)
-        ?: return AdvancedTimeValidation(warningMessageRes = R.string.warning_advanced_time_invalid_period_count)
-    if (periodRanges.size != periodCount) {
-        return AdvancedTimeValidation()
-    }
-    val parsedPeriods = periodRanges.map {
-        parseTimeRangeDraft(it) ?: return AdvancedTimeValidation(warningMessageRes = R.string.warning_advanced_time_invalid_period_time)
-    }
-    val parsedLunch = parseTimeRangeDraft(lunchRange)
-        ?: return AdvancedTimeValidation(warningMessageRes = R.string.warning_advanced_time_invalid_lunch_time)
-
-    if (parsedPeriods.any { it.endMin <= it.startMin }) {
-        return AdvancedTimeValidation(warningMessageRes = R.string.warning_advanced_time_period_end_before_start)
-    }
-    if (parsedLunch.endMin <= parsedLunch.startMin) {
-        return AdvancedTimeValidation(warningMessageRes = R.string.warning_advanced_time_lunch_end_before_start)
-    }
-
-    val lunchAfter = lunchAfterPeriod.coerceIn(0, periodCount)
-    val periodDurations = parsedPeriods.map { it.endMin - it.startMin }
-    if (periodDurations.distinct().size > 1) {
-        return AdvancedTimeValidation(warningMessageRes = R.string.warning_advanced_time_period_duration_mismatch)
-    }
-
-    val regularBreaks = mutableListOf<Int>()
-    for (i in 0 until parsedPeriods.lastIndex) {
-        if (lunchAfter == i + 1) continue
-        val gap = parsedPeriods[i + 1].startMin - parsedPeriods[i].endMin
-        if (gap < 0) {
-            return AdvancedTimeValidation(warningMessageRes = R.string.warning_advanced_time_periods_overlap)
-        }
-        regularBreaks += gap
-    }
-    if (regularBreaks.distinct().size > 1) {
-        return AdvancedTimeValidation(warningMessageRes = R.string.warning_advanced_time_break_duration_mismatch)
-    }
-
-    when {
-        lunchAfter == 0 -> {
-            if (parsedLunch.endMin != parsedPeriods.first().startMin) {
-                return AdvancedTimeValidation(warningMessageRes = R.string.warning_advanced_time_lunch_first_not_connected)
-            }
-        }
-        lunchAfter == periodCount -> {
-            if (parsedLunch.startMin != parsedPeriods.last().endMin) {
-                return AdvancedTimeValidation(warningMessageRes = R.string.warning_advanced_time_lunch_last_not_connected)
-            }
-        }
-        else -> {
-            val before = parsedPeriods[lunchAfter - 1]
-            val after = parsedPeriods[lunchAfter]
-            if (before.endMin != parsedLunch.startMin || parsedLunch.endMin != after.startMin) {
-                return AdvancedTimeValidation(warningMessageRes = R.string.warning_advanced_time_lunch_middle_not_connected)
-            }
-        }
-    }
-
-    val firstPeriodStart = parsedPeriods.first().startMin
-    val breakDuration = regularBreaks.firstOrNull() ?: fallbackBreakDurationMin
-    val derived = DerivedScheduleSettings(
-        periodsPerDay = periodCount,
-        periodDurationMin = periodDurations.first(),
-        breakBetweenPeriodsMin = breakDuration,
-        lunchBreakMin = parsedLunch.endMin - parsedLunch.startMin,
-        lunchAfterPeriod = lunchAfter,
-        firstPeriodStartHour = firstPeriodStart / 60,
-        firstPeriodStartMinute = firstPeriodStart % 60
+    previewLunchAfterPeriod: Int?,
+    useKosenMode: Boolean,
+    arrivalHour: String,
+    arrivalMinute: String,
+    departureHour: String,
+    departureMinute: String,
+    startLabel: String = "始業時間",
+    showEndPoint: Boolean = true,
+    startPointOptional: Boolean = true,
+    expandedItemKey: String?,
+    isDraggingLunch: Boolean,
+    validationError: AdvancedTimeValidationError?,
+    onPeriodCountChange: (String) -> Unit,
+    onExpandedItemChange: (String?) -> Unit,
+    onRangeChange: (periodIndex: Int?, isLunch: Boolean, range: TimeRangeDraft) -> Unit,
+    onPointChange: (key: String, point: TimePointDraft) -> Unit,
+    onLunchDragStart: () -> Unit,
+    onLunchDragPreview: (Int) -> Int,
+    onLunchDragEnd: () -> Unit,
+    onLunchDragCancel: () -> Unit
+) {
+    NumberSettingRow(
+        label = periodCountLabel,
+        value = periodCount,
+        unit = stringResource(R.string.unit_period),
+        onValueChange = onPeriodCountChange
     )
-    return AdvancedTimeValidation(derivedSettings = derived)
-}
 
-private fun parseTimeRangeDraft(draft: TimeRangeDraft): TimeRangeValue? {
-    val start = parseRequiredTime(draft.startHour, draft.startMinute) ?: return null
-    val end = parseRequiredTime(draft.endHour, draft.endMinute) ?: return null
-    return TimeRangeValue(startMin = start, endMin = end)
-}
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = stringResource(R.string.label_timetable_blocks),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            text = stringResource(R.string.desc_advanced_time_settings_reorder),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Surface(
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column {
+                val displayedLunchAfterPeriod = previewLunchAfterPeriod ?: lunchAfterPeriod
+                val items = buildAdvancedTimeItems(
+                    periodRanges = periodRanges,
+                    lunchRange = lunchRange,
+                    lunchAfterPeriod = displayedLunchAfterPeriod,
+                    useKosenMode = useKosenMode,
+                    arrivalHour = arrivalHour,
+                    arrivalMinute = arrivalMinute,
+                    departureHour = departureHour,
+                    departureMinute = departureMinute,
+                    startLabel = startLabel,
+                    showEndPoint = showEndPoint,
+                    startPointOptional = startPointOptional
+                )
+                items.forEachIndexed { index, item ->
+                    key(item.key) {
+                        CompactTimeListRow(
+                            item = item,
+                            rowIndex = index,
+                            lunchAfterPeriod = displayedLunchAfterPeriod,
+                            expanded = expandedItemKey == item.key,
+                            isDraggingLunch = isDraggingLunch && item.isLunch,
+                            onToggleExpanded = {
+                                onExpandedItemChange(if (expandedItemKey == item.key) null else item.key)
+                            },
+                            onRangeChange = { updated ->
+                                onRangeChange(item.periodIndex, item.isLunch, updated)
+                            },
+                            onPointChange = { updated -> onPointChange(item.key, updated) },
+                            onLunchDragStart = onLunchDragStart,
+                            onLunchDragPreview = onLunchDragPreview,
+                            onLunchDragEnd = onLunchDragEnd,
+                            onLunchDragCancel = onLunchDragCancel
+                        )
+                    }
+                    if (index < items.lastIndex) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp)
+                                .height(1.dp)
+                        ) {}
+                    }
+                }
+            }
+        }
+    }
 
-private fun parseRequiredTime(hour: String, minute: String): Int? {
-    val h = hour.toIntOrNull()?.takeIf { it in 0..23 } ?: return null
-    val m = minute.toIntOrNull()?.takeIf { it in 0..59 } ?: return null
-    return h * 60 + m
-}
-
-private fun timeRangeDraftFromMinutes(startMin: Int, endMin: Int): TimeRangeDraft {
-    val safeStart = startMin.coerceIn(0, 23 * 60 + 59)
-    val safeEnd = endMin.coerceIn(0, 23 * 60 + 59)
-    val start = LocalTime.of(safeStart / 60, safeStart % 60)
-    val end = LocalTime.of(safeEnd / 60, safeEnd % 60)
-    return TimeRangeDraft(
-        startHour = start.hour.toString(),
-        startMinute = start.minute.toString().padStart(2, '0'),
-        endHour = end.hour.toString(),
-        endMinute = end.minute.toString().padStart(2, '0')
-    )
+    validationError?.messageRes?.let { warningRes ->
+        Surface(
+            color = MaterialTheme.colorScheme.errorContainer,
+            shape = MaterialTheme.shapes.medium,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.WarningAmber,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onErrorContainer
+                )
+                Text(
+                    text = stringResource(warningRes),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
+        }
+    }
 }
 
 private fun periodLabel(index: Int, useKosenMode: Boolean): String {
@@ -1583,15 +1824,19 @@ private fun buildAdvancedTimeItems(
     arrivalHour: String,
     arrivalMinute: String,
     departureHour: String,
-    departureMinute: String
+    departureMinute: String,
+    startLabel: String = "始業時間",
+    endLabel: String = "終業時間",
+    showEndPoint: Boolean = true,
+    startPointOptional: Boolean = true
 ): List<AdvancedTimeListItem> {
     val items = mutableListOf<AdvancedTimeListItem>()
     items += AdvancedTimeListItem(
         key = "start",
-        label = "始業時間",
+        label = startLabel,
         isLunch = false,
         point = TimePointDraft(arrivalHour, arrivalMinute),
-        isOptionalPoint = true
+        isOptionalPoint = startPointOptional
     )
     val insertIndex = lunchAfterPeriod.coerceIn(0, periodRanges.size)
     for (index in 0..periodRanges.size) {
@@ -1613,13 +1858,15 @@ private fun buildAdvancedTimeItems(
             )
         }
     }
-    items += AdvancedTimeListItem(
-        key = "end",
-        label = "終業時間",
-        isLunch = false,
-        point = TimePointDraft(departureHour, departureMinute),
-        isOptionalPoint = true
-    )
+    if (showEndPoint) {
+        items += AdvancedTimeListItem(
+            key = "end",
+            label = endLabel,
+            isLunch = false,
+            point = TimePointDraft(departureHour, departureMinute),
+            isOptionalPoint = true
+        )
+    }
     return items
 }
 
@@ -1868,36 +2115,6 @@ private fun formatTimeRangeDraft(range: TimeRangeDraft): String {
 private fun formatTimePointDraft(point: TimePointDraft): String {
     if (point.hour.isBlank() && point.minute.isBlank()) return "未設定"
     return "${point.hour.ifBlank { "--" }}:${point.minute.ifBlank { "--" }}"
-}
-
-@Composable
-private fun LegacyEditableTimeRangeRow(
-    label: String,
-    range: TimeRangeDraft,
-    onRangeChange: (TimeRangeDraft) -> Unit,
-    emphasized: Boolean = false
-) {
-    Surface(
-        color = if (emphasized) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-        shape = MaterialTheme.shapes.medium,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = if (emphasized) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-            )
-            TimeRangeFields(
-                range = range,
-                onRangeChange = onRangeChange
-            )
-        }
-    }
 }
 
 @Composable
@@ -2180,7 +2397,7 @@ private fun LessonStartNotificationSettingsContent(
                                                 )
                                             },
                                             modifier = Modifier
-                                                .menuAnchor()
+                                                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                                                 .fillMaxWidth()
                                         )
                                         ExposedDropdownMenu(

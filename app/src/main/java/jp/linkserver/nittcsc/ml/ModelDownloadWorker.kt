@@ -14,6 +14,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import jp.linkserver.nittcsc.reminder.notifyIfAllowed
 import kotlinx.coroutines.CancellationException
 
 class ModelDownloadWorker(
@@ -40,8 +41,8 @@ class ModelDownloadWorker(
             // Foreground Service として明示的に設定
             try {
                 setForeground(getForegroundInfo())
-            } catch (_: android.app.ForegroundServiceStartNotAllowedException) {
-                // バックグラウンド制限によりフォアグラウンド昇格不可 — 通知なしで続行
+            } catch (error: Exception) {
+                if (!error.isForegroundServiceStartNotAllowed()) throw error
                 android.util.Log.w("ModelDownloadWorker", "Cannot start foreground service, proceeding in background")
             }
             
@@ -66,11 +67,15 @@ class ModelDownloadWorker(
                             // Android 16+ の Live Updates チップに反映される
                             try {
                                 setForeground(getForegroundInfo(notification))
-                            } catch (_: android.app.ForegroundServiceStartNotAllowedException) {
-                                // フォアグラウンド起動不可の場合は直接 notify にフォールバック
-                                notificationManager.notify(DOWNLOAD_NOTIFICATION_ID, notification)
-                            } catch (_: Exception) {
-                                notificationManager.notify(DOWNLOAD_NOTIFICATION_ID, notification)
+                            } catch (error: Exception) {
+                                if (!error.isForegroundServiceStartNotAllowed()) {
+                                    android.util.Log.w("ModelDownloadWorker", "Cannot update foreground notification", error)
+                                }
+                                notificationManager.notifyIfAllowed(
+                                    applicationContext,
+                                    DOWNLOAD_NOTIFICATION_ID,
+                                    notification
+                                )
                             }
                             val progressData = Data.Builder()
                                 .putInt("progress", progress)
@@ -87,7 +92,7 @@ class ModelDownloadWorker(
                             assetCount = assetCount,
                             progressDisplayMode = progressDisplayMode
                         )
-                        notificationManager.notify(DOWNLOAD_NOTIFICATION_ID, successNotification)
+                        notificationManager.notifyIfAllowed(applicationContext, DOWNLOAD_NOTIFICATION_ID, successNotification)
                     }
                     is DownloadState.Error -> {
                         failureMessage = state.exception.message ?: "Unknown error"
@@ -98,7 +103,7 @@ class ModelDownloadWorker(
                             assetCount = assetCount,
                             progressDisplayMode = progressDisplayMode
                         )
-                        notificationManager.notify(DOWNLOAD_NOTIFICATION_ID, errorNotification)
+                        notificationManager.notifyIfAllowed(applicationContext, DOWNLOAD_NOTIFICATION_ID, errorNotification)
                     }
                     else -> {}
                 }
@@ -120,7 +125,7 @@ class ModelDownloadWorker(
                 "Model Download",
                 e.message ?: "Unknown error occurred"
             )
-            notificationManager.notify(DOWNLOAD_NOTIFICATION_ID, errorNotification)
+            notificationManager.notifyIfAllowed(applicationContext, DOWNLOAD_NOTIFICATION_ID, errorNotification)
             Result.failure(
                 Data.Builder()
                     .putString("error", e.message ?: "Unknown error occurred")
@@ -142,6 +147,11 @@ class ModelDownloadWorker(
                 progressDisplayMode = DownloadProgressDisplayMode.PER_FILE
             )
         )
+    }
+
+    private fun Exception.isForegroundServiceStartNotAllowed(): Boolean {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            javaClass.name == "android.app.ForegroundServiceStartNotAllowedException"
     }
 
     private fun getForegroundInfo(notification: android.app.Notification): ForegroundInfo {

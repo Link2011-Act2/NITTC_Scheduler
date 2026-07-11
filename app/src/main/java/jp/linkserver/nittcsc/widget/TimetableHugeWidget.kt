@@ -60,6 +60,10 @@ class TimetableHugeWidgetReceiver : GlanceAppWidgetReceiver() {
 private fun Content(data: WidgetData) {
     val startOfWeek = data.today.with(DayOfWeek.MONDAY)
     val weekDates = (0..4).map { startOfWeek.plusDays(it.toLong()) }
+    val displaySlots = weekDates
+        .map { date -> WidgetDataHelper.classSlotsForDate(data, date) }
+        .maxByOrNull { it.size }
+        ?: data.classSlots
     val context = LocalContext.current
 
     Column(
@@ -123,7 +127,7 @@ private fun Content(data: WidgetData) {
 
         Spacer(modifier = GlanceModifier.height(2.dp))
 
-        data.classSlots.forEachIndexed { i, slot ->
+        displaySlots.forEachIndexed { i, slot ->
             Row(
                 modifier = GlanceModifier
                     .fillMaxWidth()
@@ -175,15 +179,9 @@ private fun Content(data: WidgetData) {
                     if (index > 0) {
                         Spacer(modifier = GlanceModifier.width(2.dp))
                     }
-                    val lesson = WidgetDataHelper.resolveLesson(
-                        date,
-                        slot.index,
-                        data.lessons,
-                        data.dayTypeEntities,
-                        data.dayTypeMap,
-                        data.changedLessons
-                    )
-                    val isCancelled = data.cancelledLessons.contains(date to slot.index)
+                    val lesson = WidgetDataHelper.resolveLesson(data, date, slot.index)
+                    val isExamDate = WidgetDataHelper.isExamScheduleDate(data, date)
+                    val isCancelled = !isExamDate && data.cancelledLessons.contains(date to slot.index)
                     val hasTasks = WidgetDataHelper.hasTasksForDate(data, date, lesson)
                     val hasPlans = WidgetDataHelper.hasPlansForDate(data, date, lesson)
                     val cellBg = if (lesson != null) GlanceTheme.colors.surfaceVariant else GlanceTheme.colors.background

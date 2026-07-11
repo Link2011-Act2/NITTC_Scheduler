@@ -27,6 +27,9 @@ import jp.linkserver.nittcsc.data.AppDatabase
 import jp.linkserver.nittcsc.data.ChangedLessonEntity
 import jp.linkserver.nittcsc.data.DayType
 import jp.linkserver.nittcsc.data.DayTypeEntity
+import jp.linkserver.nittcsc.data.ExamLessonEntity
+import jp.linkserver.nittcsc.data.hasEnteredContent
+import jp.linkserver.nittcsc.data.HolidaySpecialLabel
 import jp.linkserver.nittcsc.data.LessonEntity
 import jp.linkserver.nittcsc.data.LessonMode
 import jp.linkserver.nittcsc.data.LessonStartNotificationChipMode
@@ -65,17 +68,39 @@ class LessonStartNotificationWorker(
         val settings = dao.getSettings() ?: return Result.success()
         if (!settings.lessonStartNotificationEnabled) return Result.success()
 
-        val slot = settings.classSlots().firstOrNull { it.index == slotIndex }
-            ?: return Result.success()
-        if (dao.getCancelledLesson(date, slotIndex) != null) return Result.success()
+        val specialLabel = dao.getDayType(date)?.holidaySpecialLabel
+        val examLessonsForDate = if (settings.enableExamTimetable) {
+            dao.getExamLessonsForDate(date)
+        } else {
+            emptyList()
+        }
+        val isExamDate = settings.enableExamTimetable &&
+            dao.getExamDaySchedule(date) != null &&
+            examLessonsForDate.any { it.hasEnteredContent() } &&
+            (specialLabel == HolidaySpecialLabel.MIDTERM || specialLabel == HolidaySpecialLabel.FINAL)
+        val examLesson = if (isExamDate) {
+            examLessonsForDate.firstOrNull { it.slotIndex == slotIndex }
+        } else {
+            null
+        }
+        val slot = if (isExamDate) {
+            examLesson?.toClassSlot() ?: return Result.success()
+        } else {
+            settings.classSlots().firstOrNull { it.index == slotIndex } ?: return Result.success()
+        }
+        if (!isExamDate && dao.getCancelledLesson(date, slotIndex) != null) return Result.success()
 
-        val lesson = resolveEffectiveLesson(
-            date = date,
-            slotIndex = slotIndex,
-            dayTypeEntities = dao.getDayTypesOnce().associateBy { it.date },
-            lessons = dao.getLessonsOnce().associateBy { it.dayOfWeek to it.slotIndex },
-            changedLessons = dao.getChangedLessonsOnce().associateBy { it.date to it.slotIndex }
-        ) ?: return Result.success()
+        val lesson = if (isExamDate) {
+            examLesson?.toResolvedLesson()
+        } else {
+            resolveEffectiveLesson(
+                date = date,
+                slotIndex = slotIndex,
+                dayTypeEntities = dao.getDayTypesOnce().associateBy { it.date },
+                lessons = dao.getLessonsOnce().associateBy { it.dayOfWeek to it.slotIndex },
+                changedLessons = dao.getChangedLessonsOnce().associateBy { it.date to it.slotIndex }
+            )
+        } ?: return Result.success()
         if (lesson.subject.isBlank()) return Result.success()
         if (isExcluded(lesson, dao.getLessonNotificationExclusionsOnce())) return Result.success()
 
@@ -311,7 +336,7 @@ class LessonStartNotificationWorker(
             .setRequestPromotedOngoing(true)
 
         if (chipMode == LessonStartNotificationChipMode.MINUTE_TEXT) {
-            builder.setShortCriticalText(buildLiveUpdateMinuteChipText(remainingSeconds))
+            builder.setShortCriticalText(buildLiveUpdateMinuteChipText(remainingMillis))
         }
 
         return builder.build()
@@ -365,11 +390,19 @@ class LessonStartNotificationWorker(
         return ((remainingMillis + 999L) / 1_000L).toInt().coerceAtLeast(1)
     }
 
-    private fun buildLiveUpdateMinuteChipText(remainingSeconds: Int): String {
-        return applicationContext.getString(
-            R.string.lesson_start_live_update_chip_minutes,
-            (remainingSeconds / 60).coerceAtLeast(0)
-        )
+    private fun buildLiveUpdateMinuteChipText(remainingMillis: Long): String {
+        val remainingSeconds = remainingSeconds(remainingMillis)
+        return if (remainingMillis < ONE_MINUTE_MS) {
+            applicationContext.getString(
+                R.string.lesson_start_live_update_chip_seconds,
+                remainingSeconds
+            )
+        } else {
+            applicationContext.getString(
+                R.string.lesson_start_live_update_chip_minutes,
+                (remainingMillis / ONE_MINUTE_MS).toInt().coerceAtLeast(1)
+            )
+        }
     }
 
     private fun displayMinutesBefore(
@@ -508,6 +541,20 @@ class LessonStartNotificationWorker(
         )
     }
 
+    private fun ExamLessonEntity.toClassSlot(): ClassSlot {
+        return ClassSlot(
+            index = slotIndex,
+            label = "${slotIndex + 1}時間目",
+            start = java.time.LocalTime.of(startHour, startMinute),
+            end = java.time.LocalTime.of(endHour, endMinute)
+        )
+    }
+
+    private fun ExamLessonEntity.toResolvedLesson(): ResolvedLesson? {
+        if (subject.isBlank()) return null
+        return ResolvedLesson(subject, teacher, location.takeIf { it.isNotBlank() })
+    }
+
     companion object {
         private const val CHANNEL_ID = "lesson_start_notifications"
         private const val KEY_DATE = "date"
@@ -553,6 +600,23 @@ class LessonStartNotificationWorker(
             val lessons = dao.getLessonsOnce().associateBy { it.dayOfWeek to it.slotIndex }
             val changedLessons = dao.getChangedLessonsOnce().associateBy { it.date to it.slotIndex }
             val cancelledLessons = dao.getCancelledLessonsOnce().map { it.date to it.slotIndex }.toSet()
+            val examLessonsByDate = if (settings.enableExamTimetable) {
+                dao.getExamLessonsOnce().groupBy { it.date }
+            } else {
+                emptyMap()
+            }
+            val examScheduleDates = if (settings.enableExamTimetable) {
+                dao.getExamDaySchedulesOnce()
+                    .map { it.date }
+                    .filterTo(mutableSetOf()) { date ->
+                        examLessonsByDate[date].orEmpty().any { it.hasEnteredContent() } && when (dayTypeEntities[date]?.holidaySpecialLabel) {
+                            HolidaySpecialLabel.MIDTERM, HolidaySpecialLabel.FINAL -> true
+                            else -> false
+                        }
+                    }
+            } else {
+                emptySet()
+            }
             val exclusions = dao.getLessonNotificationExclusionsOnce()
             val minutesBefore = settings.lessonStartNotificationMinutesBefore.coerceIn(0, 360).toLong()
             val potentialLiveUpdates =
@@ -566,15 +630,39 @@ class LessonStartNotificationWorker(
             }
 
             for (date in today.toDateRange(endDate)) {
-                for (slot in slots) {
-                    if (cancelledLessons.contains(date to slot.index)) continue
-                    val lesson = resolveEffectiveLessonForSchedule(
-                        date = date,
-                        slotIndex = slot.index,
-                        dayTypeEntities = dayTypeEntities,
-                        lessons = lessons,
-                        changedLessons = changedLessons
-                    ) ?: continue
+                val isExamDate = date in examScheduleDates
+                val dateExamLessons = examLessonsByDate[date].orEmpty().associateBy { it.slotIndex }
+                val dateSlots = if (isExamDate) {
+                    dateExamLessons.values.sortedBy { it.slotIndex }.map { exam ->
+                        ClassSlot(
+                            index = exam.slotIndex,
+                            label = "${exam.slotIndex + 1}時間目",
+                            start = java.time.LocalTime.of(exam.startHour, exam.startMinute),
+                            end = java.time.LocalTime.of(exam.endHour, exam.endMinute)
+                        )
+                    }
+                } else {
+                    slots
+                }
+                for (slot in dateSlots) {
+                    if (!isExamDate && cancelledLessons.contains(date to slot.index)) continue
+                    val lesson = if (isExamDate) {
+                        dateExamLessons[slot.index]?.let { exam ->
+                            if (exam.subject.isBlank()) null else ResolvedLesson(
+                                exam.subject,
+                                exam.teacher,
+                                exam.location.takeIf { it.isNotBlank() }
+                            )
+                        }
+                    } else {
+                        resolveEffectiveLessonForSchedule(
+                            date = date,
+                            slotIndex = slot.index,
+                            dayTypeEntities = dayTypeEntities,
+                            lessons = lessons,
+                            changedLessons = changedLessons
+                        )
+                    } ?: continue
                     if (lesson.subject.isBlank() || isExcluded(lesson, exclusions)) continue
 
                     val lessonStart = LocalDateTime.of(date, slot.start)

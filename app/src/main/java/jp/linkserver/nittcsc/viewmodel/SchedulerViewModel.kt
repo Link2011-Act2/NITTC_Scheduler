@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import jp.linkserver.nittcsc.data.DayType
 import jp.linkserver.nittcsc.data.DayTypeEntity
 import jp.linkserver.nittcsc.data.ChangedLessonEntity
+import jp.linkserver.nittcsc.data.ExamDayScheduleEntity
+import jp.linkserver.nittcsc.data.ExamLessonEntity
 import jp.linkserver.nittcsc.data.HolidaySpecialLabel
 import jp.linkserver.nittcsc.data.LessonNotificationExclusionEntity
 import jp.linkserver.nittcsc.data.LessonDraft
@@ -58,7 +60,9 @@ private data class CoreDataState(
     val incompleteTasks: List<TaskEntity>,
     val plans: List<PlanEntity>,
     val incompletePlans: List<PlanEntity>,
-    val lessonNotes: List<LessonNoteEntity>
+    val lessonNotes: List<LessonNoteEntity>,
+    val examDaySchedules: Map<LocalDate, ExamDayScheduleEntity>,
+    val examLessons: Map<Pair<LocalDate, Int>, ExamLessonEntity>
 )
 
 private data class SettingsBundle(
@@ -67,6 +71,11 @@ private data class SettingsBundle(
     val longBreaks: List<LongBreakEntity>,
     val changedLessons: List<ChangedLessonEntity>,
     val lessonNotificationExclusions: List<LessonNotificationExclusionEntity>
+)
+
+private data class ExamDataBundle(
+    val daySchedules: List<ExamDayScheduleEntity>,
+    val lessons: List<ExamLessonEntity>
 )
 
 data class SchedulerUiState(
@@ -82,6 +91,8 @@ data class SchedulerUiState(
     val plans: List<PlanEntity> = emptyList(),
     val incompletePlans: List<PlanEntity> = emptyList(),
     val lessonNotes: List<LessonNoteEntity> = emptyList(),
+    val examDaySchedules: Map<LocalDate, ExamDayScheduleEntity> = emptyMap(),
+    val examLessons: Map<Pair<LocalDate, Int>, ExamLessonEntity> = emptyMap(),
     val selectedDayOfWeek: Int = DayOfWeek.MONDAY.value,
     val selectedResultDate: LocalDate = LocalDate.now(),
     val initialized: Boolean = false,
@@ -105,6 +116,13 @@ class SchedulerViewModel(
 
     val snackbarMessages = _snackbarMessages.asSharedFlow()
 
+    private val examDataFlow = combine(
+        repository.examDaySchedulesFlow,
+        repository.examLessonsFlow
+    ) { schedules, lessons ->
+        ExamDataBundle(schedules, lessons)
+    }
+
     private val coreDataFlow: kotlinx.coroutines.flow.Flow<CoreDataState> = combine(
         combine(
             combine(
@@ -124,8 +142,9 @@ class SchedulerViewModel(
         },
         repository.plansFlow,
         repository.incompletePlansFlow,
-        repository.lessonNotesFlow
-    ) { base, plans: List<PlanEntity>, incompletePlans: List<PlanEntity>, lessonNotes: List<LessonNoteEntity> ->
+        repository.lessonNotesFlow,
+        examDataFlow
+    ) { base, plans: List<PlanEntity>, incompletePlans: List<PlanEntity>, lessonNotes: List<LessonNoteEntity>, examData: ExamDataBundle ->
         val (baseData, taskPart) = base
         val (lessons, tasks, incompleteTasks) = taskPart
         CoreDataState(
@@ -140,7 +159,9 @@ class SchedulerViewModel(
             incompleteTasks = incompleteTasks,
             plans = plans,
             incompletePlans = incompletePlans,
-            lessonNotes = lessonNotes
+            lessonNotes = lessonNotes,
+            examDaySchedules = examData.daySchedules.associateBy { it.date },
+            examLessons = examData.lessons.associateBy { it.date to it.slotIndex }
         )
     }
 
@@ -164,6 +185,8 @@ class SchedulerViewModel(
                 plans = core.plans,
                 incompletePlans = core.incompletePlans,
                 lessonNotes = core.lessonNotes,
+                examDaySchedules = core.examDaySchedules,
+                examLessons = core.examLessons,
                 selectedDayOfWeek = dayOfWeek,
                 selectedResultDate = resultDate,
                 initialized = isInitialized
@@ -445,6 +468,65 @@ class SchedulerViewModel(
     fun toggleLessonNotes(enabled: Boolean) {
         viewModelScope.launch {
             repository.toggleLessonNotes(enabled)
+        }
+    }
+
+    fun toggleExamTimetable(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.toggleExamTimetable(enabled)
+        }
+    }
+
+    fun updateExamTimetableSettings(
+        periodsPerDay: Int,
+        periodDurationMin: Int,
+        breakBetweenPeriodsMin: Int,
+        lunchBreakMin: Int,
+        lunchAfterPeriod: Int,
+        firstPeriodStartHour: Int,
+        firstPeriodStartMinute: Int,
+        arrivalHour: Int,
+        arrivalMinute: Int
+    ) {
+        viewModelScope.launch {
+            repository.updateExamTimetableSettings(
+                periodsPerDay = periodsPerDay,
+                periodDurationMin = periodDurationMin,
+                breakBetweenPeriodsMin = breakBetweenPeriodsMin,
+                lunchBreakMin = lunchBreakMin,
+                lunchAfterPeriod = lunchAfterPeriod,
+                firstPeriodStartHour = firstPeriodStartHour,
+                firstPeriodStartMinute = firstPeriodStartMinute,
+                arrivalHour = arrivalHour,
+                arrivalMinute = arrivalMinute
+            )
+        }
+    }
+
+    fun saveExamDaySchedule(
+        schedule: ExamDayScheduleEntity,
+        lessons: List<ExamLessonEntity>
+    ) {
+        viewModelScope.launch {
+            repository.saveExamDaySchedule(schedule, lessons)
+            _snackbarMessages.emit("テスト時間割を保存しました。")
+        }
+    }
+
+    fun saveExamPeriodSchedules(
+        schedules: List<ExamDayScheduleEntity>,
+        lessons: List<ExamLessonEntity>
+    ) {
+        viewModelScope.launch {
+            repository.saveExamPeriodSchedules(schedules, lessons)
+            _snackbarMessages.emit("テスト時間割を保存しました。")
+        }
+    }
+
+    fun deleteExamDaySchedule(date: LocalDate) {
+        viewModelScope.launch {
+            repository.deleteExamDaySchedule(date)
+            _snackbarMessages.emit("テスト時間割を削除しました。")
         }
     }
 

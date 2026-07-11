@@ -411,6 +411,17 @@
     <string name="mode_kosen">高専（1/2校時）</string>
     <string name="mode_regular">普通校（1校時）</string>
     <string name="label_periods_per_day">1日の授業コマ数</string>
+    <string name="section_exam_timetable_settings">テスト日の時間割設定</string>
+    <string name="desc_exam_timetable_settings">中間・期末試験の時間割を作成するときに使います。通常の時間割には影響しません</string>
+    <string name="label_exam_arrival_time">テスト日の登校時刻</string>
+    <string name="label_exam_first_period_start">1時間目の開始時刻</string>
+    <string name="label_exam_periods_per_day">テストのコマ数</string>
+    <string name="label_exam_period_duration">試験時間</string>
+    <string name="label_exam_break_duration">試験間の休憩</string>
+    <string name="label_exam_lunch_duration">昼休み時間</string>
+    <string name="label_exam_lunch_after">昼休みの位置</string>
+    <string name="label_exam_period_number">%1$d時間目</string>
+    <string name="msg_settings_auto_save">変更は自動保存されます</string>
     <string name="unit_period">コマ</string>
     <string name="label_period_duration">1コマの授業時間</string>
     <string name="unit_minute">分</string>
@@ -499,6 +510,8 @@
     <string name="label_show_current_time_marker">現在時刻マーカーを表示</string>
     <string name="desc_show_current_time_marker">時間割画面に現在時刻の表示を追加します</string>
     <string name="section_experimental">実験的機能 (Experimental)</string>
+    <string name="label_enable_exam_timetable">テスト時間割を使用</string>
+    <string name="desc_enable_exam_timetable">中間・期末試験の日に、通常授業とは異なる時刻と試験内容を設定できるようにします。</string>
     <string name="label_show_weekday_on_dates">日付に曜日を表示</string>
     <string name="desc_show_weekday_on_dates">時間割上部や期間表示を除き、日付の横に(金)のような曜日を表示します</string>
     <string name="label_unify_task_plan_view">ToDo タブを有効化</string>
@@ -614,6 +627,21 @@
     <string name="cd_settings">設定</string>
     <string name="legend_ab_toggle">タップで切替: A → B → 休日</string>
     <string name="legend_ab_override_long_press">長押しでカスタム</string>
+    <string name="btn_create_exam_timetable">試験時間割を作成</string>
+    <string name="title_exam_timetable_periods">テスト時間割</string>
+    <string name="desc_exam_timetable_periods">中間・期末に設定された期間を選び、日ごとの試験内容を入力します。</string>
+    <string name="msg_exam_timetable_no_periods">中間または期末に設定された日がありません。A/B表の日付を長押しして、先に特別ラベルを設定してください。</string>
+    <string name="label_exam_period_range">%1$s～%2$s</string>
+    <string name="label_exam_period_progress">%1$d / %2$d日 設定済み</string>
+    <string name="label_exam_editor_arrival">登校時刻 %1$02d:%2$02d</string>
+    <string name="label_exam_name">テスト名</string>
+    <string name="dialog_edit_exam_name_title">テスト名を編集</string>
+    <string name="label_exam_subject">科目名</string>
+    <string name="desc_exam_subject_blank">空欄の場合は「試験なし」として表示されます。</string>
+    <string name="label_exam_teacher">出題教員</string>
+    <string name="label_exam_location">場所</string>
+    <string name="label_exam_memo">メモ（持ち込み可能物品など）</string>
+    <string name="label_exam_no_test">試験なし</string>
 
     <!-- About Screen -->
     <string name="about_screen_title">このアプリについて</string>

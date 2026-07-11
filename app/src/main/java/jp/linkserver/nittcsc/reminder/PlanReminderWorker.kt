@@ -76,8 +76,11 @@ class PlanReminderWorker(
             .setContentIntent(openAppPendingIntent)
             .build()
 
-        NotificationManagerCompat.from(applicationContext)
-            .notify(planReminderNotificationId(plan.id), notification)
+        NotificationManagerCompat.from(applicationContext).notifyIfAllowed(
+            applicationContext,
+            planReminderNotificationId(plan.id),
+            notification
+        )
 
         return Result.success()
     }

@@ -94,6 +94,45 @@ interface SchedulerDao {
     @Query("DELETE FROM lesson_notes")
     suspend fun deleteAllLessonNotes()
 
+    @Query("SELECT * FROM exam_day_schedules ORDER BY date")
+    fun observeExamDaySchedules(): Flow<List<ExamDayScheduleEntity>>
+
+    @Query("SELECT * FROM exam_day_schedules ORDER BY date")
+    suspend fun getExamDaySchedulesOnce(): List<ExamDayScheduleEntity>
+
+    @Query("SELECT * FROM exam_day_schedules WHERE date = :date LIMIT 1")
+    suspend fun getExamDaySchedule(date: LocalDate): ExamDayScheduleEntity?
+
+    @Upsert
+    suspend fun upsertExamDaySchedule(schedule: ExamDayScheduleEntity)
+
+    @Query("DELETE FROM exam_day_schedules WHERE date = :date")
+    suspend fun deleteExamDaySchedule(date: LocalDate)
+
+    @Query("DELETE FROM exam_day_schedules")
+    suspend fun deleteAllExamDaySchedules()
+
+    @Query("SELECT * FROM exam_lessons ORDER BY date, slotIndex")
+    fun observeExamLessons(): Flow<List<ExamLessonEntity>>
+
+    @Query("SELECT * FROM exam_lessons ORDER BY date, slotIndex")
+    suspend fun getExamLessonsOnce(): List<ExamLessonEntity>
+
+    @Query("SELECT * FROM exam_lessons WHERE date = :date ORDER BY slotIndex")
+    suspend fun getExamLessonsForDate(date: LocalDate): List<ExamLessonEntity>
+
+    @Query("SELECT * FROM exam_lessons WHERE date = :date AND slotIndex = :slotIndex LIMIT 1")
+    suspend fun getExamLesson(date: LocalDate, slotIndex: Int): ExamLessonEntity?
+
+    @Upsert
+    suspend fun upsertExamLessons(lessons: List<ExamLessonEntity>)
+
+    @Query("DELETE FROM exam_lessons WHERE date = :date")
+    suspend fun deleteExamLessonsForDate(date: LocalDate)
+
+    @Query("DELETE FROM exam_lessons")
+    suspend fun deleteAllExamLessons()
+
     @Query("SELECT * FROM lesson_notification_exclusions ORDER BY subject, teacher")
     fun observeLessonNotificationExclusions(): Flow<List<LessonNotificationExclusionEntity>>
 

@@ -40,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -63,6 +64,7 @@ fun AboutScreen(
     onUpdateAvailable: (AppUpdateInfo) -> Unit = {}
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     val (versionName, versionCode) = remember { resolveAppVersionInfo(context) }
     val (simpleVersion, _) = remember { splitVersionAndChannel(versionName) }
@@ -94,7 +96,7 @@ fun AboutScreen(
     fun startUpdateCheck() {
         if (checkingUpdates) return
         checkingUpdates = true
-        updateStatus = context.getString(R.string.about_update_checking)
+        updateStatus = resources.getString(R.string.about_update_checking)
         scope.launch {
             val result = withContext(Dispatchers.IO) {
                 checkGitHubReleaseUpdate(
@@ -108,14 +110,14 @@ fun AboutScreen(
             result
                 .onSuccess { updateInfo ->
                     if (updateInfo != null) {
-                        updateStatus = context.getString(R.string.about_update_available, updateInfo.tagName)
+                        updateStatus = resources.getString(R.string.about_update_available, updateInfo.tagName)
                         onUpdateAvailable(updateInfo)
                     } else {
-                        updateStatus = context.getString(R.string.about_update_latest)
+                        updateStatus = resources.getString(R.string.about_update_latest)
                     }
                 }
                 .onFailure { error ->
-                    updateStatus = context.getString(
+                    updateStatus = resources.getString(
                         R.string.about_update_check_failed,
                         error.localizedMessage ?: error.javaClass.simpleName
                     )
@@ -247,7 +249,7 @@ fun AboutScreen(
                 ) {
                     OutlinedButton(
                         onClick = {
-                            openUrl(context, context.getString(R.string.about_support_site_url))
+                            openUrl(context, resources.getString(R.string.about_support_site_url))
                         },
                         modifier = Modifier.weight(1f)
                     ) {
@@ -255,7 +257,7 @@ fun AboutScreen(
                     }
                     OutlinedButton(
                         onClick = {
-                            openUrl(context, context.getString(R.string.about_support_twitter_url))
+                            openUrl(context, resources.getString(R.string.about_support_twitter_url))
                         },
                         modifier = Modifier.weight(1f)
                     ) {

@@ -100,7 +100,8 @@ private fun Content(data: WidgetData) {
         }
         Spacer(modifier = GlanceModifier.height(4.dp))
 
-        if (data.dayType == DayType.HOLIDAY) {
+        val isExamToday = WidgetDataHelper.isExamScheduleDate(data, data.today)
+        if (data.dayType == DayType.HOLIDAY && !isExamToday) {
             Box(
                 modifier = GlanceModifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -116,7 +117,7 @@ private fun Content(data: WidgetData) {
             }
         } else {
             // 最大7コマ。コマ数に応じてフォントサイズ・行間を動的調整
-            val slots = data.classSlots.take(7)
+            val slots = WidgetDataHelper.classSlotsForDate(data, data.today).take(7)
             val count = slots.size
             // 4コマ以下はゆとり、5〜7は段階的に縮小
             val bodySize = when {
@@ -147,15 +148,8 @@ private fun Content(data: WidgetData) {
             }
 
             slots.forEach { slot ->
-                val lesson = WidgetDataHelper.resolveLesson(
-                    data.today,
-                    slot.index,
-                    data.lessons,
-                    data.dayTypeEntities,
-                    data.dayTypeMap,
-                    data.changedLessons
-                )
-                val isCancelled = data.cancelledLessons.contains(data.today to slot.index)
+                val lesson = WidgetDataHelper.resolveLesson(data, data.today, slot.index)
+                val isCancelled = !isExamToday && data.cancelledLessons.contains(data.today to slot.index)
                 val hasTasks = WidgetDataHelper.hasTasksForLesson(data, lesson)
                 val hasPlans = WidgetDataHelper.hasPlansForLesson(data, lesson)
 
