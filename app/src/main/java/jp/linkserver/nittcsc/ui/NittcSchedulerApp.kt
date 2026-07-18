@@ -3603,9 +3603,14 @@ private fun TaskPlanCalendarDayCell(
                     CalendarItemCountDot(
                         count = taskCount,
                         color = if (allTasksCompleted) {
-                            MaterialTheme.colorScheme.outline
+                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
                         } else {
                             MaterialTheme.colorScheme.error
+                        },
+                        contentColor = if (allTasksCompleted) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            Color.White
                         }
                     )
                 }
@@ -3613,9 +3618,14 @@ private fun TaskPlanCalendarDayCell(
                     CalendarItemCountDot(
                         count = planCount,
                         color = if (allPlansCompleted) {
-                            MaterialTheme.colorScheme.outline
+                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
                         } else {
                             MaterialTheme.colorScheme.primary
+                        },
+                        contentColor = if (allPlansCompleted) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            Color.White
                         }
                     )
                 }
@@ -3625,7 +3635,11 @@ private fun TaskPlanCalendarDayCell(
 }
 
 @Composable
-private fun CalendarItemCountDot(count: Int, color: Color) {
+private fun CalendarItemCountDot(
+    count: Int,
+    color: Color,
+    contentColor: Color = Color.White
+) {
     Surface(
         shape = CircleShape,
         color = color
@@ -3634,7 +3648,7 @@ private fun CalendarItemCountDot(count: Int, color: Color) {
             text = count.toString(),
             modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
             style = MaterialTheme.typography.labelSmall,
-            color = Color.White,
+            color = contentColor,
             fontWeight = FontWeight.Bold
         )
     }
