@@ -1,8 +1,10 @@
 package jp.linkserver.nittcsc.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -18,15 +20,21 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -226,6 +234,8 @@ fun ExamTimetableEditorScreen(
     settings: SettingsEntity,
     existingSchedules: Map<LocalDate, ExamDayScheduleEntity>,
     existingLessons: Map<Pair<LocalDate, Int>, ExamLessonEntity>,
+    subjectSuggestions: List<String> = emptyList(),
+    subjectTeacherCandidates: Map<String, List<String>> = emptyMap(),
     onBack: () -> Unit,
     onSave: (List<ExamDayScheduleEntity>, List<ExamLessonEntity>) -> Unit
 ) {
@@ -274,12 +284,14 @@ fun ExamTimetableEditorScreen(
         }
     }
     var draftsByDate by remember(period, initialDrafts) { mutableStateOf(initialDrafts) }
+    var showDiscardConfirmDialog by rememberSaveable(period.startDate) { mutableStateOf(false) }
     var selectedDateEpochDay by rememberSaveable(period.startDate) {
         mutableStateOf(period.startDate.toEpochDay())
     }
     val selectedDate = LocalDate.ofEpochDay(selectedDateEpochDay).takeIf(period.dates::contains)
         ?: period.startDate
     val selectedDrafts = draftsByDate[selectedDate].orEmpty()
+    val hasUnsavedChanges = examName != initialExamName || draftsByDate != initialDrafts
     val fieldColors = TextFieldDefaults.colors(
         focusedContainerColor = Color.Transparent,
         unfocusedContainerColor = Color.Transparent,
@@ -326,6 +338,16 @@ fun ExamTimetableEditorScreen(
         onSave(schedules, lessons)
     }
 
+    fun handleBackRequest() {
+        if (hasUnsavedChanges) {
+            showDiscardConfirmDialog = true
+        } else {
+            onBack()
+        }
+    }
+
+    BackHandler { handleBackRequest() }
+
     if (showExamNameDialog) {
         AlertDialog(
             onDismissRequest = { showExamNameDialog = false },
@@ -358,6 +380,39 @@ fun ExamTimetableEditorScreen(
         )
     }
 
+    if (showDiscardConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showDiscardConfirmDialog = false },
+            title = { Text(stringResource(R.string.dialog_unsaved_task_changes_title)) },
+            text = { Text(stringResource(R.string.dialog_unsaved_task_changes_message)) },
+            confirmButton = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalAlignment = Alignment.End
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                showDiscardConfirmDialog = false
+                                onBack()
+                            }
+                        ) {
+                            Text(stringResource(R.string.btn_discard_changes))
+                        }
+                        Button(onClick = ::saveAll) {
+                            Text(stringResource(R.string.btn_save_and_back))
+                        }
+                    }
+                    TextButton(onClick = { showDiscardConfirmDialog = false }) {
+                        Text(stringResource(R.string.btn_cancel))
+                    }
+                }
+            },
+            dismissButton = {}
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -383,7 +438,7 @@ fun ExamTimetableEditorScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = ::handleBackRequest) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_back))
                     }
                 },
@@ -450,6 +505,32 @@ fun ExamTimetableEditorScreen(
                 )
             }
             items(selectedDrafts, key = { it.slotIndex }) { draft ->
+                var showSubjectSuggestions by remember(selectedDate, draft.slotIndex) {
+                    mutableStateOf(false)
+                }
+                val filteredSubjectSuggestions = remember(draft.subject, subjectSuggestions) {
+                    val query = draft.subject.trim()
+                    subjectSuggestions
+                        .asSequence()
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() }
+                        .filter { query.isBlank() || it.contains(query, ignoreCase = true) }
+                        .distinct()
+                        .sorted()
+                        .take(8)
+                        .toList()
+                }
+                val teacherCandidatesForSubject = remember(draft.subject, subjectTeacherCandidates) {
+                    val subject = draft.subject.trim()
+                    subjectTeacherCandidates.entries
+                        .firstOrNull { it.key.equals(subject, ignoreCase = true) }
+                        ?.value
+                        .orEmpty()
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() }
+                        .distinct()
+                        .sorted()
+                }
                 Card(
                     shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(
@@ -493,20 +574,71 @@ fun ExamTimetableEditorScreen(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        TextField(
-                            value = draft.subject,
-                            onValueChange = { value -> updateDraft(draft.slotIndex) { it.copy(subject = value) } },
-                            placeholder = {
-                                Text(
-                                    text = stringResource(R.string.label_exam_no_test),
-                                    style = MaterialTheme.typography.titleMedium
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TextField(
+                                    value = draft.subject,
+                                    onValueChange = { value ->
+                                        val matchedSubject = subjectSuggestions.firstOrNull {
+                                            it.equals(value.trim(), ignoreCase = true)
+                                        }
+                                        val matchedTeachers = matchedSubject
+                                            ?.let { subjectTeacherCandidates[it].orEmpty() }
+                                            .orEmpty()
+                                        updateDraft(draft.slotIndex) { current ->
+                                            current.copy(
+                                                subject = value,
+                                                teacher = matchedTeachers.singleOrNull() ?: current.teacher
+                                            )
+                                        }
+                                        showSubjectSuggestions = false
+                                    },
+                                    placeholder = {
+                                        Text(
+                                            text = stringResource(R.string.label_exam_no_test),
+                                            style = MaterialTheme.typography.titleMedium
+                                        )
+                                    },
+                                    textStyle = MaterialTheme.typography.titleMedium,
+                                    singleLine = true,
+                                    colors = fieldColors,
+                                    modifier = Modifier.weight(1f)
                                 )
-                            },
-                            textStyle = MaterialTheme.typography.titleMedium,
-                            singleLine = true,
-                            colors = fieldColors,
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                                if (filteredSubjectSuggestions.isNotEmpty()) {
+                                    IconButton(onClick = { showSubjectSuggestions = true }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Search,
+                                            contentDescription = stringResource(R.string.label_exam_subject),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+                            DropdownMenu(
+                                expanded = showSubjectSuggestions && filteredSubjectSuggestions.isNotEmpty(),
+                                onDismissRequest = { showSubjectSuggestions = false },
+                                modifier = Modifier.fillMaxWidth(0.95f)
+                            ) {
+                                filteredSubjectSuggestions.forEach { candidate ->
+                                    DropdownMenuItem(
+                                        text = { Text(candidate) },
+                                        onClick = {
+                                            val matchedTeachers = subjectTeacherCandidates[candidate].orEmpty()
+                                            updateDraft(draft.slotIndex) { current ->
+                                                current.copy(
+                                                    subject = candidate,
+                                                    teacher = matchedTeachers.singleOrNull() ?: current.teacher
+                                                )
+                                            }
+                                            showSubjectSuggestions = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -529,6 +661,28 @@ fun ExamTimetableEditorScreen(
                                 colors = fieldColors,
                                 modifier = Modifier.weight(1f)
                             )
+                        }
+                        if (teacherCandidatesForSubject.size > 1) {
+                            Text(
+                                text = stringResource(R.string.label_task_teacher_candidates),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                teacherCandidatesForSubject.forEach { candidate ->
+                                    AssistChip(
+                                        onClick = {
+                                            updateDraft(draft.slotIndex) { it.copy(teacher = candidate) }
+                                        },
+                                        label = { Text(candidate) }
+                                    )
+                                }
+                            }
                         }
                         HorizontalDivider()
                         Text(

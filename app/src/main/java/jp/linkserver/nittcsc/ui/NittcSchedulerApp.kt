@@ -188,10 +188,14 @@ import jp.linkserver.nittcsc.logic.ExportRange
 import jp.linkserver.nittcsc.logic.ExportResult
 import jp.linkserver.nittcsc.logic.NaturalLanguageLessonCandidate
 import jp.linkserver.nittcsc.logic.NaturalLanguageTaskParser
+import jp.linkserver.nittcsc.logic.buildLessonAutocompleteOptions
+import jp.linkserver.nittcsc.logic.findTaskLessonSlotIndex
 import jp.linkserver.nittcsc.logic.generateClassSlots
 import jp.linkserver.nittcsc.logic.japaneseDayOfWeekSearchText
 import jp.linkserver.nittcsc.logic.matchesTaskPlanSearch
 import jp.linkserver.nittcsc.logic.normalizeSearchText
+import jp.linkserver.nittcsc.logic.planMatchesLesson
+import jp.linkserver.nittcsc.logic.taskMatchesLesson
 import jp.linkserver.nittcsc.logic.tokenizeSearchQuery
 import jp.linkserver.nittcsc.ml.ModelDownloadManager
 import jp.linkserver.nittcsc.ml.VlmInferenceEngine
@@ -348,6 +352,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     var prefillDueDateEpochDay by rememberSaveable { mutableStateOf<Long?>(null) }
     var prefillDueHour by rememberSaveable { mutableStateOf<Int?>(null) }
     var prefillDueMinute by rememberSaveable { mutableStateOf<Int?>(null) }
+    var prefillFromExamSlot by rememberSaveable { mutableStateOf(false) }
     var showNaturalLanguageTaskAddDialog by rememberSaveable { mutableStateOf(false) }
     var naturalLanguageTaskDraft by remember { mutableStateOf<TaskEntity?>(null) }
     var transientTabOrigin by rememberSaveable { mutableStateOf<AppTab?>(null) }
@@ -362,6 +367,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         prefillDueDateEpochDay = null
         prefillDueHour = null
         prefillDueMinute = null
+        prefillFromExamSlot = false
     }
 
     fun navigateToTabFromAction(target: AppTab) {
@@ -1262,6 +1268,9 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     val selectedExamPeriod = selectedExamPeriodStartEpochDay?.let { epochDay ->
         examPeriods.firstOrNull { it.startDate.toEpochDay() == epochDay }
     }
+    val lessonAutocompleteOptions = remember(uiState.lessons) {
+        buildLessonAutocompleteOptions(uiState.lessons.values)
+    }
 
     val currentScreenResource = when {
         showOssLicenses -> "oss"
@@ -1509,6 +1518,8 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                             settings = settings,
                             existingSchedules = uiState.examDaySchedules,
                             existingLessons = uiState.examLessons,
+                            subjectSuggestions = lessonAutocompleteOptions.subjectSuggestions,
+                            subjectTeacherCandidates = lessonAutocompleteOptions.subjectTeacherCandidates,
                             onBack = { selectedExamPeriodStartEpochDay = null },
                             onSave = { schedules, lessons ->
                                 viewModel.saveExamPeriodSchedules(schedules, lessons)
@@ -1558,34 +1569,8 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                 )
             }
             "settings" -> {
-                val settingsSubjectSuggestions = uiState.lessons.values
-                    .flatMap { lesson ->
-                        when (lesson.mode) {
-                            LessonMode.WEEKLY -> listOf(lesson.weeklySubject)
-                            LessonMode.ALTERNATING -> listOf(lesson.aSubject, lesson.bSubject)
-                        }
-                    }
-                    .map { it.trim() }
-                    .filter { it.isNotBlank() }
-                    .distinct()
-                    .sorted()
-                val settingsTeacherCandidates = uiState.lessons.values
-                    .flatMap { lesson ->
-                        when (lesson.mode) {
-                            LessonMode.WEEKLY -> listOf(lesson.weeklySubject to lesson.weeklyTeacher)
-                            LessonMode.ALTERNATING -> listOf(
-                                lesson.aSubject to lesson.aTeacher,
-                                lesson.bSubject to lesson.bTeacher
-                            )
-                        }
-                    }
-                    .map { (subject, teacher) -> subject.trim() to teacher.trim() }
-                    .filter { (subject, teacher) -> subject.isNotBlank() && teacher.isNotBlank() }
-                    .groupBy(
-                        keySelector = { it.first },
-                        valueTransform = { it.second }
-                    )
-                    .mapValues { (_, teachers) -> teachers.distinct().sorted() }
+                val settingsSubjectSuggestions = lessonAutocompleteOptions.subjectSuggestions
+                val settingsTeacherCandidates = lessonAutocompleteOptions.subjectTeacherCandidates
                 SettingsScreen(
                     state = uiState,
                     onBack = { showSettings = false },
@@ -1716,34 +1701,8 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                 val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
                 val drawerScope = rememberCoroutineScope()
 
-                val taskSubjectSuggestions = uiState.lessons.values
-                    .flatMap { lesson ->
-                        when (lesson.mode) {
-                            LessonMode.WEEKLY -> listOf(lesson.weeklySubject)
-                            LessonMode.ALTERNATING -> listOf(lesson.aSubject, lesson.bSubject)
-                        }
-                    }
-                    .map { it.trim() }
-                    .filter { it.isNotBlank() }
-                    .distinct()
-                    .sorted()
-                val taskTeacherCandidates = uiState.lessons.values
-                    .flatMap { lesson ->
-                        when (lesson.mode) {
-                            LessonMode.WEEKLY -> listOf(lesson.weeklySubject to lesson.weeklyTeacher)
-                            LessonMode.ALTERNATING -> listOf(
-                                lesson.aSubject to lesson.aTeacher,
-                                lesson.bSubject to lesson.bTeacher
-                            )
-                        }
-                    }
-                    .map { (subject, teacher) -> subject.trim() to teacher.trim() }
-                    .filter { (subject, teacher) -> subject.isNotBlank() && teacher.isNotBlank() }
-                    .groupBy(
-                        keySelector = { it.first },
-                        valueTransform = { it.second }
-                    )
-                    .mapValues { (_, teachers) -> teachers.distinct().sorted() }
+                val taskSubjectSuggestions = lessonAutocompleteOptions.subjectSuggestions
+                val taskTeacherCandidates = lessonAutocompleteOptions.subjectTeacherCandidates
                 val naturalLanguageLessonCandidates = uiState.lessons.values
                     .flatMap { lesson ->
                         when (lesson.mode) {
@@ -1939,6 +1898,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                             defaultDueHour = uiState.settings?.firstPeriodStartHour ?: 8,
                             defaultDueMinute = uiState.settings?.firstPeriodStartMinute ?: 40,
                             autoResolveInitialSubject = naturalLanguageTaskDraft == null && prefillDueDateEpochDay == null,
+                            showLessonDateNavigation = !prefillFromExamSlot,
                             showWeekdayOnDates = uiState.settings?.showWeekdayOnDates ?: false,
                             isPlan = showPlanEditor,
                             onResolveNextLessonDateTime = { subject, teacher, fromDate, fromTime ->
@@ -2069,11 +2029,12 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                             showPlanEditor = false
                                             focusedPlanId = plan.id.takeIf { it > 0 }
                                         },
-                                           onAddFromLesson = { subject, teacher, isPlan, date, time ->
+                                           onAddFromLesson = { subject, teacher, isPlan, date, time, isExamSlot ->
                                                prefillSubject = subject
                                                prefillTeacher = teacher
+                                               prefillFromExamSlot = isExamSlot
                                                val lessonDateTime = LocalDateTime.of(date, time)
-                                               if (lessonDateTime.isAfter(LocalDateTime.now())) {
+                                               if (isExamSlot || lessonDateTime.isAfter(LocalDateTime.now())) {
                                                    prefillDueDateEpochDay = date.toEpochDay()
                                                    prefillDueHour = time.hour
                                                    prefillDueMinute = time.minute
@@ -2096,6 +2057,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                         onEditChangedLesson = ::openLessonChangeEditor,
                                         onSaveLessonNote = viewModel::saveLessonNote,
                                         onDeleteLessonNote = viewModel::deleteLessonNote,
+                                        onSaveExamMemo = viewModel::saveExamLessonMemo,
                                         isLessonCancelled = { date, slotIndex ->
                                             viewModel.isLessonCancelled(date, slotIndex, uiState.cancelledLessons)
                                         }
@@ -2816,11 +2778,12 @@ private fun OutputScreen(
     onClearLessonOverride: (LocalDate) -> Unit,
     onOpenTask: (TaskEntity) -> Unit,
     onOpenPlan: (PlanEntity) -> Unit,
-    onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean, date: LocalDate, time: LocalTime) -> Unit)? = null,
+    onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean, date: LocalDate, time: LocalTime, isExamSlot: Boolean) -> Unit)? = null,
     onSetLessonCancelled: (LocalDate, Int, Boolean) -> Unit,
     onEditChangedLesson: (LocalDate, Int) -> Unit,
     onSaveLessonNote: (LocalDate, Int, String) -> Unit,
     onDeleteLessonNote: (LocalDate, Int) -> Unit,
+    onSaveExamMemo: (LocalDate, Int, String) -> Unit,
     isLessonCancelled: (LocalDate, Int) -> Boolean
 ) {
     val context = LocalContext.current
@@ -3238,6 +3201,7 @@ private fun OutputScreen(
                                 onEditChangedLesson = onEditChangedLesson,
                                 onSaveLessonNote = onSaveLessonNote,
                                 onDeleteLessonNote = onDeleteLessonNote,
+                                onSaveExamMemo = onSaveExamMemo,
                                 isLessonCancelled = isLessonCancelled,
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -3309,6 +3273,7 @@ private fun OutputScreen(
                                 onEditChangedLesson = onEditChangedLesson,
                                 onSaveLessonNote = onSaveLessonNote,
                                 onDeleteLessonNote = onDeleteLessonNote,
+                                onSaveExamMemo = onSaveExamMemo,
                                 isLessonCancelled = isLessonCancelled,
                                 onDayClick = { date ->
                                     onPickDate(date)
@@ -4706,11 +4671,12 @@ private fun DayScheduleTable(
     examMemos: Map<Int, String> = emptyMap(),
     showCurrentTimeMarker: Boolean = false,
     showTaskPlanDetails: Boolean = true,
-    onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean, date: LocalDate, time: LocalTime) -> Unit)? = null,
+    onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean, date: LocalDate, time: LocalTime, isExamSlot: Boolean) -> Unit)? = null,
     onSetLessonCancelled: (LocalDate, Int, Boolean) -> Unit,
     onEditChangedLesson: (LocalDate, Int) -> Unit,
     onSaveLessonNote: (LocalDate, Int, String) -> Unit,
     onDeleteLessonNote: (LocalDate, Int) -> Unit,
+    onSaveExamMemo: (LocalDate, Int, String) -> Unit,
     isLessonCancelled: (LocalDate, Int) -> Boolean,
     modifier: Modifier = Modifier
 ) {
@@ -4722,17 +4688,18 @@ private fun DayScheduleTable(
         val isChanged: Boolean,
         val slotIndex: Int,
         val lessonStartTime: LocalTime,
-        val cancelled: Boolean
+        val cancelled: Boolean,
+        val isExam: Boolean
     )
     data class LessonNoteEditorData(
         val date: LocalDate,
         val slotIndex: Int,
         val lesson: ResolvedLesson,
-        val currentText: String?
+        val currentText: String?,
+        val isExam: Boolean
     )
     var lessonActionDialog by remember { mutableStateOf<LessonActionDialogData?>(null) }
     var lessonNoteEditor by remember { mutableStateOf<LessonNoteEditorData?>(null) }
-    val strAddFromLessonTitle = stringResource(R.string.dialog_add_from_lesson_title)
     if (lessonActionDialog != null) {
         val lessonSnap = lessonActionDialog!!
         LessonActionDialog(
@@ -4742,36 +4709,48 @@ private fun DayScheduleTable(
             originalLesson = lessonSnap.originalLesson,
             isChanged = lessonSnap.isChanged,
             cancelled = lessonSnap.cancelled,
+            isExam = lessonSnap.isExam,
             onDismiss = { lessonActionDialog = null },
             onAddTask = onAddFromLesson?.let {
                 {
                     lessonActionDialog = null
-                    it(lessonSnap.lesson.subject, lessonSnap.lesson.teacher, false, date, lessonSnap.lessonStartTime)
+                    it(lessonSnap.lesson.subject, lessonSnap.lesson.teacher, false, date, lessonSnap.lessonStartTime, lessonSnap.isExam)
                 }
             },
             onAddPlan = onAddFromLesson?.let {
                 {
                     lessonActionDialog = null
-                    it(lessonSnap.lesson.subject, lessonSnap.lesson.teacher, true, date, lessonSnap.lessonStartTime)
+                    it(lessonSnap.lesson.subject, lessonSnap.lesson.teacher, true, date, lessonSnap.lessonStartTime, lessonSnap.isExam)
                 }
             },
-            onToggleCancelled = {
-                onSetLessonCancelled(date, lessonSnap.slotIndex, !lessonSnap.cancelled)
-                lessonActionDialog = null
-            },
-            onChangeLesson = {
-                lessonActionDialog = null
-                onEditChangedLesson(date, lessonSnap.slotIndex)
-            },
-            onEditNote = if (lessonNotesEnabled) {
+            onToggleCancelled = if (!lessonSnap.isExam) {
+                {
+                    onSetLessonCancelled(date, lessonSnap.slotIndex, !lessonSnap.cancelled)
+                    lessonActionDialog = null
+                }
+            } else null,
+            onChangeLesson = if (!lessonSnap.isExam) {
                 {
                     lessonActionDialog = null
-                    val currentNote = lessonNotes.firstOrNull { it.date == date && it.slotIndex == lessonSnap.slotIndex }
+                    onEditChangedLesson(date, lessonSnap.slotIndex)
+                }
+            } else null,
+            onEditNote = if (lessonSnap.isExam || lessonNotesEnabled) {
+                {
+                    lessonActionDialog = null
+                    val currentText = if (lessonSnap.isExam) {
+                        examMemos[lessonSnap.slotIndex]
+                    } else {
+                        lessonNotes.firstOrNull {
+                            it.date == date && it.slotIndex == lessonSnap.slotIndex
+                        }?.text
+                    }
                     lessonNoteEditor = LessonNoteEditorData(
                         date = date,
                         slotIndex = lessonSnap.slotIndex,
                         lesson = lessonSnap.lesson,
-                        currentText = currentNote?.text
+                        currentText = currentText,
+                        isExam = lessonSnap.isExam
                     )
                 }
             } else {
@@ -4779,20 +4758,29 @@ private fun DayScheduleTable(
             }
         )
     }
-    if (lessonNotesEnabled) lessonNoteEditor?.let { editor ->
+    lessonNoteEditor?.let { editor ->
         LessonNoteDialog(
             date = editor.date,
             slotIndex = editor.slotIndex,
             lesson = editor.lesson,
             currentText = editor.currentText,
+            isExam = editor.isExam,
             onDismiss = { lessonNoteEditor = null },
             onSave = { text ->
-                onSaveLessonNote(editor.date, editor.slotIndex, text)
+                if (editor.isExam) {
+                    onSaveExamMemo(editor.date, editor.slotIndex, text)
+                } else {
+                    onSaveLessonNote(editor.date, editor.slotIndex, text)
+                }
                 lessonNoteEditor = null
             },
             onDelete = editor.currentText?.let {
                 {
-                    onDeleteLessonNote(editor.date, editor.slotIndex)
+                    if (editor.isExam) {
+                        onSaveExamMemo(editor.date, editor.slotIndex, "")
+                    } else {
+                        onDeleteLessonNote(editor.date, editor.slotIndex)
+                    }
                     lessonNoteEditor = null
                 }
             }
@@ -4826,6 +4814,20 @@ private fun DayScheduleTable(
 
     val dateTasks = tasks.filter { it.dueDate == date }
     val datePlans = plans.filter { it.dueDate == date }
+    val resolvedLessonSlots = if (isHoliday) {
+        emptyList()
+    } else {
+        classSlots.mapNotNull { slot ->
+            resolveLesson(date, slot.index)?.let { lesson -> slot to lesson }
+        }
+    }
+    val taskLessonSlotIndexes = dateTasks.associateWith { task ->
+        findTaskLessonSlotIndex(
+            task = task,
+            lessonSlots = resolvedLessonSlots,
+            ignoreDueTime = isExamSchedule
+        )
+    }
     val lessonNotesBySlot = remember(lessonNotes, date, lessonNotesEnabled) {
         if (lessonNotesEnabled) {
             lessonNotes
@@ -4848,23 +4850,10 @@ private fun DayScheduleTable(
     val taskDueTicks = if (showTaskPlanDetails) {
         dateTasks.mapNotNull { task ->
             val dueMinuteOfDay = task.dueHour * 60 + task.dueMinute
-            val matchedSlots = if (isHoliday) {
-                emptyList()
-            } else {
-                classSlots.filter { slot ->
-                    val lesson = resolveLesson(date, slot.index)
-                    lesson != null && taskMatchesLesson(task, lesson)
-                }
-            }
-            if (matchedSlots.isEmpty()) {
+            if (taskLessonSlotIndexes[task] == null) {
                 DueTick(dueMinuteOfDay, task.title, task.description?.trim()?.ifBlank { null }, task = task, color = MaterialTheme.colorScheme.error)
             } else {
-                val overlapsAnyMatchedSlot = matchedSlots.any { slot ->
-                    val slotStart = slot.start.hour * 60 + slot.start.minute
-                    val slotEnd = slot.end.hour * 60 + slot.end.minute
-                    dueMinuteOfDay in slotStart until slotEnd
-                }
-                if (overlapsAnyMatchedSlot) null else DueTick(dueMinuteOfDay, task.title, task.description?.trim()?.ifBlank { null }, task = task, color = MaterialTheme.colorScheme.error)
+                null
             }
         }
     } else {
@@ -5113,12 +5102,7 @@ private fun DayScheduleTable(
             }
             val lessonTasksForBadges = if (lesson != null && slot != null) {
                 dateTasks.filter { task ->
-                    taskMatchesLesson(task, lesson) && run {
-                        val dueMinuteOfDay = task.dueHour * 60 + task.dueMinute
-                        val slotStart = slot.start.hour * 60 + slot.start.minute
-                        val slotEnd = slot.end.hour * 60 + slot.end.minute
-                        dueMinuteOfDay in slotStart until slotEnd
-                    }
+                    taskLessonSlotIndexes[task] == slot.index
                 }.sortedWith(compareBy<TaskEntity> { it.dueHour }.thenBy { it.dueMinute })
             } else {
                 emptyList()
@@ -5387,7 +5371,7 @@ private fun DayScheduleTable(
                                             primaryPlan != null -> onOpenPlan(primaryPlan)
                                         }
                                     },
-                                    onLongClick = if (!isExamSchedule && lesson != null && lesson.subject.isNotBlank()) {
+                                    onLongClick = if (lesson != null && lesson.subject.isNotBlank()) {
                                         {
                                             hapticDaySchedule.performHapticFeedback(HapticFeedbackType.LongPress)
                                             lessonActionDialog = LessonActionDialogData(
@@ -5396,7 +5380,8 @@ private fun DayScheduleTable(
                                                 isChanged = isChangedLesson,
                                                 slotIndex = slot.index,
                                                 lessonStartTime = slot.start,
-                                                cancelled = isCancelled
+                                                cancelled = isCancelled,
+                                                isExam = isExamSchedule
                                             )
                                         }
                                     } else null
@@ -5872,11 +5857,12 @@ private fun WeekScheduleTable(
     showCurrentTimeMarker: Boolean = false,
     onSaveLessonOverride: (LocalDate, Int, DayType) -> Unit,
     onClearLessonOverride: (LocalDate) -> Unit,
-    onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean, date: LocalDate, time: LocalTime) -> Unit)? = null,
+    onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean, date: LocalDate, time: LocalTime, isExamSlot: Boolean) -> Unit)? = null,
     onSetLessonCancelled: (LocalDate, Int, Boolean) -> Unit,
     onEditChangedLesson: (LocalDate, Int) -> Unit,
     onSaveLessonNote: (LocalDate, Int, String) -> Unit,
     onDeleteLessonNote: (LocalDate, Int) -> Unit,
+    onSaveExamMemo: (LocalDate, Int, String) -> Unit,
     isLessonCancelled: (LocalDate, Int) -> Boolean,
     onDayClick: (LocalDate) -> Unit = {},
     modifier: Modifier = Modifier
@@ -5891,13 +5877,15 @@ private fun WeekScheduleTable(
         val lesson: ResolvedLesson,
         val originalLesson: ResolvedLesson?,
         val isChanged: Boolean,
-        val cancelled: Boolean
+        val cancelled: Boolean,
+        val isExam: Boolean
     )
     data class WeekLessonNoteEditorData(
         val date: LocalDate,
         val slotIndex: Int,
         val lesson: ResolvedLesson,
-        val currentText: String?
+        val currentText: String?,
+        val isExam: Boolean
     )
     val slotLabelWidth = 44.dp
     val cellHeight = 140.dp
@@ -6089,7 +6077,7 @@ private fun WeekScheduleTable(
                                 .fillMaxSize()
                                 .combinedClickable(
                                     onClick = { onDayClick(date) },
-                                    onLongClick = if (!isExamDate && lesson != null && lesson.subject.isNotBlank()) {
+                                    onLongClick = if (lesson != null && lesson.subject.isNotBlank()) {
                                         {
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                             lessonActionDialog = WeekLessonActionDialogData(
@@ -6099,7 +6087,8 @@ private fun WeekScheduleTable(
                                                 lesson = lesson,
                                                 originalLesson = originalLesson,
                                                 isChanged = isChangedLesson,
-                                                cancelled = isCancelled
+                                                cancelled = isCancelled,
+                                                isExam = isExamSlot
                                             )
                                         }
                                     } else null
@@ -6271,36 +6260,46 @@ private fun WeekScheduleTable(
             originalLesson = target.originalLesson,
             isChanged = target.isChanged,
             cancelled = target.cancelled,
+            isExam = target.isExam,
             onDismiss = { lessonActionDialog = null },
             onAddTask = onAddFromLesson?.let {
                 {
                     lessonActionDialog = null
-                    it(target.lesson.subject, target.lesson.teacher, false, target.date, target.lessonStartTime)
+                    it(target.lesson.subject, target.lesson.teacher, false, target.date, target.lessonStartTime, target.isExam)
                 }
             },
             onAddPlan = onAddFromLesson?.let {
                 {
                     lessonActionDialog = null
-                    it(target.lesson.subject, target.lesson.teacher, true, target.date, target.lessonStartTime)
+                    it(target.lesson.subject, target.lesson.teacher, true, target.date, target.lessonStartTime, target.isExam)
                 }
             },
-            onToggleCancelled = {
-                onSetLessonCancelled(target.date, target.slotIndex, !target.cancelled)
-                lessonActionDialog = null
-            },
-            onChangeLesson = {
-                lessonActionDialog = null
-                onEditChangedLesson(target.date, target.slotIndex)
-            },
-            onEditNote = if (lessonNotesEnabled) {
+            onToggleCancelled = if (!target.isExam) {
+                {
+                    onSetLessonCancelled(target.date, target.slotIndex, !target.cancelled)
+                    lessonActionDialog = null
+                }
+            } else null,
+            onChangeLesson = if (!target.isExam) {
                 {
                     lessonActionDialog = null
-                    val currentNote = lessonNotesByDateSlot[target.date to target.slotIndex]
+                    onEditChangedLesson(target.date, target.slotIndex)
+                }
+            } else null,
+            onEditNote = if (target.isExam || lessonNotesEnabled) {
+                {
+                    lessonActionDialog = null
+                    val currentText = if (target.isExam) {
+                        examMemoForDate(target.date, target.slotIndex)
+                    } else {
+                        lessonNotesByDateSlot[target.date to target.slotIndex]?.text
+                    }
                     lessonNoteEditor = WeekLessonNoteEditorData(
                         date = target.date,
                         slotIndex = target.slotIndex,
                         lesson = target.lesson,
-                        currentText = currentNote?.text
+                        currentText = currentText,
+                        isExam = target.isExam
                     )
                 }
             } else {
@@ -6309,20 +6308,29 @@ private fun WeekScheduleTable(
         )
     }
 
-    if (lessonNotesEnabled) lessonNoteEditor?.let { editor ->
+    lessonNoteEditor?.let { editor ->
         LessonNoteDialog(
             date = editor.date,
             slotIndex = editor.slotIndex,
             lesson = editor.lesson,
             currentText = editor.currentText,
+            isExam = editor.isExam,
             onDismiss = { lessonNoteEditor = null },
             onSave = { text ->
-                onSaveLessonNote(editor.date, editor.slotIndex, text)
+                if (editor.isExam) {
+                    onSaveExamMemo(editor.date, editor.slotIndex, text)
+                } else {
+                    onSaveLessonNote(editor.date, editor.slotIndex, text)
+                }
                 lessonNoteEditor = null
             },
             onDelete = editor.currentText?.let {
                 {
-                    onDeleteLessonNote(editor.date, editor.slotIndex)
+                    if (editor.isExam) {
+                        onSaveExamMemo(editor.date, editor.slotIndex, "")
+                    } else {
+                        onDeleteLessonNote(editor.date, editor.slotIndex)
+                    }
                     lessonNoteEditor = null
                 }
             }
@@ -6596,21 +6604,28 @@ private fun LessonActionDialog(
     originalLesson: ResolvedLesson?,
     isChanged: Boolean,
     cancelled: Boolean,
+    isExam: Boolean = false,
     onDismiss: () -> Unit,
     onAddTask: (() -> Unit)?,
     onAddPlan: (() -> Unit)?,
-    onToggleCancelled: () -> Unit,
-    onChangeLesson: () -> Unit,
+    onToggleCancelled: (() -> Unit)?,
+    onChangeLesson: (() -> Unit)?,
     onEditNote: (() -> Unit)?
 ) {
-    val strDialogTitle = stringResource(R.string.dialog_lesson_action_title)
-    val strAddFromLessonTitle = stringResource(R.string.dialog_add_from_lesson_title)
+    val strDialogTitle = stringResource(
+        if (isExam) R.string.dialog_exam_action_title else R.string.dialog_lesson_action_title
+    )
+    val strAddFromLessonTitle = stringResource(
+        if (isExam) R.string.dialog_add_from_exam_title else R.string.dialog_add_from_lesson_title
+    )
     val strAddTask = stringResource(R.string.dialog_add_task_from_lesson)
     val strAddPlan = stringResource(R.string.dialog_add_plan_from_lesson)
     val strSetCancelled = stringResource(R.string.dialog_mark_lesson_cancelled)
     val strClearCancelled = stringResource(R.string.dialog_unmark_lesson_cancelled)
     val strChangeLesson = stringResource(R.string.dialog_change_lesson)
-    val strEditNote = stringResource(R.string.dialog_edit_lesson_note)
+    val strEditNote = stringResource(
+        if (isExam) R.string.dialog_edit_exam_memo else R.string.dialog_edit_lesson_note
+    )
     val strCancelDialog = stringResource(R.string.btn_cancel)
     val strActionHint = stringResource(R.string.dialog_lesson_action_hint)
     val strStatusCancelled = stringResource(R.string.label_lesson_status_cancelled)
@@ -6630,17 +6645,19 @@ private fun LessonActionDialog(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = if (cancelled) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer
-                ) {
-                    Text(
-                        text = if (cancelled) strStatusCancelled else strStatusNormal,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = if (cancelled) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
-                    )
+                if (!isExam) {
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = if (cancelled) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer
+                    ) {
+                        Text(
+                            text = if (cancelled) strStatusCancelled else strStatusNormal,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (cancelled) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
                 }
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
@@ -6700,25 +6717,31 @@ private fun LessonActionDialog(
                         modifier = Modifier.fillMaxWidth()
                     ) { Text(strAddPlan) }
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    TextButton(
-                        onClick = onChangeLesson,
-                        modifier = Modifier.weight(1f)
-                    ) { Text(strChangeLesson) }
-                    TextButton(
-                        onClick = onToggleCancelled,
-                        modifier = Modifier.weight(1f),
-                        colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
-                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                if (onChangeLesson != null || onToggleCancelled != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = if (cancelled) strClearCancelled else strSetCancelled,
-                            style = MaterialTheme.typography.labelLarge
-                        )
+                        if (onChangeLesson != null) {
+                            TextButton(
+                                onClick = onChangeLesson,
+                                modifier = Modifier.weight(1f)
+                            ) { Text(strChangeLesson) }
+                        }
+                        if (onToggleCancelled != null) {
+                            TextButton(
+                                onClick = onToggleCancelled,
+                                modifier = Modifier.weight(1f),
+                                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            ) {
+                                Text(
+                                    text = if (cancelled) strClearCancelled else strSetCancelled,
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                            }
+                        }
                     }
                 }
                 if (onEditNote != null) {
@@ -6744,6 +6767,7 @@ private fun LessonNoteDialog(
     slotIndex: Int,
     lesson: ResolvedLesson,
     currentText: String?,
+    isExam: Boolean = false,
     onDismiss: () -> Unit,
     onSave: (String) -> Unit,
     onDelete: (() -> Unit)?
@@ -6753,7 +6777,13 @@ private fun LessonNoteDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.dialog_lesson_note_title)) },
+        title = {
+            Text(
+                stringResource(
+                    if (isExam) R.string.dialog_exam_memo_title else R.string.dialog_lesson_note_title
+                )
+            )
+        },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -6777,8 +6807,20 @@ private fun LessonNoteDialog(
                     value = text,
                     onValueChange = { text = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text(stringResource(R.string.label_lesson_note_text)) },
-                    placeholder = { Text(stringResource(R.string.hint_lesson_note_text)) },
+                    label = {
+                        Text(
+                            stringResource(
+                                if (isExam) R.string.label_exam_memo else R.string.label_lesson_note_text
+                            )
+                        )
+                    },
+                    placeholder = {
+                        Text(
+                            stringResource(
+                                if (isExam) R.string.hint_exam_memo_text else R.string.hint_lesson_note_text
+                            )
+                        )
+                    },
                     minLines = 3,
                     maxLines = 5
                 )
@@ -7116,40 +7158,6 @@ private fun calendarDateTextColor(
             MaterialTheme.colorScheme.error
         else -> defaultColor
     }
-}
-
-private fun normalizeTeacherCandidates(value: String): List<String> {
-    return value
-        .replace('，', '、')
-        .replace(',', '、')
-        .replace('　', ' ')
-        .split('、', ' ')
-        .map { it.trim() }
-        .filter { it.isNotBlank() }
-}
-
-private fun teacherMatches(expectedTeacher: String?, actualTeacher: String): Boolean {
-    val normalizedExpected = expectedTeacher?.trim().orEmpty()
-    if (normalizedExpected.isBlank()) return true
-    val normalizedActual = actualTeacher.trim()
-    if (normalizedActual.equals(normalizedExpected, ignoreCase = true)) return true
-    return normalizeTeacherCandidates(normalizedActual).any { it.equals(normalizedExpected, ignoreCase = true) }
-}
-
-private fun taskMatchesLesson(task: TaskEntity, lesson: ResolvedLesson): Boolean {
-    val taskSubject = task.subject.trim()
-    val lessonSubject = lesson.subject.trim()
-    if (taskSubject.isBlank() || lessonSubject.isBlank()) return false
-    if (!taskSubject.equals(lessonSubject, ignoreCase = true)) return false
-    return if (task.useTeacherMatching) teacherMatches(task.teacher, lesson.teacher) else true
-}
-
-private fun planMatchesLesson(plan: PlanEntity, lesson: ResolvedLesson): Boolean {
-    val planSubject = plan.subject.trim()
-    val lessonSubject = lesson.subject.trim()
-    if (planSubject.isBlank() || lessonSubject.isBlank()) return false
-    if (!planSubject.equals(lessonSubject, ignoreCase = true)) return false
-    return if (plan.useTeacherMatching) teacherMatches(plan.teacher, lesson.teacher) else true
 }
 
 @Composable

@@ -307,9 +307,11 @@
     <string name="label_task_exists">課題あり</string>
     <string name="label_plan_exists">予定あり</string>
     <string name="dialog_add_from_lesson_title">授業から追加</string>
+    <string name="dialog_add_from_exam_title">試験から追加</string>
     <string name="dialog_add_task_from_lesson">課題を追加</string>
     <string name="dialog_add_plan_from_lesson">予定を追加</string>
     <string name="dialog_edit_lesson_note">メモを追加/編集</string>
+    <string name="dialog_edit_exam_memo">試験メモを編集</string>
     <string name="dialog_lesson_note_title">授業メモ</string>
     <string name="label_lesson_note_text">メモ</string>
     <string name="hint_lesson_note_text">この授業のメモを入力</string>
@@ -320,6 +322,7 @@
     <string name="label_cancelled">休講</string>
     <string name="label_changed">変更</string>
     <string name="dialog_lesson_action_title">授業アクション</string>
+    <string name="dialog_exam_action_title">試験アクション</string>
     <string name="dialog_lesson_action_hint">実行する操作を選択してください</string>
     <string name="label_lesson_status_cancelled">現在: 休講</string>
     <string name="label_lesson_status_normal">現在: 通常授業</string>
@@ -641,6 +644,8 @@
     <string name="label_exam_teacher">出題教員</string>
     <string name="label_exam_location">場所</string>
     <string name="label_exam_memo">メモ（持ち込み可能物品など）</string>
+    <string name="dialog_exam_memo_title">試験メモ</string>
+    <string name="hint_exam_memo_text">持ち込み可能物品などを入力</string>
     <string name="label_exam_no_test">試験なし</string>
 
     <!-- About Screen -->

@@ -76,6 +76,7 @@ fun AddTaskScreen(
     defaultDueHour: Int = 8,
     defaultDueMinute: Int = 40,
     autoResolveInitialSubject: Boolean = true,
+    showLessonDateNavigation: Boolean = true,
     showWeekdayOnDates: Boolean = false,
     isPlan: Boolean = false,
     onResolveNextLessonDateTime: suspend (subject: String, teacher: String?, fromDate: LocalDate, fromTime: LocalTime) -> Pair<LocalDate, LocalTime>? = { _, _, _, _ -> null },
@@ -195,6 +196,7 @@ fun AddTaskScreen(
     }
 
     LaunchedEffect(subject.trim(), teacher.trim()) {
+        if (!showLessonDateNavigation) return@LaunchedEffect
         val subjectValue = subject.trim()
         if (subjectValue.isBlank()) return@LaunchedEffect
         if (!subjectEditedByUser) return@LaunchedEffect
@@ -601,68 +603,70 @@ fun AddTaskScreen(
                         )
                     }
                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                    // Navigation buttons
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                if (subject.isNotBlank()) {
-                                    isAutoResolvingDate = true
-                                    coroutineScope.launch {
-                                        try {
-                                            val prevDateTime = onResolvePreviousLessonDateTime(
-                                                subject.trim(),
-                                                teacher.trim().takeIf { it.isNotBlank() },
-                                                dueDate,
-                                                LocalTime.of(dueHour, dueMinute)
-                                            )
-                                            if (prevDateTime != null) {
-                                                dueDate = prevDateTime.first
-                                                dueHour = prevDateTime.second.hour
-                                                dueMinute = prevDateTime.second.minute
+                    if (showLessonDateNavigation) {
+                        // Navigation buttons
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    if (subject.isNotBlank()) {
+                                        isAutoResolvingDate = true
+                                        coroutineScope.launch {
+                                            try {
+                                                val prevDateTime = onResolvePreviousLessonDateTime(
+                                                    subject.trim(),
+                                                    teacher.trim().takeIf { it.isNotBlank() },
+                                                    dueDate,
+                                                    LocalTime.of(dueHour, dueMinute)
+                                                )
+                                                if (prevDateTime != null) {
+                                                    dueDate = prevDateTime.first
+                                                    dueHour = prevDateTime.second.hour
+                                                    dueMinute = prevDateTime.second.minute
+                                                }
+                                            } finally {
+                                                isAutoResolvingDate = false
                                             }
-                                        } finally {
-                                            isAutoResolvingDate = false
                                         }
                                     }
-                                }
-                            },
-                            modifier = Modifier.weight(1f),
-                            enabled = subject.isNotBlank()
-                        ) {
-                            Text(stringResource(R.string.btn_prev_lesson))
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                if (subject.isNotBlank()) {
-                                    isAutoResolvingDate = true
-                                    coroutineScope.launch {
-                                        try {
-                                            val nextDateTime = onResolveNextLessonDateTimeSkipCurrent(
-                                                subject.trim(),
-                                                teacher.trim().takeIf { it.isNotBlank() },
-                                                dueDate,
-                                                LocalTime.of(dueHour, dueMinute)
-                                            )
-                                            if (nextDateTime != null) {
-                                                dueDate = nextDateTime.first
-                                                dueHour = nextDateTime.second.hour
-                                                dueMinute = nextDateTime.second.minute
+                                },
+                                modifier = Modifier.weight(1f),
+                                enabled = subject.isNotBlank()
+                            ) {
+                                Text(stringResource(R.string.btn_prev_lesson))
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    if (subject.isNotBlank()) {
+                                        isAutoResolvingDate = true
+                                        coroutineScope.launch {
+                                            try {
+                                                val nextDateTime = onResolveNextLessonDateTimeSkipCurrent(
+                                                    subject.trim(),
+                                                    teacher.trim().takeIf { it.isNotBlank() },
+                                                    dueDate,
+                                                    LocalTime.of(dueHour, dueMinute)
+                                                )
+                                                if (nextDateTime != null) {
+                                                    dueDate = nextDateTime.first
+                                                    dueHour = nextDateTime.second.hour
+                                                    dueMinute = nextDateTime.second.minute
+                                                }
+                                            } finally {
+                                                isAutoResolvingDate = false
                                             }
-                                        } finally {
-                                            isAutoResolvingDate = false
                                         }
                                     }
-                                }
-                            },
-                            modifier = Modifier.weight(1f),
-                            enabled = subject.isNotBlank()
-                        ) {
-                            Text(stringResource(R.string.btn_next_lesson))
+                                },
+                                modifier = Modifier.weight(1f),
+                                enabled = subject.isNotBlank()
+                            ) {
+                                Text(stringResource(R.string.btn_next_lesson))
+                            }
                         }
                     }
                 }

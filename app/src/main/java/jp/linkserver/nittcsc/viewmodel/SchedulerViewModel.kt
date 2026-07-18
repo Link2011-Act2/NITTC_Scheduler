@@ -525,6 +525,12 @@ class SchedulerViewModel(
         }
     }
 
+    fun saveExamLessonMemo(date: LocalDate, slotIndex: Int, text: String) {
+        viewModelScope.launch {
+            repository.updateExamLessonMemo(date, slotIndex, text)
+        }
+    }
+
     fun deleteExamDaySchedule(date: LocalDate) {
         viewModelScope.launch {
             repository.deleteExamDaySchedule(date)

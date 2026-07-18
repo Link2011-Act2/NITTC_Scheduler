@@ -228,6 +228,23 @@ class SchedulerRepository(private val db: AppDatabase) {
         }
     }
 
+    suspend fun updateExamLessonMemo(date: LocalDate, slotIndex: Int, text: String) {
+        db.withTransaction {
+            val lesson = dao.getExamLesson(date, slotIndex) ?: return@withTransaction
+            val normalizedText = text.trim()
+            if (lesson.memo == normalizedText) return@withTransaction
+            dao.upsertExamLessons(
+                listOf(
+                    lesson.copy(
+                        memo = normalizedText,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+            )
+            touchSyncDatasetMeta(DATASET_EXAM_TIMETABLES)
+        }
+    }
+
     suspend fun deleteExamDaySchedule(date: LocalDate) {
         db.withTransaction {
             dao.deleteExamLessonsForDate(date)
