@@ -51,6 +51,9 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -188,6 +191,7 @@ import jp.linkserver.nittcsc.logic.ExportRange
 import jp.linkserver.nittcsc.logic.ExportResult
 import jp.linkserver.nittcsc.logic.NaturalLanguageLessonCandidate
 import jp.linkserver.nittcsc.logic.NaturalLanguageTaskParser
+import jp.linkserver.nittcsc.logic.shouldUseLargeScreenLayout
 import jp.linkserver.nittcsc.logic.buildLessonAutocompleteOptions
 import jp.linkserver.nittcsc.logic.findTaskLessonSlotIndex
 import jp.linkserver.nittcsc.logic.generateClassSlots
@@ -266,7 +270,7 @@ private enum class OutputDisplayMode(@param:StringRes val labelRes: Int) {
     WEEK(R.string.display_mode_week)
 }
 
-private enum class LessonSearchDisplayMode(@param:StringRes val labelRes: Int) {
+private enum class SearchDisplayMode(@param:StringRes val labelRes: Int) {
     CALENDAR(R.string.search_display_calendar),
     LIST(R.string.search_display_list)
 }
@@ -308,6 +312,20 @@ private data class LessonSearchResult(
     val lesson: ResolvedLesson,
     val isChanged: Boolean
 )
+
+private data class TaskPlanSearchListEntry(
+    val dueDate: LocalDate,
+    val dueHour: Int,
+    val dueMinute: Int,
+    val task: TaskEntity? = null,
+    val plan: PlanEntity? = null
+) {
+    val key: String
+        get() = task?.let { "task-${it.id}" } ?: "plan-${plan?.id}"
+
+    val isCompleted: Boolean
+        get() = task?.isCompleted ?: plan?.isCompleted ?: false
+}
 
 private val LegacyTaskBadgeRed = Color(0xFFBA1A1A)
 private val LegacyTaskBadgeContainer = Color(0xFF93000A)
@@ -1698,6 +1716,9 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
             }
             "main" -> {
                 val useDrawerNavigation = uiState.settings?.useDrawerNavigation ?: false
+                val useLargeScreenLayout =
+                    InternalFeatureFlags.ADAPTIVE_LARGE_SCREEN_LAYOUT &&
+                        shouldUseLargeScreenLayout(LocalConfiguration.current.screenWidthDp)
                 val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
                 val drawerScope = rememberCoroutineScope()
 
@@ -2165,6 +2186,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                     AppTab.Timetable -> TimetableInputScreen(
                                         modifier = Modifier.padding(padding),
                                         state = uiState,
+                                        useLargeScreenLayout = useLargeScreenLayout,
                                         onSelectDay = viewModel::selectDayOfWeek,
                                         onAutoSaveLesson = viewModel::saveLessonWithoutNotification,
                                         onSaveLesson = viewModel::saveLesson
@@ -2194,7 +2216,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
 
                         val appScaffold: @Composable () -> Unit = {
                             val unifyTaskPlanView = uiState.settings?.unifyTaskPlanView ?: false
-                            val topBarTitle = if (useDrawerNavigation) {
+                            val topBarTitle = if (useDrawerNavigation || useLargeScreenLayout) {
                                 if (unifyTaskPlanView && selectedTab == AppTab.Tasks) {
                                     "ToDo"
                                 } else {
@@ -2212,7 +2234,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                     TopAppBar(
                                         title = { Text(topBarTitle) },
                                         navigationIcon = {
-                                            if (useDrawerNavigation) {
+                                            if (useDrawerNavigation && !useLargeScreenLayout) {
                                                 IconButton(
                                                     onClick = {
                                                         drawerScope.launch {
@@ -2266,7 +2288,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                     )
                                 },
                                 bottomBar = {
-                                    if (!useDrawerNavigation) {
+                                    if (!useDrawerNavigation && !useLargeScreenLayout) {
                                         NavigationBar {
                                             val unifyTaskPlanView = uiState.settings?.unifyTaskPlanView ?: false
                                             AppTab.entries.forEach { tab ->
@@ -2305,7 +2327,32 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                     }
                                 }
                             ) { padding ->
-                                tabContent(padding)
+                                if (useLargeScreenLayout) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(padding)
+                                    ) {
+                                        AdaptiveAppNavigationRail(
+                                            selectedTab = selectedTab,
+                                            unifyTaskPlanView = unifyTaskPlanView,
+                                            selectedIndicatorColor = selectedTabHighlight,
+                                            onSelectTab = { tab ->
+                                                clearTransientTabNavigation()
+                                                selectedTab = tab
+                                            }
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxHeight()
+                                        ) {
+                                            tabContent(PaddingValues(0.dp))
+                                        }
+                                    }
+                                } else {
+                                    tabContent(padding)
+                                }
                             }
                         }
 
@@ -2330,7 +2377,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                             )
                         }
 
-                        if (useDrawerNavigation) {
+                        if (useDrawerNavigation && !useLargeScreenLayout) {
                             BackHandler(enabled = drawerState.isOpen) {
                                 drawerScope.launch { drawerState.close() }
                             }
@@ -2437,6 +2484,7 @@ private fun ScreenHeadline(title: String, subtitle: String) {
 private fun TimetableInputScreen(
     modifier: Modifier,
     state: SchedulerUiState,
+    useLargeScreenLayout: Boolean,
     onSelectDay: (Int) -> Unit,
     onAutoSaveLesson: (Int, Int, LessonDraft) -> Unit,
     onSaveLesson: (Int, Int, LessonDraft) -> Unit
@@ -2485,26 +2533,45 @@ private fun TimetableInputScreen(
         }
         HorizontalDivider()
         val classSlots = remember(state.settings) { state.settings.toClassSlots() }
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(classSlots) { slot ->
-                val lesson = state.lessons[state.selectedDayOfWeek to slot.index]
-                LessonEditorCard(
-                    title = slot.label,
-                    lesson = lesson,
-                    onAutoSave = { draft -> onAutoSaveLesson(state.selectedDayOfWeek, slot.index, draft) },
-                    onSave = { draft -> onSaveLesson(state.selectedDayOfWeek, slot.index, draft) }
-                )
+        val lessonEditor: @Composable (ClassSlot) -> Unit = { slot ->
+            val lesson = state.lessons[state.selectedDayOfWeek to slot.index]
+            LessonEditorCard(
+                title = slot.label,
+                lesson = lesson,
+                onAutoSave = { draft -> onAutoSaveLesson(state.selectedDayOfWeek, slot.index, draft) },
+                onSave = { draft -> onSaveLesson(state.selectedDayOfWeek, slot.index, draft) }
+            )
+        }
+        if (useLargeScreenLayout) {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 320.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+                contentPadding = PaddingValues(vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                gridItems(classSlots, key = { it.index }) { slot ->
+                    lessonEditor(slot)
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+                contentPadding = PaddingValues(vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(classSlots, key = { it.index }) { slot ->
+                    lessonEditor(slot)
                 }
             }
         }
-
     }
+}
+
 @Composable
 private fun LessonEditorCard(
     title: String,
@@ -3321,12 +3388,50 @@ private fun TaskPlanCalendarScreen(
         pageCount = { monthPagerPageCount }
     )
     var searchQuery by rememberSaveable { mutableStateOf("") }
+    var searchDisplayMode by rememberSaveable { mutableStateOf(SearchDisplayMode.CALENDAR) }
     val searchTokens = remember(searchQuery) { tokenizeSearchQuery(searchQuery) }
     val filteredTasks = remember(tasks, searchTokens) {
         if (searchTokens.isEmpty()) tasks else tasks.filter { it.matchesTaskPlanSearch(searchTokens) }
     }
     val filteredPlans = remember(plans, searchTokens) {
         if (searchTokens.isEmpty()) plans else plans.filter { it.matchesTaskPlanSearch(searchTokens) }
+    }
+    val listEntrySections = remember(filteredTasks, filteredPlans) {
+        val entries = buildList {
+            filteredTasks.forEach { task ->
+                add(
+                    TaskPlanSearchListEntry(
+                        dueDate = task.dueDate,
+                        dueHour = task.dueHour,
+                        dueMinute = task.dueMinute,
+                        task = task
+                    )
+                )
+            }
+            filteredPlans.forEach { plan ->
+                add(
+                    TaskPlanSearchListEntry(
+                        dueDate = plan.dueDate,
+                        dueHour = plan.dueHour,
+                        dueMinute = plan.dueMinute,
+                        plan = plan
+                    )
+                )
+            }
+        }
+            .sortedWith(
+                compareBy<TaskPlanSearchListEntry> { it.dueDate }
+                    .thenBy { it.dueHour }
+                    .thenBy { it.dueMinute }
+                    .thenBy { if (it.task != null) 0 else 1 }
+            )
+        listOf(false, true).mapNotNull { isCompleted ->
+            entries
+                .filter { it.isCompleted == isCompleted }
+                .groupBy { it.dueDate }
+                .takeIf { it.isNotEmpty() }
+                ?.let { isCompleted to it }
+        }
     }
     var observedMonthPagerPage by remember { mutableStateOf(monthPagerState.settledPage) }
     var selectedDateEpochDay by rememberSaveable {
@@ -3387,7 +3492,31 @@ private fun TaskPlanCalendarScreen(
             }
 
             item {
-                CalendarPagerCard(
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SearchDisplayMode.entries.forEach { mode ->
+                        FilterChip(
+                            selected = searchDisplayMode == mode,
+                            onClick = { searchDisplayMode = mode },
+                            label = { Text(stringResource(mode.labelRes)) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = if (mode == SearchDisplayMode.CALENDAR) {
+                                        Icons.Filled.CalendarMonth
+                                    } else {
+                                        Icons.Filled.TableChart
+                                    },
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        )
+                    }
+                }
+            }
+
+            if (searchDisplayMode == SearchDisplayMode.CALENDAR) {
+                item {
+                    CalendarPagerCard(
                     state = monthPagerState,
                     anchorMonth = monthPagerAnchor.minusMonths(monthPagerCenterPage.toLong()),
                     orderedDaysOfWeek = orderedDaysOfWeek,
@@ -3406,10 +3535,10 @@ private fun TaskPlanCalendarScreen(
                             )
                         }
                     }
-                ) { _, date, cellModifier ->
-                    val dateTasksForCell = tasksByDate[date].orEmpty()
-                    val datePlansForCell = plansByDate[date].orEmpty()
-                    TaskPlanCalendarDayCell(
+                    ) { _, date, cellModifier ->
+                        val dateTasksForCell = tasksByDate[date].orEmpty()
+                        val datePlansForCell = plansByDate[date].orEmpty()
+                        TaskPlanCalendarDayCell(
                         date = date,
                         taskCount = dateTasksForCell.size,
                         planCount = datePlansForCell.size,
@@ -3424,75 +3553,75 @@ private fun TaskPlanCalendarScreen(
                             selectedDateEpochDay = date.toEpochDay()
                         },
                         modifier = cellModifier
-                    )
+                        )
+                    }
                 }
-            }
 
-            item {
-                Row(
+                item {
+                    Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (selectedDate != null) {
-                        Surface(
+                    ) {
+                        if (selectedDate != null) {
+                            Surface(
                             shape = RoundedCornerShape(50),
                             color = MaterialTheme.colorScheme.secondaryContainer
-                        ) {
-                            Text(
+                            ) {
+                                Text(
                                 text = formatDateForDisplay(selectedDate, showWeekdayOnDates),
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                                 style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer,
                                 fontWeight = FontWeight.Bold
-                            )
-                        }
-                    } else {
-                        Text(
+                                )
+                            }
+                        } else {
+                            Text(
                             text = stringResource(R.string.msg_task_plan_calendar_select_date),
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Spacer(Modifier.weight(1f))
-                    TaskPlanCountChip(
+                            )
+                        }
+                        Spacer(Modifier.weight(1f))
+                        TaskPlanCountChip(
                         label = stringResource(R.string.tab_tasks),
                         count = selectedTasks.size,
                         color = MaterialTheme.colorScheme.error
-                    )
-                    TaskPlanCountChip(
+                        )
+                        TaskPlanCountChip(
                         label = stringResource(R.string.tab_plans),
                         count = selectedPlans.size,
                         color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-
-            if (selectedDate == null) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 36.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = stringResource(R.string.msg_task_plan_calendar_select_date),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
-            } else if (selectedTasks.isEmpty() && selectedPlans.isEmpty()) {
-                item {
-                    Box(
+
+                if (selectedDate == null) {
+                    item {
+                        Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 36.dp),
                         contentAlignment = Alignment.Center
-                    ) {
-                        Text(
+                        ) {
+                            Text(
+                            text = stringResource(R.string.msg_task_plan_calendar_select_date),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                } else if (selectedTasks.isEmpty() && selectedPlans.isEmpty()) {
+                    item {
+                        Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 36.dp),
+                        contentAlignment = Alignment.Center
+                        ) {
+                            Text(
                             text = if (searchTokens.isEmpty()) {
                                 stringResource(R.string.msg_task_plan_calendar_empty)
                             } else {
@@ -3500,13 +3629,13 @@ private fun TaskPlanCalendarScreen(
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                            )
+                        }
                     }
                 }
-            }
 
-            items(selectedTasks, key = { "task-${it.id}" }) { task ->
-                TaskPlanCalendarItem(
+                items(selectedTasks, key = { "task-${it.id}" }) { task ->
+                    TaskPlanCalendarItem(
                     typeLabel = stringResource(R.string.tab_tasks),
                     title = task.title,
                     subject = task.subject,
@@ -3516,11 +3645,11 @@ private fun TaskPlanCalendarScreen(
                     completed = task.isCompleted,
                     accentColor = MaterialTheme.colorScheme.error,
                     onClick = { onOpenTask(task) }
-                )
-            }
+                    )
+                }
 
-            items(selectedPlans, key = { "plan-${it.id}" }) { plan ->
-                TaskPlanCalendarItem(
+                items(selectedPlans, key = { "plan-${it.id}" }) { plan ->
+                    TaskPlanCalendarItem(
                     typeLabel = stringResource(R.string.tab_plans),
                     title = plan.title,
                     subject = plan.subject,
@@ -3530,7 +3659,114 @@ private fun TaskPlanCalendarScreen(
                     completed = plan.isCompleted,
                     accentColor = MaterialTheme.colorScheme.primary,
                     onClick = { onOpenPlan(plan) }
-                )
+                    )
+                }
+            } else if (listEntrySections.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 36.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (searchTokens.isEmpty()) {
+                                stringResource(R.string.msg_task_plan_list_empty)
+                            } else {
+                                stringResource(R.string.msg_task_plan_list_search_empty)
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else {
+                listEntrySections.forEach { (isCompleted, entriesByDate) ->
+                    item(key = "list-section-$isCompleted") {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = stringResource(
+                                    if (isCompleted) {
+                                        R.string.section_task_plan_completed_count
+                                    } else {
+                                        R.string.section_task_plan_incomplete_count
+                                    },
+                                    entriesByDate.values.sumOf { it.size }
+                                ),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        }
+                    }
+                    entriesByDate.forEach { (date, entries) ->
+                        item(key = "list-$isCompleted-date-$date") {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = formatDateForDisplay(date, showWeekdayOnDates),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(Modifier.weight(1f))
+                                val taskCount = entries.count { it.task != null }
+                                val planCount = entries.size - taskCount
+                                if (taskCount > 0) {
+                                    TaskPlanCountChip(
+                                        label = stringResource(R.string.tab_tasks),
+                                        count = taskCount,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                                if (planCount > 0) {
+                                    TaskPlanCountChip(
+                                        label = stringResource(R.string.tab_plans),
+                                        count = planCount,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                        items(entries, key = { "list-${it.key}" }) { entry ->
+                            entry.task?.let { task ->
+                                TaskPlanCalendarItem(
+                                    typeLabel = stringResource(R.string.tab_tasks),
+                                    title = task.title,
+                                    subject = task.subject,
+                                    teacher = task.teacher,
+                                    hour = task.dueHour,
+                                    minute = task.dueMinute,
+                                    completed = task.isCompleted,
+                                    accentColor = MaterialTheme.colorScheme.error,
+                                    onClick = { onOpenTask(task) }
+                                )
+                            } ?: entry.plan?.let { plan ->
+                                TaskPlanCalendarItem(
+                                    typeLabel = stringResource(R.string.tab_plans),
+                                    title = plan.title,
+                                    subject = plan.subject,
+                                    teacher = plan.teacher,
+                                    hour = plan.dueHour,
+                                    minute = plan.dueMinute,
+                                    completed = plan.isCompleted,
+                                    accentColor = MaterialTheme.colorScheme.primary,
+                                    onClick = { onOpenPlan(plan) }
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -3787,7 +4023,7 @@ private fun LessonSearchScreen(
     var selectedSearchDateEpochDay by rememberSaveable {
         mutableStateOf(initialSelectedSearchDate.toEpochDay())
     }
-    var searchDisplayMode by rememberSaveable { mutableStateOf(LessonSearchDisplayMode.CALENDAR) }
+    var searchDisplayMode by rememberSaveable { mutableStateOf(SearchDisplayMode.CALENDAR) }
     val displayedMonth = remember(displayedMonthText) {
         runCatching { YearMonth.parse(displayedMonthText) }.getOrElse { YearMonth.from(searchStart) }
     }
@@ -3896,14 +4132,14 @@ private fun LessonSearchScreen(
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                LessonSearchDisplayMode.entries.forEach { mode ->
+                SearchDisplayMode.entries.forEach { mode ->
                     FilterChip(
                         selected = searchDisplayMode == mode,
                         onClick = { searchDisplayMode = mode },
                         label = { Text(stringResource(mode.labelRes)) },
                         leadingIcon = {
                             Icon(
-                                imageVector = if (mode == LessonSearchDisplayMode.CALENDAR) {
+                                imageVector = if (mode == SearchDisplayMode.CALENDAR) {
                                     Icons.Filled.CalendarMonth
                                 } else {
                                     Icons.Filled.TableChart
@@ -3921,7 +4157,7 @@ private fun LessonSearchScreen(
                 modifier = Modifier.weight(1f),
                 transitionSpec = {
                     val spec = tween<IntOffset>(220, easing = FastOutSlowInEasing)
-                    if (targetState == LessonSearchDisplayMode.CALENDAR) {
+                    if (targetState == SearchDisplayMode.CALENDAR) {
                         slideInHorizontally(animationSpec = spec) { -it / 3 } + fadeIn() togetherWith
                             slideOutHorizontally(animationSpec = spec) { it } + fadeOut()
                     } else {
@@ -3929,10 +4165,10 @@ private fun LessonSearchScreen(
                             slideOutHorizontally(animationSpec = spec) { -it / 3 } + fadeOut()
                     }
                 },
-                label = "LessonSearchDisplayModeTransition"
+                label = "SearchDisplayModeTransition"
             ) { mode ->
                 when (mode) {
-                    LessonSearchDisplayMode.CALENDAR -> LessonSearchCalendarView(
+                    SearchDisplayMode.CALENDAR -> LessonSearchCalendarView(
                         modifier = Modifier.fillMaxSize(),
                         query = query,
                         displayedMonth = displayedMonth,
@@ -3961,14 +4197,14 @@ private fun LessonSearchScreen(
                             onOpenDate(date)
                         }
                     )
-                    LessonSearchDisplayMode.LIST -> LessonSearchListView(
+                    SearchDisplayMode.LIST -> LessonSearchListView(
                         modifier = Modifier.fillMaxSize(),
                         query = query,
                         results = results.filter { !it.date.isBefore(today) },
                         onSelectDate = { date ->
                             displayedMonthText = YearMonth.from(date).toString()
                             selectedSearchDateEpochDay = date.toEpochDay()
-                            searchDisplayMode = LessonSearchDisplayMode.CALENDAR
+                            searchDisplayMode = SearchDisplayMode.CALENDAR
                         }
                     )
                 }

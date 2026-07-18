@@ -386,6 +386,10 @@
     <string name="msg_task_plan_calendar_select_date">日付を選択してください。</string>
     <string name="msg_task_plan_calendar_empty">この日の課題・予定はありません。</string>
     <string name="msg_task_plan_calendar_search_empty">この日に一致する課題・予定はありません。</string>
+    <string name="msg_task_plan_list_empty">課題・予定はありません。</string>
+    <string name="msg_task_plan_list_search_empty">一致する課題・予定はありません。</string>
+    <string name="section_task_plan_incomplete_count">未完了 (%d)</string>
+    <string name="section_task_plan_completed_count">完了済み (%d)</string>
 
     <!-- Content Descriptions (missing from existing) -->
     <string name="cd_ai_import">AI自動インポート</string>0
