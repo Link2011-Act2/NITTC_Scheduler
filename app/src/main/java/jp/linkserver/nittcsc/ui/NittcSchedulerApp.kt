@@ -3710,7 +3710,7 @@ private fun TaskPlanCalendarItem(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .alpha(if (completed) 0.58f else 1f)
+            .alpha(if (completed) 0.42f else 1f)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow
@@ -6115,15 +6115,18 @@ private fun WeekScheduleTable(
                                     ) {
                                         if (isExamSlot) {
                                             Text(
-                                                text = "%02d:%02d–%02d:%02d".format(
+                                                text = "%02d:%02d\n–%02d:%02d".format(
                                                     dateSlot.start.hour,
                                                     dateSlot.start.minute,
                                                     dateSlot.end.hour,
                                                     dateSlot.end.minute
                                                 ),
-                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    fontSize = 8.sp,
+                                                    lineHeight = 9.sp
+                                                ),
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1
+                                                maxLines = 2
                                             )
                                         }
                                         Text(
@@ -6226,15 +6229,18 @@ private fun WeekScheduleTable(
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                         Text(
-                                            text = "%02d:%02d–%02d:%02d".format(
+                                            text = "%02d:%02d\n–%02d:%02d".format(
                                                 dateSlot.start.hour,
                                                 dateSlot.start.minute,
                                                 dateSlot.end.hour,
                                                 dateSlot.end.minute
                                             ),
-                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontSize = 8.sp,
+                                                lineHeight = 9.sp
+                                            ),
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1
+                                            maxLines = 2
                                         )
                                     }
                                 }
