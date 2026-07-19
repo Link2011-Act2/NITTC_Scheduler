@@ -185,7 +185,6 @@ internal fun AbTableScreen(
 
         item {
             DayTypeLegend(
-                showExamTimetableButton = settings.enableExamTimetable,
                 onOpenExamTimetables = onOpenExamTimetables
             )
         }
@@ -344,7 +343,6 @@ private fun DatePickRow(
 
 @Composable
 private fun DayTypeLegend(
-    showExamTimetableButton: Boolean,
     onOpenExamTimetables: () -> Unit
 ) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
@@ -369,13 +367,11 @@ private fun DayTypeLegend(
                 DayChip(stringResource(R.string.daytype_b), dayTypeVisual(DayType.B))
                 DayChip(stringResource(R.string.daytype_holiday), dayTypeVisual(DayType.HOLIDAY))
             }
-            if (showExamTimetableButton) {
-                OutlinedButton(
-                    onClick = onOpenExamTimetables,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(stringResource(R.string.btn_create_exam_timetable))
-                }
+            OutlinedButton(
+                onClick = onOpenExamTimetables,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(stringResource(R.string.btn_create_exam_timetable))
             }
         }
     }

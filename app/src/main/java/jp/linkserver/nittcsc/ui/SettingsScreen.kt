@@ -128,8 +128,6 @@ fun SettingsScreen(
     onOpenLocalSync: () -> Unit = {},
     onToggleLocalAi: (Boolean) -> Unit,
     onToggleNaturalLanguageTaskAdd: (Boolean) -> Unit = {},
-    onToggleLessonNotes: (Boolean) -> Unit = {},
-    onToggleExamTimetable: (Boolean) -> Unit = {},
     onToggleDrawerNavigation: (Boolean) -> Unit,
     onToggleAddTasksToCalendar: (Boolean) -> Unit,
     onToggleSyncLessonsToCalendar: (Boolean) -> Unit = {},
@@ -161,8 +159,6 @@ fun SettingsScreen(
     val enabledNaturalLanguageTaskAdd =
         InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD &&
             (state.settings?.enableNaturalLanguageTaskAdd ?: false)
-    val enabledLessonNotes = state.settings?.enableLessonNotes ?: false
-    val enabledExamTimetable = state.settings?.enableExamTimetable ?: false
     val enabledDrawerNavigation = state.settings?.useDrawerNavigation ?: false
     val enabledTaskCalendarSync = state.settings?.addTasksToCalendar ?: false
     val enabledLessonCalendarSync = state.settings?.syncLessonsToCalendar ?: false
@@ -541,7 +537,6 @@ fun SettingsScreen(
     }
 
     LaunchedEffect(
-        enabledExamTimetable,
         examPeriodsPerDay,
         examPeriodDurationMin,
         examBreakBetweenPeriodsMin,
@@ -553,7 +548,7 @@ fun SettingsScreen(
         examArrivalMinute,
         s
     ) {
-        if (!enabledExamTimetable) return@LaunchedEffect
+        val settings = s ?: return@LaunchedEffect
         delay(500)
         val periods = examPeriodsPerDay.toIntOrNull()?.coerceIn(1, 12) ?: return@LaunchedEffect
         val duration = examPeriodDurationMin.toIntOrNull()?.coerceIn(10, 180) ?: return@LaunchedEffect
@@ -564,15 +559,15 @@ fun SettingsScreen(
         val startM = examStartMinute.toIntOrNull()?.coerceIn(0, 59) ?: return@LaunchedEffect
         val arrivalH = examArrivalHour.toIntOrNull()?.coerceIn(0, 23) ?: return@LaunchedEffect
         val arrivalM = examArrivalMinute.toIntOrNull()?.coerceIn(0, 59) ?: return@LaunchedEffect
-        val changed = s.examPeriodsPerDay != periods ||
-            s.examPeriodDurationMin != duration ||
-            s.examBreakBetweenPeriodsMin != breakMinutes ||
-            s.examLunchBreakMin != lunchMinutes ||
-            s.examLunchAfterPeriod != lunchAfter ||
-            s.examFirstPeriodStartHour != startH ||
-            s.examFirstPeriodStartMinute != startM ||
-            s.examArrivalHour != arrivalH ||
-            s.examArrivalMinute != arrivalM
+        val changed = settings.examPeriodsPerDay != periods ||
+            settings.examPeriodDurationMin != duration ||
+            settings.examBreakBetweenPeriodsMin != breakMinutes ||
+            settings.examLunchBreakMin != lunchMinutes ||
+            settings.examLunchAfterPeriod != lunchAfter ||
+            settings.examFirstPeriodStartHour != startH ||
+            settings.examFirstPeriodStartMinute != startM ||
+            settings.examArrivalHour != arrivalH ||
+            settings.examArrivalMinute != arrivalM
         if (changed) {
             onUpdateExamTimetableSettings(
                 periods,
@@ -988,8 +983,7 @@ fun SettingsScreen(
                 }
             }
 
-            if (enabledExamTimetable) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1184,7 +1178,6 @@ fun SettingsScreen(
                             )
                         }
                     }
-                }
             }
 
             // ── 通知設定 ──────────────────────────────────────────
@@ -1397,18 +1390,6 @@ fun SettingsScreen(
                             description = stringResource(R.string.desc_advanced_time_settings_ui),
                             checked = enabledAdvancedTimeSettingsUi,
                             onCheckedChange = onToggleAdvancedTimeSettingsUi
-                        )
-                        SettingsSwitchRow(
-                            title = stringResource(R.string.label_enable_lesson_notes),
-                            description = stringResource(R.string.desc_enable_lesson_notes),
-                            checked = enabledLessonNotes,
-                            onCheckedChange = onToggleLessonNotes
-                        )
-                        SettingsSwitchRow(
-                            title = stringResource(R.string.label_enable_exam_timetable),
-                            description = stringResource(R.string.desc_enable_exam_timetable),
-                            checked = enabledExamTimetable,
-                            onCheckedChange = onToggleExamTimetable
                         )
                         SettingsSwitchRow(
                             title = stringResource(R.string.label_local_ai_import),

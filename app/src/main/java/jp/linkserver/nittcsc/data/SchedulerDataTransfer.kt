@@ -56,7 +56,7 @@ internal class SchedulerDataTransfer(
                     settings.enableNaturalLanguageTaskAdd &&
                         InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD
                 )
-                s.put("enableLessonNotes", settings.enableLessonNotes)
+                s.put("enableLessonNotes", true)
                 s.put("hfToken", settings.hfToken)
                 s.put("periodsPerDay", settings.periodsPerDay)
                 s.put("periodDurationMin", settings.periodDurationMin)
@@ -87,7 +87,7 @@ internal class SchedulerDataTransfer(
                 s.put("syncLessonsToCalendar", settings.syncLessonsToCalendar)
                 if (settings.lessonCalendarSyncStart != null) s.put("lessonCalendarSyncStart", settings.lessonCalendarSyncStart.toString())
                 if (settings.lessonCalendarSyncEnd != null) s.put("lessonCalendarSyncEnd", settings.lessonCalendarSyncEnd.toString())
-                s.put("enableExamTimetable", settings.enableExamTimetable)
+                s.put("enableExamTimetable", true)
                 s.put("examPeriodsPerDay", settings.examPeriodsPerDay)
                 s.put("examPeriodDurationMin", settings.examPeriodDurationMin)
                 s.put("examBreakBetweenPeriodsMin", settings.examBreakBetweenPeriodsMin)
@@ -688,7 +688,7 @@ internal class SchedulerDataTransfer(
                 enableNaturalLanguageTaskAdd =
                     InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD &&
                         s.optBoolean("enableNaturalLanguageTaskAdd", false),
-                enableLessonNotes = s.optBoolean("enableLessonNotes", false),
+                enableLessonNotes = true,
                 hfToken = if (s.has("hfToken") && !s.isNull("hfToken")) s.getString("hfToken") else null,
                 periodsPerDay = s.optInt("periodsPerDay", 4),
                 periodDurationMin = s.optInt("periodDurationMin", 90),
@@ -734,7 +734,7 @@ internal class SchedulerDataTransfer(
                 syncLessonsToCalendar = s.optBoolean("syncLessonsToCalendar", false),
                 lessonCalendarSyncStart = s.optString("lessonCalendarSyncStart", "").takeIf { it.isNotBlank() }?.let(LocalDate::parse),
                 lessonCalendarSyncEnd = s.optString("lessonCalendarSyncEnd", "").takeIf { it.isNotBlank() }?.let(LocalDate::parse),
-                enableExamTimetable = s.optBoolean("enableExamTimetable", false),
+                enableExamTimetable = true,
                 examPeriodsPerDay = s.optInt("examPeriodsPerDay", 4).coerceIn(1, 12),
                 examPeriodDurationMin = s.optInt("examPeriodDurationMin", 50).coerceIn(10, 180),
                 examBreakBetweenPeriodsMin = s.optInt("examBreakBetweenPeriodsMin", 20).coerceIn(0, 120),
@@ -1115,9 +1115,7 @@ internal class SchedulerDataTransfer(
             if (!s.has("useAdvancedTimeSettingsUi")) {
                 s.put("useAdvancedTimeSettingsUi", false)
             }
-            if (!s.has("enableLessonNotes")) {
-                s.put("enableLessonNotes", false)
-            }
+            s.put("enableLessonNotes", true)
             if (!s.has("lessonStartNotificationEnabled")) {
                 s.put("lessonStartNotificationEnabled", false)
             }

@@ -192,6 +192,7 @@ import jp.linkserver.nittcsc.logic.ExportResult
 import jp.linkserver.nittcsc.logic.NaturalLanguageLessonCandidate
 import jp.linkserver.nittcsc.logic.NaturalLanguageTaskParser
 import jp.linkserver.nittcsc.logic.shouldUseLargeScreenLayout
+import jp.linkserver.nittcsc.logic.shouldUseNavigationRail
 import jp.linkserver.nittcsc.logic.shouldUseTwoPaneLayout
 import jp.linkserver.nittcsc.logic.buildLessonAutocompleteOptions
 import jp.linkserver.nittcsc.logic.findTaskLessonSlotIndex
@@ -415,7 +416,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
 
     LaunchedEffect(
         selectedTab,
-        uiState.settings?.enableExamTimetable,
+        uiState.settings != null,
         pendingExamLabelHint,
         pendingExamLabelHintForTesting,
         lessonDayTutorialEligible,
@@ -468,10 +469,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                         .putBoolean(KEY_EXAM_LABEL_HINT_PENDING, false)
                         .putBoolean(KEY_EXAM_LABEL_HINT_SHOWN, true)
                         .also { editor ->
-                            if (
-                                selectedTab == AppTab.Timetable &&
-                                uiState.settings?.enableExamTimetable == true
-                            ) {
+                            if (selectedTab == AppTab.Timetable) {
                                 editor.putBoolean(KEY_EXAM_BUTTON_HINT_SHOWN, true)
                             }
                         }
@@ -513,7 +511,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                 activeTutorialHint = TutorialHintKind.AB_CUSTOM_LONG_PRESS
             }
             selectedTab == AppTab.Timetable &&
-                uiState.settings?.enableExamTimetable == true &&
+                uiState.settings != null &&
                 if (tutorialFirstTimeCheckDisabledForTesting) {
                     !examButtonHintShownForCurrentVisit
                 } else {
@@ -675,7 +673,6 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         uiState.settings?.lessonStartNotificationLiveUpdatesEnabled,
         uiState.settings?.lessonStartNotificationProgressCountsDown,
         uiState.settings?.lessonStartNotificationLiveUpdateEarlyMinutes,
-        uiState.settings?.enableExamTimetable,
         uiState.lessonNotificationExclusions,
         uiState.lessons,
         uiState.dayTypeEntities,
@@ -704,7 +701,6 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         uiState.settings?.firstPeriodStartHour,
         uiState.settings?.firstPeriodStartMinute,
         uiState.settings?.periodLabelStyle,
-        uiState.settings?.enableExamTimetable,
         uiState.lessons,
         uiState.dayTypeEntities,
         uiState.changedLessons,
@@ -1770,8 +1766,6 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                     },
                     onToggleLocalAi = viewModel::toggleLocalAi,
                     onToggleNaturalLanguageTaskAdd = viewModel::toggleNaturalLanguageTaskAdd,
-                    onToggleLessonNotes = viewModel::toggleLessonNotes,
-                    onToggleExamTimetable = viewModel::toggleExamTimetable,
                     onToggleDrawerNavigation = viewModel::toggleDrawerNavigation,
                     onToggleAddTasksToCalendar = { enabled ->
                         if (enabled && !hasCalendarPermission(context)) {
@@ -1900,6 +1894,10 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                 val useLargeScreenLayout =
                     InternalFeatureFlags.ADAPTIVE_LARGE_SCREEN_LAYOUT &&
                         shouldUseLargeScreenLayout(LocalConfiguration.current.screenWidthDp)
+                val useNavigationRail = shouldUseNavigationRail(
+                    useLargeScreenLayout = useLargeScreenLayout,
+                    useDrawerNavigation = useDrawerNavigation
+                )
                 val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
                 val drawerScope = rememberCoroutineScope()
 
@@ -2431,7 +2429,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
 
                         val appScaffold: @Composable () -> Unit = {
                             val unifyTaskPlanView = uiState.settings?.unifyTaskPlanView ?: false
-                            val topBarTitle = if (useDrawerNavigation || useLargeScreenLayout) {
+                            val topBarTitle = if (useDrawerNavigation || useNavigationRail) {
                                 if (unifyTaskPlanView && selectedTab == AppTab.Tasks) {
                                     "ToDo"
                                 } else {
@@ -2449,7 +2447,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                     TopAppBar(
                                         title = { Text(topBarTitle) },
                                         navigationIcon = {
-                                            if (useDrawerNavigation && !useLargeScreenLayout) {
+                                            if (useDrawerNavigation) {
                                                 IconButton(
                                                     onClick = {
                                                         drawerScope.launch {
@@ -2462,10 +2460,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                             }
                                         },
                                         actions = {
-                                            if (
-                                                selectedTab == AppTab.Timetable &&
-                                                uiState.settings?.enableExamTimetable == true
-                                            ) {
+                                            if (selectedTab == AppTab.Timetable) {
                                                 IconButton(onClick = { showExamTimetablePeriods = true }) {
                                                     Icon(
                                                         Icons.Filled.Quiz,
@@ -2503,7 +2498,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                     )
                                 },
                                 bottomBar = {
-                                    if (!useDrawerNavigation && !useLargeScreenLayout) {
+                                    if (!useDrawerNavigation && !useNavigationRail) {
                                         NavigationBar {
                                             val unifyTaskPlanView = uiState.settings?.unifyTaskPlanView ?: false
                                             AppTab.entries.forEach { tab ->
@@ -2542,7 +2537,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                     }
                                 }
                             ) { padding ->
-                                if (useLargeScreenLayout) {
+                                if (useNavigationRail) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxSize()
@@ -2592,7 +2587,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                             )
                         }
 
-                        if (useDrawerNavigation && !useLargeScreenLayout) {
+                        if (useDrawerNavigation) {
                             BackHandler(enabled = drawerState.isOpen) {
                                 drawerScope.launch { drawerState.close() }
                             }
@@ -3223,7 +3218,7 @@ private fun OutputScreen(
         label = "DisplayModeIndicatorOffset"
     )
     val showCurrentTimeMarker = state.settings?.showCurrentTimeMarker ?: false
-    val lessonNotesEnabled = state.settings?.enableLessonNotes ?: false
+    val lessonNotesEnabled = true
     val shiftUnit = if (displayMode == OutputDisplayMode.DAY) 1L else 7L
     val classSlots = remember(state.settings) { state.settings.toClassSlots() }
     val examLessonsByDate = remember(state.examLessons) {
@@ -3231,8 +3226,7 @@ private fun OutputScreen(
     }
     fun isExamScheduleDate(date: LocalDate): Boolean {
         val label = state.dayTypeEntities[date]?.holidaySpecialLabel
-        return state.settings?.enableExamTimetable == true &&
-            state.examDaySchedules.containsKey(date) &&
+        return state.examDaySchedules.containsKey(date) &&
             examLessonsByDate[date].orEmpty().any { it.hasEnteredContent() } &&
             (label == HolidaySpecialLabel.MIDTERM || label == HolidaySpecialLabel.FINAL)
     }

@@ -491,7 +491,7 @@
     <string name="warning_promoted_notifications_disabled">端末側でLive Updatesが許可されていないため、ステータスバーは通常の通知アイコンだけになることがあります。</string>
     <string name="btn_open_live_updates_settings">Live Updates設定を開く</string>
     <string name="label_use_hamburger_navigation">実験的UIを使用</string>
-    <string name="desc_use_hamburger_navigation">下部ナビゲーションバーは非表示になり、左上のハンバーガーメニューから切り替える方式になります</string>
+    <string name="desc_use_hamburger_navigation">スマホ・タブレットともに下部バーやサイドバーを非表示にし、左上のハンバーガーメニューから切り替える方式になります</string>
     <string name="label_add_tasks_to_calendar">課題をカレンダーと同期</string>
     <string name="desc_add_tasks_to_calendar">課題・予定を端末のカレンダーに自動で追加します</string>
     <string name="label_sync_lessons_to_calendar">時間割をカレンダーと同期</string>
@@ -517,8 +517,6 @@
     <string name="label_show_current_time_marker">現在時刻マーカーを表示</string>
     <string name="desc_show_current_time_marker">時間割画面に現在時刻の表示を追加します</string>
     <string name="section_experimental">実験的機能 (Experimental)</string>
-    <string name="label_enable_exam_timetable">テスト時間割を使用</string>
-    <string name="desc_enable_exam_timetable">中間・期末試験の日に、通常授業とは異なる時刻と試験内容を設定できるようにします。</string>
     <string name="label_show_weekday_on_dates">日付に曜日を表示</string>
     <string name="desc_show_weekday_on_dates">時間割上部や期間表示を除き、日付の横に(金)のような曜日を表示します</string>
     <string name="label_unify_task_plan_view">ToDo タブを有効化</string>
@@ -533,8 +531,6 @@
     <string name="desc_natural_language_task_add">ローカルAIで曖昧な文章を解析し、現在の時間割から教科・教員を推測して課題の下書きを作成します。</string>
     <string name="label_advanced_time_settings_ui">新しい授業時間設定UI</string>
     <string name="desc_advanced_time_settings_ui">授業時間を一覧で確認しながら、授業数や昼休みの位置を直感的に調整できます。まだ実装途中なので大目に見てください</string>
-    <string name="label_enable_lesson_notes">授業メモ</string>
-    <string name="desc_enable_lesson_notes">授業を長押しすることで、授業ごとにメモを追加する機能を有効にします</string>
     <string name="desc_advanced_time_settings_reorder">昼休みの「≡」を上下に動かすと、一覧内の位置を入れ替えられます。行を押すと時刻を編集できます。</string>
     <string name="warning_advanced_time_invalid_period_count">授業数を正しく入力してください。</string>
     <string name="warning_advanced_time_invalid_period_time">授業時間の時刻を正しく入力してください。</string>

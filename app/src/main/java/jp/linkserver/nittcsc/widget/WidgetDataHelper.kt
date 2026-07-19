@@ -195,8 +195,7 @@ object WidgetDataHelper {
 
     fun isExamScheduleDate(data: WidgetData, date: LocalDate): Boolean {
         val label = data.dayTypeEntities[date]?.holidaySpecialLabel
-        return data.settings?.enableExamTimetable == true &&
-            date in data.examDaySchedules &&
+        return date in data.examDaySchedules &&
             data.examLessons.values.any { it.date == date && it.hasEnteredContent() } &&
             (label == HolidaySpecialLabel.MIDTERM || label == HolidaySpecialLabel.FINAL)
     }

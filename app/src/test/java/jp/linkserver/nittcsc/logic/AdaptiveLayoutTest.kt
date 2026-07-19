@@ -12,6 +12,28 @@ class AdaptiveLayoutTest {
     }
 
     @Test
+    fun drawerNavigationTakesPriorityOverLargeScreenRail() {
+        assertFalse(
+            shouldUseNavigationRail(
+                useLargeScreenLayout = true,
+                useDrawerNavigation = true
+            )
+        )
+        assertTrue(
+            shouldUseNavigationRail(
+                useLargeScreenLayout = true,
+                useDrawerNavigation = false
+            )
+        )
+        assertFalse(
+            shouldUseNavigationRail(
+                useLargeScreenLayout = false,
+                useDrawerNavigation = false
+            )
+        )
+    }
+
+    @Test
     fun twoPaneLayoutStartsAt720Dp() {
         assertFalse(shouldUseTwoPaneLayout(719))
         assertTrue(shouldUseTwoPaneLayout(720))

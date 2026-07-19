@@ -472,14 +472,6 @@ class SchedulerViewModel(
         launchRepositoryUpdate { repository.toggleNaturalLanguageTaskAdd(enabled) }
     }
 
-    fun toggleLessonNotes(enabled: Boolean) {
-        launchRepositoryUpdate { repository.toggleLessonNotes(enabled) }
-    }
-
-    fun toggleExamTimetable(enabled: Boolean) {
-        launchRepositoryUpdate { repository.toggleExamTimetable(enabled) }
-    }
-
     fun updateExamTimetableSettings(
         periodsPerDay: Int,
         periodDurationMin: Int,

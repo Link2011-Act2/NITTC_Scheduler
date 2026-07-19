@@ -71,13 +71,8 @@ class LessonStartNotificationWorker(
         if (!settings.lessonStartNotificationEnabled) return Result.success()
 
         val specialLabel = dao.getDayType(date)?.holidaySpecialLabel
-        val examLessonsForDate = if (settings.enableExamTimetable) {
-            dao.getExamLessonsForDate(date)
-        } else {
-            emptyList()
-        }
-        val isExamDate = settings.enableExamTimetable &&
-            dao.getExamDaySchedule(date) != null &&
+        val examLessonsForDate = dao.getExamLessonsForDate(date)
+        val isExamDate = dao.getExamDaySchedule(date) != null &&
             examLessonsForDate.any { it.hasEnteredContent() } &&
             (specialLabel == HolidaySpecialLabel.MIDTERM || specialLabel == HolidaySpecialLabel.FINAL)
         val examLesson = if (isExamDate) {
@@ -602,23 +597,15 @@ class LessonStartNotificationWorker(
             val lessons = dao.getLessonsOnce().associateBy { it.dayOfWeek to it.slotIndex }
             val changedLessons = dao.getChangedLessonsOnce().associateBy { it.date to it.slotIndex }
             val cancelledLessons = dao.getCancelledLessonsOnce().map { it.date to it.slotIndex }.toSet()
-            val examLessonsByDate = if (settings.enableExamTimetable) {
-                dao.getExamLessonsOnce().groupBy { it.date }
-            } else {
-                emptyMap()
-            }
-            val examScheduleDates = if (settings.enableExamTimetable) {
-                dao.getExamDaySchedulesOnce()
-                    .map { it.date }
-                    .filterTo(mutableSetOf()) { date ->
-                        examLessonsByDate[date].orEmpty().any { it.hasEnteredContent() } && when (dayTypeEntities[date]?.holidaySpecialLabel) {
-                            HolidaySpecialLabel.MIDTERM, HolidaySpecialLabel.FINAL -> true
-                            else -> false
-                        }
+            val examLessonsByDate = dao.getExamLessonsOnce().groupBy { it.date }
+            val examScheduleDates = dao.getExamDaySchedulesOnce()
+                .map { it.date }
+                .filterTo(mutableSetOf()) { date ->
+                    examLessonsByDate[date].orEmpty().any { it.hasEnteredContent() } && when (dayTypeEntities[date]?.holidaySpecialLabel) {
+                        HolidaySpecialLabel.MIDTERM, HolidaySpecialLabel.FINAL -> true
+                        else -> false
                     }
-            } else {
-                emptySet()
-            }
+                }
             val exclusions = dao.getLessonNotificationExclusionsOnce()
             val minutesBefore = settings.lessonStartNotificationMinutesBefore.coerceIn(0, 360).toLong()
             val potentialLiveUpdates =

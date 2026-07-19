@@ -155,16 +155,6 @@ class SchedulerRepository(private val db: AppDatabase) {
         )
     }
 
-    suspend fun toggleLessonNotes(enabled: Boolean) {
-        val current = dao.getSettings() ?: return
-        dao.upsertSettings(current.copy(enableLessonNotes = enabled))
-    }
-
-    suspend fun toggleExamTimetable(enabled: Boolean) {
-        val current = dao.getSettings() ?: return
-        dao.upsertSettings(current.copy(enableExamTimetable = enabled))
-    }
-
     suspend fun updateExamTimetableSettings(
         periodsPerDay: Int,
         periodDurationMin: Int,
@@ -662,23 +652,15 @@ class SchedulerRepository(private val db: AppDatabase) {
         val lessons = dao.getLessonsOnce().associateBy { it.dayOfWeek to it.slotIndex }
         val cancelledLessons = dao.getCancelledLessonsOnce()
             .mapTo(mutableSetOf()) { it.date to it.slotIndex }
-        val examLessonsByDate = if (settings.enableExamTimetable) {
-            dao.getExamLessonsOnce().groupBy { it.date }
-        } else {
-            emptyMap()
-        }
-        val examScheduleDates = if (settings.enableExamTimetable) {
-            dao.getExamDaySchedulesOnce()
-                .map { it.date }
-                .filterTo(mutableSetOf()) { date ->
-                    examLessonsByDate[date].orEmpty().any { it.hasEnteredContent() } && when (dayTypeMap[date]?.holidaySpecialLabel) {
-                        HolidaySpecialLabel.MIDTERM, HolidaySpecialLabel.FINAL -> true
-                        else -> false
-                    }
+        val examLessonsByDate = dao.getExamLessonsOnce().groupBy { it.date }
+        val examScheduleDates = dao.getExamDaySchedulesOnce()
+            .map { it.date }
+            .filterTo(mutableSetOf()) { date ->
+                examLessonsByDate[date].orEmpty().any { it.hasEnteredContent() } && when (dayTypeMap[date]?.holidaySpecialLabel) {
+                    HolidaySpecialLabel.MIDTERM, HolidaySpecialLabel.FINAL -> true
+                    else -> false
                 }
-        } else {
-            emptySet()
-        }
+            }
 
         val dateBounds = when (range) {
             is ExportRange.Custom -> range.start..range.end
