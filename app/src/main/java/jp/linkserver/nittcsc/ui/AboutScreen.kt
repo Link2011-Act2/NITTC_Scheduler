@@ -140,14 +140,17 @@ fun AboutScreen(
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
+        AdaptiveContentPane(
+            modifier = Modifier.padding(padding),
+            maxWidth = FormContentMaxWidth
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
             // ── アプリ名・バージョン ──────────────────────────────────
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -321,6 +324,7 @@ fun AboutScreen(
                 ) {
                     Text(stringResource(R.string.about_oss_open))
                 }
+            }
             }
         }
     }

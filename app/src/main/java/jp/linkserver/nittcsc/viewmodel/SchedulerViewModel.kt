@@ -26,6 +26,7 @@ import jp.linkserver.nittcsc.data.TaskEntity
 import jp.linkserver.nittcsc.logic.ExportRange
 import jp.linkserver.nittcsc.logic.GeneratedLesson
 import jp.linkserver.nittcsc.logic.JapaneseHolidayCalculator
+import jp.linkserver.nittcsc.logic.PeriodLabelStyle
 import jp.linkserver.nittcsc.sync.DirectConnectResult
 import jp.linkserver.nittcsc.sync.DiscoveredSyncDevice
 import jp.linkserver.nittcsc.sync.LocalSyncManager
@@ -627,7 +628,7 @@ class SchedulerViewModel(
         lunchAfterPeriod: Int,
         firstPeriodStartHour: Int,
         firstPeriodStartMinute: Int,
-        useKosenMode: Boolean,
+        periodLabelStyle: PeriodLabelStyle,
         arrivalHour: Int,
         arrivalMinute: Int,
         departureHour: Int,
@@ -636,7 +637,7 @@ class SchedulerViewModel(
         viewModelScope.launch {
             repository.updateScheduleSettings(
                 periodsPerDay, periodDurationMin, breakBetweenPeriodsMin,
-                lunchBreakMin, lunchAfterPeriod, firstPeriodStartHour, firstPeriodStartMinute, useKosenMode,
+                lunchBreakMin, lunchAfterPeriod, firstPeriodStartHour, firstPeriodStartMinute, periodLabelStyle,
                 arrivalHour, arrivalMinute, departureHour, departureMinute
             )
             _snackbarMessages.emit("時間割設定を保存しました。")
@@ -651,7 +652,7 @@ class SchedulerViewModel(
         lunchAfterPeriod: Int,
         firstPeriodStartHour: Int,
         firstPeriodStartMinute: Int,
-        useKosenMode: Boolean,
+        periodLabelStyle: PeriodLabelStyle,
         arrivalHour: Int,
         arrivalMinute: Int,
         departureHour: Int,
@@ -660,7 +661,7 @@ class SchedulerViewModel(
         viewModelScope.launch {
             repository.updateScheduleSettings(
                 periodsPerDay, periodDurationMin, breakBetweenPeriodsMin,
-                lunchBreakMin, lunchAfterPeriod, firstPeriodStartHour, firstPeriodStartMinute, useKosenMode,
+                lunchBreakMin, lunchAfterPeriod, firstPeriodStartHour, firstPeriodStartMinute, periodLabelStyle,
                 arrivalHour, arrivalMinute, departureHour, departureMinute
             )
         }

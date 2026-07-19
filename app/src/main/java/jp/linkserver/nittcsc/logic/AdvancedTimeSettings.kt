@@ -51,7 +51,7 @@ fun buildAdvancedTimeEditorDraft(
     lunchAfterPeriod: Int,
     firstPeriodStartHour: Int,
     firstPeriodStartMinute: Int,
-    useKosenMode: Boolean
+    periodLabelStyle: PeriodLabelStyle
 ): AdvancedTimeEditorDraft {
     val slots = generateClassSlots(
         periodsPerDay = periodsPerDay,
@@ -60,7 +60,7 @@ fun buildAdvancedTimeEditorDraft(
         lunchBreakMin = lunchBreakMin,
         firstPeriodStartHour = firstPeriodStartHour,
         firstPeriodStartMinute = firstPeriodStartMinute,
-        useKosenMode = useKosenMode,
+        periodLabelStyle = periodLabelStyle,
         lunchAfterPeriod = lunchAfterPeriod
     )
     val periodRanges = slots.map { slot ->

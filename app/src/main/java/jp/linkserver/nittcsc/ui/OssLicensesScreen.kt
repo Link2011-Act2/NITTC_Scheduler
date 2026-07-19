@@ -98,41 +98,43 @@ fun OssLicensesScreen(onBack: () -> Unit) {
             )
         }
     ) { padding ->
-        if (entries.isEmpty()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(16.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.oss_load_failed),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
-            ) {
-                items(entries, key = { it.coordinate.ifBlank { it.title } }) { entry ->
-                    OssEntryCard(
-                        entry = entry,
-                        onShowText = { selectedEntry = entry },
-                        onOpenUrl = {
-                            entry.url?.let { url ->
-                                try {
-                                    context.startActivity(
-                                        Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                    )
-                                } catch (_: Exception) { }
-                            }
-                        }
+        AdaptiveContentPane(
+            modifier = Modifier.padding(padding),
+            maxWidth = ListContentMaxWidth
+        ) {
+            if (entries.isEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.oss_load_failed),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
+                ) {
+                    items(entries, key = { it.coordinate.ifBlank { it.title } }) { entry ->
+                        OssEntryCard(
+                            entry = entry,
+                            onShowText = { selectedEntry = entry },
+                            onOpenUrl = {
+                                entry.url?.let { url ->
+                                    try {
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                        )
+                                    } catch (_: Exception) { }
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }

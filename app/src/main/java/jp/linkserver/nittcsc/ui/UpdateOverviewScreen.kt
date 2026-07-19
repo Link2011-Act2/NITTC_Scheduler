@@ -207,14 +207,17 @@ fun UpdateOverviewScreen(
             }
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 18.dp, vertical = 14.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+        AdaptiveContentPane(
+            modifier = Modifier.padding(padding),
+            maxWidth = FormContentMaxWidth
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 18.dp, vertical = 14.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -254,6 +257,7 @@ fun UpdateOverviewScreen(
                 IntermediateReleaseNotesSection(updateInfo.intermediateReleaseNotes)
             }
             Spacer(Modifier.height(84.dp))
+            }
         }
     }
 }

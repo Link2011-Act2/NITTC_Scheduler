@@ -2,6 +2,7 @@ package jp.linkserver.nittcsc.data
 
 import androidx.room.withTransaction
 import jp.linkserver.nittcsc.InternalFeatureFlags
+import jp.linkserver.nittcsc.logic.PeriodLabelStyle
 import java.time.DayOfWeek
 import java.time.LocalDate
 
@@ -12,7 +13,7 @@ internal class SchedulerDataTransfer(
     private val dao: SchedulerDao = db.schedulerDao()
 
     private companion object {
-        const val CURRENT_EXPORT_VERSION = 11
+        const val CURRENT_EXPORT_VERSION = 12
         const val MIN_SUPPORTED_IMPORT_VERSION = 1
         const val DATASET_TASKS = SchedulerRepository.DATASET_TASKS
         const val DATASET_PLANS = SchedulerRepository.DATASET_PLANS
@@ -65,6 +66,7 @@ internal class SchedulerDataTransfer(
                 s.put("firstPeriodStartHour", settings.firstPeriodStartHour)
                 s.put("firstPeriodStartMinute", settings.firstPeriodStartMinute)
                 s.put("useKosenMode", settings.useKosenMode)
+                s.put("periodLabelStyle", settings.periodLabelStyle.name)
                 s.put("useDrawerNavigation", settings.useDrawerNavigation)
                 s.put("addTasksToCalendar", settings.addTasksToCalendar)
                 s.put("showCurrentTimeMarker", settings.showCurrentTimeMarker)
@@ -696,6 +698,15 @@ internal class SchedulerDataTransfer(
                 firstPeriodStartHour = s.optInt("firstPeriodStartHour", 8),
                 firstPeriodStartMinute = s.optInt("firstPeriodStartMinute", 40),
                 useKosenMode = s.optBoolean("useKosenMode", true),
+                periodLabelStyle = runCatching {
+                    PeriodLabelStyle.valueOf(s.getString("periodLabelStyle"))
+                }.getOrElse {
+                    if (s.optBoolean("useKosenMode", true)) {
+                        PeriodLabelStyle.PAIR_KOSHI
+                    } else {
+                        PeriodLabelStyle.SINGLE_KOSHI
+                    }
+                },
                 useDrawerNavigation = s.optBoolean("useDrawerNavigation", false),
                 addTasksToCalendar = s.optBoolean("addTasksToCalendar", false),
                 showCurrentTimeMarker = s.optBoolean("showCurrentTimeMarker", false),
@@ -1067,6 +1078,18 @@ internal class SchedulerDataTransfer(
         if (importVersion == 1) {
             normalizeV1ToV2InPlace(normalized)
         }
+        normalized.optJSONObject("settings")?.let { settings ->
+            if (!settings.has("periodLabelStyle")) {
+                settings.put(
+                    "periodLabelStyle",
+                    if (settings.optBoolean("useKosenMode", true)) {
+                        PeriodLabelStyle.PAIR_KOSHI.name
+                    } else {
+                        PeriodLabelStyle.SINGLE_KOSHI.name
+                    }
+                )
+            }
+        }
         normalized.put("version", CURRENT_EXPORT_VERSION)
         normalized.put("schema", "nittc-scheduler")
         return normalized
@@ -1168,4 +1191,3 @@ internal class SchedulerDataTransfer(
         }
     }
 }
-

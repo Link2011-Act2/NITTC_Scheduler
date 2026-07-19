@@ -141,12 +141,14 @@ fun NearbySyncScreen(
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            verticalArrangement = Arrangement.SpaceBetween
+        AdaptiveContentPane(
+            modifier = Modifier.padding(padding),
+            maxWidth = ListContentMaxWidth
         ) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
             // --- ステータスバナー ---
             StatusBanner(state = nearbyState)
 
@@ -209,6 +211,7 @@ fun NearbySyncScreen(
                         )
                     }
                 }
+            }
             }
         }
     }

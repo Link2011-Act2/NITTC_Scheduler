@@ -10,4 +10,10 @@ class AdaptiveLayoutTest {
         assertFalse(shouldUseLargeScreenLayout(599))
         assertTrue(shouldUseLargeScreenLayout(600))
     }
+
+    @Test
+    fun twoPaneLayoutStartsAt720Dp() {
+        assertFalse(shouldUseTwoPaneLayout(719))
+        assertTrue(shouldUseTwoPaneLayout(720))
+    }
 }

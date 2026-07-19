@@ -18,6 +18,8 @@ import jp.linkserver.nittcsc.data.TaskEntity
 import jp.linkserver.nittcsc.logic.CLASS_SLOTS
 import jp.linkserver.nittcsc.logic.ClassSlot
 import jp.linkserver.nittcsc.logic.JapaneseHolidayCalculator
+import jp.linkserver.nittcsc.logic.PeriodLabelStyle
+import jp.linkserver.nittcsc.logic.formatPeriodLabel
 import jp.linkserver.nittcsc.logic.generateClassSlots
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -73,7 +75,7 @@ object WidgetDataHelper {
             lunchBreakMin = settings.lunchBreakMin,
             firstPeriodStartHour = settings.firstPeriodStartHour,
             firstPeriodStartMinute = settings.firstPeriodStartMinute,
-            useKosenMode = settings.useKosenMode,
+            periodLabelStyle = settings.periodLabelStyle,
             lunchAfterPeriod = settings.lunchAfterPeriod
         ) else CLASS_SLOTS
 
@@ -148,7 +150,10 @@ object WidgetDataHelper {
             .map { exam ->
                 ClassSlot(
                     index = exam.slotIndex,
-                    label = "${exam.slotIndex + 1}時間目",
+                    label = formatPeriodLabel(
+                        exam.slotIndex,
+                        data.settings?.periodLabelStyle ?: PeriodLabelStyle.PAIR_KOSHI
+                    ),
                     start = LocalTime.of(exam.startHour, exam.startMinute),
                     end = LocalTime.of(exam.endHour, exam.endMinute)
                 )
@@ -162,7 +167,7 @@ object WidgetDataHelper {
                 lunchBreakMin = settings.examLunchBreakMin,
                 firstPeriodStartHour = settings.examFirstPeriodStartHour,
                 firstPeriodStartMinute = settings.examFirstPeriodStartMinute,
-                useKosenMode = false,
+                periodLabelStyle = settings.periodLabelStyle,
                 lunchAfterPeriod = settings.examLunchAfterPeriod
             )
         }

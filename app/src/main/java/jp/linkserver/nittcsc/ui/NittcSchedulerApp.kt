@@ -192,8 +192,10 @@ import jp.linkserver.nittcsc.logic.ExportResult
 import jp.linkserver.nittcsc.logic.NaturalLanguageLessonCandidate
 import jp.linkserver.nittcsc.logic.NaturalLanguageTaskParser
 import jp.linkserver.nittcsc.logic.shouldUseLargeScreenLayout
+import jp.linkserver.nittcsc.logic.shouldUseTwoPaneLayout
 import jp.linkserver.nittcsc.logic.buildLessonAutocompleteOptions
 import jp.linkserver.nittcsc.logic.findTaskLessonSlotIndex
+import jp.linkserver.nittcsc.logic.formatPeriodLabel
 import jp.linkserver.nittcsc.logic.generateClassSlots
 import jp.linkserver.nittcsc.logic.japaneseDayOfWeekSearchText
 import jp.linkserver.nittcsc.logic.matchesTaskPlanSearch
@@ -221,6 +223,7 @@ import jp.linkserver.nittcsc.update.shouldCheckForUpdates
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -274,6 +277,23 @@ private enum class SearchDisplayMode(@param:StringRes val labelRes: Int) {
     CALENDAR(R.string.search_display_calendar),
     LIST(R.string.search_display_list)
 }
+
+private enum class TutorialHintKind {
+    EXAM_BUTTON_FIRST_VISIT,
+    EXAM_LABEL_CREATED,
+    LESSON_LONG_PRESS,
+    AB_MULTI_DAY_DRAG,
+    AB_CUSTOM_LONG_PRESS
+}
+
+private const val TUTORIAL_PREFS_NAME = "tutorial_hints"
+private const val KEY_EXAM_BUTTON_HINT_SHOWN = "exam_button_hint_shown"
+private const val KEY_EXAM_LABEL_HINT_PENDING = "exam_label_hint_pending"
+private const val KEY_EXAM_LABEL_HINT_SHOWN = "exam_label_hint_shown"
+private const val KEY_LESSON_LONG_PRESS_HINT_SHOWN = "lesson_long_press_hint_shown"
+private const val KEY_AB_MULTI_DAY_DRAG_HINT_SHOWN = "ab_multi_day_drag_hint_shown"
+private const val KEY_AB_CUSTOM_LONG_PRESS_HINT_SHOWN = "ab_custom_long_press_hint_shown"
+private const val TUTORIAL_HINT_DURATION_MS = 8_000L
 
 
 private data class LessonChangeEditorState(
@@ -337,6 +357,20 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val resources = LocalResources.current
+    val tutorialPreferences = remember(context) {
+        context.getSharedPreferences(TUTORIAL_PREFS_NAME, Context.MODE_PRIVATE)
+    }
+    var activeTutorialHint by remember { mutableStateOf<TutorialHintKind?>(null) }
+    var pendingExamLabelHint by remember {
+        mutableStateOf(tutorialPreferences.getBoolean(KEY_EXAM_LABEL_HINT_PENDING, false))
+    }
+    var pendingExamLabelHintForTesting by rememberSaveable { mutableStateOf(false) }
+    var tutorialFirstTimeCheckDisabledForTesting by rememberSaveable { mutableStateOf(false) }
+    var examButtonHintShownForCurrentVisit by rememberSaveable { mutableStateOf(false) }
+    var lessonLongPressHintShownForCurrentVisit by rememberSaveable { mutableStateOf(false) }
+    var abMultiDayDragHintShownForCurrentVisit by rememberSaveable { mutableStateOf(false) }
+    var abCustomLongPressHintShownForCurrentVisit by rememberSaveable { mutableStateOf(false) }
+    var lessonDayTutorialEligible by remember { mutableStateOf(false) }
     val naturalLanguageInferenceEngine = remember { VlmInferenceEngine(context) }
     DisposableEffect(naturalLanguageInferenceEngine) {
         onDispose { naturalLanguageInferenceEngine.cancelInference() }
@@ -378,6 +412,144 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     var unifiedTaskPlanSelectedTabIndex by rememberSaveable { mutableStateOf(0) }
     var lessonChangeEditor by remember { mutableStateOf<LessonChangeEditorState?>(null) }
     var pendingLessonMoveDialog by remember { mutableStateOf<PendingLessonMoveDialogState?>(null) }
+
+    LaunchedEffect(
+        selectedTab,
+        uiState.settings?.enableExamTimetable,
+        pendingExamLabelHint,
+        pendingExamLabelHintForTesting,
+        lessonDayTutorialEligible,
+        activeTutorialHint,
+        tutorialFirstTimeCheckDisabledForTesting,
+        showSettings
+    ) {
+        if (
+            activeTutorialHint == TutorialHintKind.EXAM_BUTTON_FIRST_VISIT &&
+            selectedTab != AppTab.Timetable
+        ) {
+            activeTutorialHint = null
+        }
+        if (
+            activeTutorialHint == TutorialHintKind.LESSON_LONG_PRESS &&
+            selectedTab != AppTab.Output
+        ) {
+            activeTutorialHint = null
+        }
+        if (
+            (activeTutorialHint == TutorialHintKind.AB_MULTI_DAY_DRAG ||
+                activeTutorialHint == TutorialHintKind.AB_CUSTOM_LONG_PRESS) &&
+            selectedTab != AppTab.AbTable
+        ) {
+            activeTutorialHint = null
+        }
+        if (selectedTab != AppTab.Output) {
+            lessonDayTutorialEligible = false
+        }
+        if (selectedTab != AppTab.Timetable) {
+            examButtonHintShownForCurrentVisit = false
+        }
+        if (selectedTab != AppTab.Output || !lessonDayTutorialEligible) {
+            lessonLongPressHintShownForCurrentVisit = false
+        }
+        if (selectedTab != AppTab.AbTable) {
+            abMultiDayDragHintShownForCurrentVisit = false
+            abCustomLongPressHintShownForCurrentVisit = false
+        }
+        if (showSettings) {
+            activeTutorialHint = null
+            return@LaunchedEffect
+        }
+        if (activeTutorialHint != null) return@LaunchedEffect
+
+        when {
+            pendingExamLabelHint && selectedTab != AppTab.AbTable -> {
+                if (!pendingExamLabelHintForTesting) {
+                    tutorialPreferences.edit()
+                        .putBoolean(KEY_EXAM_LABEL_HINT_PENDING, false)
+                        .putBoolean(KEY_EXAM_LABEL_HINT_SHOWN, true)
+                        .also { editor ->
+                            if (
+                                selectedTab == AppTab.Timetable &&
+                                uiState.settings?.enableExamTimetable == true
+                            ) {
+                                editor.putBoolean(KEY_EXAM_BUTTON_HINT_SHOWN, true)
+                            }
+                        }
+                        .apply()
+                }
+                pendingExamLabelHint = false
+                pendingExamLabelHintForTesting = false
+                if (selectedTab == AppTab.Timetable) {
+                    examButtonHintShownForCurrentVisit = true
+                }
+                activeTutorialHint = TutorialHintKind.EXAM_LABEL_CREATED
+            }
+            selectedTab == AppTab.AbTable &&
+                if (tutorialFirstTimeCheckDisabledForTesting) {
+                    !abMultiDayDragHintShownForCurrentVisit
+                } else {
+                    !tutorialPreferences.getBoolean(KEY_AB_MULTI_DAY_DRAG_HINT_SHOWN, false)
+                } -> {
+                if (!tutorialFirstTimeCheckDisabledForTesting) {
+                    tutorialPreferences.edit()
+                        .putBoolean(KEY_AB_MULTI_DAY_DRAG_HINT_SHOWN, true)
+                        .apply()
+                }
+                abMultiDayDragHintShownForCurrentVisit = true
+                activeTutorialHint = TutorialHintKind.AB_MULTI_DAY_DRAG
+            }
+            selectedTab == AppTab.AbTable &&
+                if (tutorialFirstTimeCheckDisabledForTesting) {
+                    !abCustomLongPressHintShownForCurrentVisit
+                } else {
+                    !tutorialPreferences.getBoolean(KEY_AB_CUSTOM_LONG_PRESS_HINT_SHOWN, false)
+                } -> {
+                if (!tutorialFirstTimeCheckDisabledForTesting) {
+                    tutorialPreferences.edit()
+                        .putBoolean(KEY_AB_CUSTOM_LONG_PRESS_HINT_SHOWN, true)
+                        .apply()
+                }
+                abCustomLongPressHintShownForCurrentVisit = true
+                activeTutorialHint = TutorialHintKind.AB_CUSTOM_LONG_PRESS
+            }
+            selectedTab == AppTab.Timetable &&
+                uiState.settings?.enableExamTimetable == true &&
+                if (tutorialFirstTimeCheckDisabledForTesting) {
+                    !examButtonHintShownForCurrentVisit
+                } else {
+                    !tutorialPreferences.getBoolean(KEY_EXAM_BUTTON_HINT_SHOWN, false)
+                } -> {
+                if (!tutorialFirstTimeCheckDisabledForTesting) {
+                    tutorialPreferences.edit()
+                        .putBoolean(KEY_EXAM_BUTTON_HINT_SHOWN, true)
+                        .apply()
+                }
+                examButtonHintShownForCurrentVisit = true
+                activeTutorialHint = TutorialHintKind.EXAM_BUTTON_FIRST_VISIT
+            }
+            selectedTab == AppTab.Output &&
+                lessonDayTutorialEligible &&
+                if (tutorialFirstTimeCheckDisabledForTesting) {
+                    !lessonLongPressHintShownForCurrentVisit
+                } else {
+                    !tutorialPreferences.getBoolean(KEY_LESSON_LONG_PRESS_HINT_SHOWN, false)
+                } -> {
+                if (!tutorialFirstTimeCheckDisabledForTesting) {
+                    tutorialPreferences.edit()
+                        .putBoolean(KEY_LESSON_LONG_PRESS_HINT_SHOWN, true)
+                        .apply()
+                }
+                lessonLongPressHintShownForCurrentVisit = true
+                activeTutorialHint = TutorialHintKind.LESSON_LONG_PRESS
+            }
+        }
+    }
+
+    LaunchedEffect(activeTutorialHint) {
+        if (activeTutorialHint == null) return@LaunchedEffect
+        delay(TUTORIAL_HINT_DURATION_MS)
+        activeTutorialHint = null
+    }
 
     fun clearLessonTaskPrefill() {
         prefillSubject = ""
@@ -531,7 +703,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         uiState.settings?.lunchAfterPeriod,
         uiState.settings?.firstPeriodStartHour,
         uiState.settings?.firstPeriodStartMinute,
-        uiState.settings?.useKosenMode,
+        uiState.settings?.periodLabelStyle,
         uiState.settings?.enableExamTimetable,
         uiState.lessons,
         uiState.dayTypeEntities,
@@ -1656,6 +1828,15 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                     onUpdateLessonStartNotificationChipMode = viewModel::updateLessonStartNotificationChipMode,
                     onAddLessonNotificationExclusion = viewModel::addLessonNotificationExclusion,
                     onDeleteLessonNotificationExclusion = viewModel::deleteLessonNotificationExclusion,
+                    tutorialFirstTimeCheckDisabledForTesting = tutorialFirstTimeCheckDisabledForTesting,
+                    onToggleTutorialFirstTimeCheckDisabledForTesting = { disabled ->
+                        tutorialFirstTimeCheckDisabledForTesting = disabled
+                        activeTutorialHint = null
+                        examButtonHintShownForCurrentVisit = false
+                        lessonLongPressHintShownForCurrentVisit = false
+                        abMultiDayDragHintShownForCurrentVisit = false
+                        abCustomLongPressHintShownForCurrentVisit = false
+                    },
                     onUpdateScheduleSettings = viewModel::updateScheduleSettingsSilently,
                     onUpdateExamTimetableSettings = viewModel::updateExamTimetableSettings,
                     onExportAllAsJson = { viewModel.exportAllData() },
@@ -2081,6 +2262,9 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                         onSaveExamMemo = viewModel::saveExamLessonMemo,
                                         isLessonCancelled = { date, slotIndex ->
                                             viewModel.isLessonCancelled(date, slotIndex, uiState.cancelledLessons)
+                                        },
+                                        onLessonDayVisibilityChanged = { hasLesson ->
+                                            lessonDayTutorialEligible = hasLesson
                                         }
                                     )
 
@@ -2198,7 +2382,38 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                         onSaveDayTypes = viewModel::saveDayTypes,
                                         onSaveLessonOverride = viewModel::saveLessonOverride,
                                         onClearLessonOverride = viewModel::clearLessonOverride,
-                                        onUpdateHolidaySpecialLabel = viewModel::updateHolidaySpecialLabel,
+                                        onUpdateHolidaySpecialLabel = { date, label ->
+                                            val isExamLabel =
+                                                label == HolidaySpecialLabel.MIDTERM ||
+                                                    label == HolidaySpecialLabel.FINAL
+                                            val alreadyHasExamLabel = uiState.dayTypeEntities.values.any { entity ->
+                                                entity.holidaySpecialLabel == HolidaySpecialLabel.MIDTERM ||
+                                                    entity.holidaySpecialLabel == HolidaySpecialLabel.FINAL
+                                            }
+                                            if (
+                                                isExamLabel &&
+                                                !pendingExamLabelHint &&
+                                                if (tutorialFirstTimeCheckDisabledForTesting) {
+                                                    true
+                                                } else {
+                                                    !alreadyHasExamLabel &&
+                                                        !tutorialPreferences.getBoolean(
+                                                            KEY_EXAM_LABEL_HINT_SHOWN,
+                                                            false
+                                                        )
+                                                }
+                                            ) {
+                                                if (!tutorialFirstTimeCheckDisabledForTesting) {
+                                                    tutorialPreferences.edit()
+                                                        .putBoolean(KEY_EXAM_LABEL_HINT_PENDING, true)
+                                                        .apply()
+                                                }
+                                                pendingExamLabelHint = true
+                                                pendingExamLabelHintForTesting =
+                                                    tutorialFirstTimeCheckDisabledForTesting
+                                            }
+                                            viewModel.updateHolidaySpecialLabel(date, label)
+                                        },
                                         onResetFiscalYear = viewModel::resetFiscalYear,
                                         onUpdateTerm = viewModel::updateTerm,
                                         onSaveBreak = viewModel::saveLongBreak,
@@ -2435,6 +2650,60 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         }
 
         AnimatedVisibility(
+            visible = currentScreenResource == "main" && activeTutorialHint != null,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(start = 12.dp, top = 64.dp, end = 12.dp)
+                .widthIn(max = 420.dp),
+            enter = fadeIn() + slideInVertically { -it / 3 },
+            exit = fadeOut() + slideOutVertically { -it / 3 }
+        ) {
+            activeTutorialHint?.let { hint ->
+                TutorialHintCard(
+                    message = stringResource(
+                        when (hint) {
+                            TutorialHintKind.EXAM_BUTTON_FIRST_VISIT ->
+                                R.string.tutorial_exam_button_first_visit
+                            TutorialHintKind.EXAM_LABEL_CREATED ->
+                                R.string.tutorial_exam_label_created
+                            TutorialHintKind.LESSON_LONG_PRESS ->
+                                R.string.tutorial_lesson_long_press
+                            TutorialHintKind.AB_MULTI_DAY_DRAG ->
+                                R.string.tutorial_ab_multi_day_drag
+                            TutorialHintKind.AB_CUSTOM_LONG_PRESS ->
+                                R.string.tutorial_ab_custom_long_press
+                        }
+                    ),
+                    icon = if (
+                        hint == TutorialHintKind.LESSON_LONG_PRESS ||
+                        hint == TutorialHintKind.AB_MULTI_DAY_DRAG ||
+                        hint == TutorialHintKind.AB_CUSTOM_LONG_PRESS
+                    ) {
+                        Icons.Filled.EditCalendar
+                    } else {
+                        Icons.Filled.Quiz
+                    },
+                    actionLabel = if (hint == TutorialHintKind.EXAM_LABEL_CREATED) {
+                        stringResource(R.string.btn_open_timetable_edit)
+                    } else {
+                        null
+                    },
+                    onAction = if (hint == TutorialHintKind.EXAM_LABEL_CREATED) {
+                        {
+                            clearTransientTabNavigation()
+                            selectedTab = AppTab.Timetable
+                            activeTutorialHint = null
+                        }
+                    } else {
+                        null
+                    },
+                    onDismiss = { activeTutorialHint = null }
+                )
+            }
+        }
+
+        AnimatedVisibility(
             visible = updateNotification != null,
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -2456,6 +2725,56 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         }
     }
 }
+}
+
+@Composable
+private fun TutorialHintCard(
+    message: String,
+    icon: ImageVector,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+    onDismiss: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        tonalElevation = 6.dp,
+        shadowElevation = 6.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 16.dp, top = 14.dp, end = 10.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (actionLabel != null && onAction != null) {
+                        TextButton(onClick = onAction) {
+                            Text(actionLabel)
+                        }
+                    }
+                    TextButton(onClick = onDismiss) {
+                        Text(stringResource(R.string.btn_got_it))
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -2851,7 +3170,8 @@ private fun OutputScreen(
     onSaveLessonNote: (LocalDate, Int, String) -> Unit,
     onDeleteLessonNote: (LocalDate, Int) -> Unit,
     onSaveExamMemo: (LocalDate, Int, String) -> Unit,
-    isLessonCancelled: (LocalDate, Int) -> Boolean
+    isLessonCancelled: (LocalDate, Int) -> Boolean,
+    onLessonDayVisibilityChanged: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -2922,7 +3242,10 @@ private fun OutputScreen(
             return savedLessons.map { lesson ->
                 ClassSlot(
                     index = lesson.slotIndex,
-                    label = "${lesson.slotIndex + 1}時間目",
+                    label = formatPeriodLabel(
+                        lesson.slotIndex,
+                        state.settings?.periodLabelStyle ?: jp.linkserver.nittcsc.logic.PeriodLabelStyle.PAIR_KOSHI
+                    ),
                     start = LocalTime.of(lesson.startHour, lesson.startMinute),
                     end = LocalTime.of(lesson.endHour, lesson.endMinute)
                 )
@@ -2936,7 +3259,7 @@ private fun OutputScreen(
             lunchBreakMin = settings.examLunchBreakMin,
             firstPeriodStartHour = settings.examFirstPeriodStartHour,
             firstPeriodStartMinute = settings.examFirstPeriodStartMinute,
-            useKosenMode = false,
+            periodLabelStyle = settings.periodLabelStyle,
             lunchAfterPeriod = settings.examLunchAfterPeriod
         )
     }
@@ -2948,6 +3271,22 @@ private fun OutputScreen(
             teacher = lesson.teacher,
             location = lesson.location.takeIf { it.isNotBlank() }
         )
+    }
+    val visibleDates = if (displayMode == OutputDisplayMode.DAY) {
+        listOf(selectedDate)
+    } else {
+        weekDates
+    }
+    val hasVisibleLesson = visibleDates.any { date ->
+        if (isExamScheduleDate(date)) {
+            examSlotsForDate(date).any { slot -> resolveExamLesson(date, slot.index) != null }
+        } else {
+            dayTypeForDate(date) != DayType.HOLIDAY &&
+                classSlots.any { slot -> resolveLesson(date, slot.index)?.subject?.isNotBlank() == true }
+        }
+    }
+    LaunchedEffect(hasVisibleLesson) {
+        onLessonDayVisibilityChanged(hasVisibleLesson)
     }
     val defaultViewConfiguration = LocalViewConfiguration.current
     val timetablePagerViewConfiguration = remember(defaultViewConfiguration) {
@@ -3371,6 +3710,9 @@ private fun TaskPlanCalendarScreen(
     val today = LocalDate.now()
     val configuration = LocalConfiguration.current
     val locale = configuration.locales[0]
+    val useTwoPaneCalendar =
+        InternalFeatureFlags.ADAPTIVE_LARGE_SCREEN_LAYOUT &&
+            shouldUseTwoPaneLayout(configuration.screenWidthDp)
     val firstDayOfWeek = remember(locale) {
         WeekFields.of(locale).firstDayOfWeek
     }
@@ -3470,13 +3812,19 @@ private fun TaskPlanCalendarScreen(
             )
         }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+        AdaptiveContentPane(
+            modifier = Modifier.padding(padding),
+            maxWidth = if (searchDisplayMode == SearchDisplayMode.CALENDAR) {
+                CalendarContentMaxWidth
+            } else {
+                FormContentMaxWidth
+            }
         ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
             item {
                 OutlinedTextField(
                     value = searchQuery,
@@ -3516,150 +3864,156 @@ private fun TaskPlanCalendarScreen(
 
             if (searchDisplayMode == SearchDisplayMode.CALENDAR) {
                 item {
-                    CalendarPagerCard(
-                    state = monthPagerState,
-                    anchorMonth = monthPagerAnchor.minusMonths(monthPagerCenterPage.toLong()),
-                    orderedDaysOfWeek = orderedDaysOfWeek,
-                    onPreviousMonth = {
-                        scope.launch {
-                            monthPagerState.animateScrollToPage(
-                                (monthPagerState.settledPage - 1).coerceAtLeast(0)
-                            )
-                        }
-                    },
-                    onNextMonth = {
-                        scope.launch {
-                            monthPagerState.animateScrollToPage(
-                                (monthPagerState.settledPage + 1)
-                                    .coerceAtMost(monthPagerPageCount - 1)
+                    val calendarPane: @Composable () -> Unit = {
+                        CalendarPagerCard(
+                            state = monthPagerState,
+                            anchorMonth = monthPagerAnchor.minusMonths(monthPagerCenterPage.toLong()),
+                            orderedDaysOfWeek = orderedDaysOfWeek,
+                            onPreviousMonth = {
+                                scope.launch {
+                                    monthPagerState.animateScrollToPage(
+                                        (monthPagerState.settledPage - 1).coerceAtLeast(0)
+                                    )
+                                }
+                            },
+                            onNextMonth = {
+                                scope.launch {
+                                    monthPagerState.animateScrollToPage(
+                                        (monthPagerState.settledPage + 1)
+                                            .coerceAtMost(monthPagerPageCount - 1)
+                                    )
+                                }
+                            }
+                        ) { _, date, cellModifier ->
+                            val dateTasksForCell = tasksByDate[date].orEmpty()
+                            val datePlansForCell = plansByDate[date].orEmpty()
+                            TaskPlanCalendarDayCell(
+                                date = date,
+                                taskCount = dateTasksForCell.size,
+                                planCount = datePlansForCell.size,
+                                allTasksCompleted = dateTasksForCell.isNotEmpty() &&
+                                    dateTasksForCell.all { it.isCompleted },
+                                allPlansCompleted = datePlansForCell.isNotEmpty() &&
+                                    datePlansForCell.all { it.isCompleted },
+                                dayTypeEntity = dayTypeEntityForDate(date),
+                                isToday = date == today,
+                                isSelected = date == selectedDate,
+                                onClick = { selectedDateEpochDay = date.toEpochDay() },
+                                modifier = cellModifier
                             )
                         }
                     }
-                    ) { _, date, cellModifier ->
-                        val dateTasksForCell = tasksByDate[date].orEmpty()
-                        val datePlansForCell = plansByDate[date].orEmpty()
-                        TaskPlanCalendarDayCell(
-                        date = date,
-                        taskCount = dateTasksForCell.size,
-                        planCount = datePlansForCell.size,
-                        allTasksCompleted = dateTasksForCell.isNotEmpty() &&
-                            dateTasksForCell.all { it.isCompleted },
-                        allPlansCompleted = datePlansForCell.isNotEmpty() &&
-                            datePlansForCell.all { it.isCompleted },
-                        dayTypeEntity = dayTypeEntityForDate(date),
-                        isToday = date == today,
-                        isSelected = date == selectedDate,
-                        onClick = {
-                            selectedDateEpochDay = date.toEpochDay()
-                        },
-                        modifier = cellModifier
-                        )
-                    }
-                }
-
-                item {
-                    Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        if (selectedDate != null) {
-                            Surface(
-                            shape = RoundedCornerShape(50),
-                            color = MaterialTheme.colorScheme.secondaryContainer
+                    val selectedDatePane: @Composable () -> Unit = {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text(
-                                text = formatDateForDisplay(selectedDate, showWeekdayOnDates),
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                fontWeight = FontWeight.Bold
+                                if (selectedDate != null) {
+                                    Surface(
+                                        shape = RoundedCornerShape(50),
+                                        color = MaterialTheme.colorScheme.secondaryContainer
+                                    ) {
+                                        Text(
+                                            text = formatDateForDisplay(selectedDate, showWeekdayOnDates),
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                } else {
+                                    Text(
+                                        text = stringResource(R.string.msg_task_plan_calendar_select_date),
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Spacer(Modifier.weight(1f))
+                                TaskPlanCountChip(
+                                    label = stringResource(R.string.tab_tasks),
+                                    count = selectedTasks.size,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                                TaskPlanCountChip(
+                                    label = stringResource(R.string.tab_plans),
+                                    count = selectedPlans.size,
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             }
-                        } else {
-                            Text(
-                            text = stringResource(R.string.msg_task_plan_calendar_select_date),
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.Bold
-                            )
+                            if (selectedDate == null || selectedTasks.isEmpty() && selectedPlans.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 36.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = when {
+                                            selectedDate == null -> stringResource(
+                                                R.string.msg_task_plan_calendar_select_date
+                                            )
+                                            searchTokens.isEmpty() -> stringResource(
+                                                R.string.msg_task_plan_calendar_empty
+                                            )
+                                            else -> stringResource(
+                                                R.string.msg_task_plan_calendar_search_empty
+                                            )
+                                        },
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            selectedTasks.forEach { task ->
+                                key("task-${task.id}") {
+                                    TaskPlanCalendarItem(
+                                        typeLabel = stringResource(R.string.tab_tasks),
+                                        title = task.title,
+                                        subject = task.subject,
+                                        teacher = task.teacher,
+                                        hour = task.dueHour,
+                                        minute = task.dueMinute,
+                                        completed = task.isCompleted,
+                                        accentColor = MaterialTheme.colorScheme.error,
+                                        onClick = { onOpenTask(task) }
+                                    )
+                                }
+                            }
+                            selectedPlans.forEach { plan ->
+                                key("plan-${plan.id}") {
+                                    TaskPlanCalendarItem(
+                                        typeLabel = stringResource(R.string.tab_plans),
+                                        title = plan.title,
+                                        subject = plan.subject,
+                                        teacher = plan.teacher,
+                                        hour = plan.dueHour,
+                                        minute = plan.dueMinute,
+                                        completed = plan.isCompleted,
+                                        accentColor = MaterialTheme.colorScheme.primary,
+                                        onClick = { onOpenPlan(plan) }
+                                    )
+                                }
+                            }
                         }
-                        Spacer(Modifier.weight(1f))
-                        TaskPlanCountChip(
-                        label = stringResource(R.string.tab_tasks),
-                        count = selectedTasks.size,
-                        color = MaterialTheme.colorScheme.error
-                        )
-                        TaskPlanCountChip(
-                        label = stringResource(R.string.tab_plans),
-                        count = selectedPlans.size,
-                        color = MaterialTheme.colorScheme.primary
-                        )
                     }
-                }
-
-                if (selectedDate == null) {
-                    item {
-                        Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 36.dp),
-                        contentAlignment = Alignment.Center
+                    if (useTwoPaneCalendar) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalAlignment = Alignment.Top
                         ) {
-                            Text(
-                            text = stringResource(R.string.msg_task_plan_calendar_select_date),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Box(modifier = Modifier.weight(1.15f)) { calendarPane() }
+                            Box(modifier = Modifier.weight(0.85f)) { selectedDatePane() }
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            calendarPane()
+                            selectedDatePane()
                         }
                     }
-                } else if (selectedTasks.isEmpty() && selectedPlans.isEmpty()) {
-                    item {
-                        Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 36.dp),
-                        contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                            text = if (searchTokens.isEmpty()) {
-                                stringResource(R.string.msg_task_plan_calendar_empty)
-                            } else {
-                                stringResource(R.string.msg_task_plan_calendar_search_empty)
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-
-                items(selectedTasks, key = { "task-${it.id}" }) { task ->
-                    TaskPlanCalendarItem(
-                    typeLabel = stringResource(R.string.tab_tasks),
-                    title = task.title,
-                    subject = task.subject,
-                    teacher = task.teacher,
-                    hour = task.dueHour,
-                    minute = task.dueMinute,
-                    completed = task.isCompleted,
-                    accentColor = MaterialTheme.colorScheme.error,
-                    onClick = { onOpenTask(task) }
-                    )
-                }
-
-                items(selectedPlans, key = { "plan-${it.id}" }) { plan ->
-                    TaskPlanCalendarItem(
-                    typeLabel = stringResource(R.string.tab_plans),
-                    title = plan.title,
-                    subject = plan.subject,
-                    teacher = plan.teacher,
-                    hour = plan.dueHour,
-                    minute = plan.dueMinute,
-                    completed = plan.isCompleted,
-                    accentColor = MaterialTheme.colorScheme.primary,
-                    onClick = { onOpenPlan(plan) }
-                    )
                 }
             } else if (listEntrySections.isEmpty()) {
                 item {
@@ -3770,6 +4124,7 @@ private fun TaskPlanCalendarScreen(
             }
         }
     }
+}
 }
 
 @Composable
@@ -4110,13 +4465,20 @@ private fun LessonSearchScreen(
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+        AdaptiveContentPane(
+            modifier = Modifier.padding(padding),
+            maxWidth = if (searchDisplayMode == SearchDisplayMode.CALENDAR) {
+                CalendarContentMaxWidth
+            } else {
+                FormContentMaxWidth
+            }
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
@@ -4207,9 +4569,10 @@ private fun LessonSearchScreen(
                             searchDisplayMode = SearchDisplayMode.CALENDAR
                         }
                     )
-                }
             }
         }
+    }
+}
     }
 }
 
@@ -4273,47 +4636,42 @@ private fun LessonSearchCalendarView(
         onDisplayedMonthChange(firstMonth.plusMonths(pagerState.settledPage.toLong()))
     }
 
-    LazyColumn(
-        modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        item {
-            CalendarPagerCard(
-                state = pagerState,
-                anchorMonth = firstMonth,
-                orderedDaysOfWeek = orderedDaysOfWeek,
-                previousEnabled = pagerState.settledPage > 0,
-                nextEnabled = pagerState.settledPage < pageCount - 1,
-                onPreviousMonth = {
-                    scope.launch {
-                        pagerState.animateScrollToPage(
-                            (pagerState.settledPage - 1).coerceAtLeast(0)
-                        )
-                    }
-                },
-                onNextMonth = {
-                    scope.launch {
-                        pagerState.animateScrollToPage(
-                            (pagerState.settledPage + 1).coerceAtMost(pageCount - 1)
-                        )
-                    }
+    val calendarPane: @Composable () -> Unit = {
+        CalendarPagerCard(
+            state = pagerState,
+            anchorMonth = firstMonth,
+            orderedDaysOfWeek = orderedDaysOfWeek,
+            previousEnabled = pagerState.settledPage > 0,
+            nextEnabled = pagerState.settledPage < pageCount - 1,
+            onPreviousMonth = {
+                scope.launch {
+                    pagerState.animateScrollToPage(
+                        (pagerState.settledPage - 1).coerceAtLeast(0)
+                    )
                 }
-            ) { _, date, cellModifier ->
-                SearchCalendarDayCell(
-                    date = date,
-                    matchCount = resultsByDate[date]?.size ?: 0,
-                    isToday = date == today,
-                    isSelected = date == selectedDate,
-                    dayTypeEntity = dayTypeEntityForDate(date),
-                    enabled = date in searchStart..searchEnd,
-                    onClick = { onSelectDate(date) },
-                    modifier = cellModifier
-                )
+            },
+            onNextMonth = {
+                scope.launch {
+                    pagerState.animateScrollToPage(
+                        (pagerState.settledPage + 1).coerceAtMost(pageCount - 1)
+                    )
+                }
             }
+        ) { _, date, cellModifier ->
+            SearchCalendarDayCell(
+                date = date,
+                matchCount = resultsByDate[date]?.size ?: 0,
+                isToday = date == today,
+                isSelected = date == selectedDate,
+                dayTypeEntity = dayTypeEntityForDate(date),
+                enabled = date in searchStart..searchEnd,
+                onClick = { onSelectDate(date) },
+                modifier = cellModifier
+            )
         }
-
-        item {
+    }
+    val detailsPane: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
                 text = when {
                     query.isBlank() -> stringResource(R.string.desc_search_calendar)
@@ -4327,9 +4685,6 @@ private fun LessonSearchCalendarView(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-        }
-
-        item {
             LessonSearchSelectedDaySchedule(
                 date = selectedDate,
                 query = query,
@@ -4339,6 +4694,42 @@ private fun LessonSearchCalendarView(
                 isLessonCancelled = isLessonCancelled,
                 onOpenDate = onOpenDate
             )
+        }
+    }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        val useTwoPaneLayout =
+            InternalFeatureFlags.ADAPTIVE_LARGE_SCREEN_LAYOUT &&
+                shouldUseTwoPaneLayout(configuration.screenWidthDp)
+        if (useTwoPaneLayout) {
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Box(
+                    modifier = Modifier.weight(1.15f),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                    calendarPane()
+                }
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(0.85f)
+                        .fillMaxHeight(),
+                    contentPadding = PaddingValues(bottom = 16.dp)
+                ) {
+                    item { detailsPane() }
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item { calendarPane() }
+                item { detailsPane() }
+            }
         }
     }
 }
@@ -4357,90 +4748,97 @@ private fun CalendarPagerCard(
 ) {
     val settledMonth = anchorMonth.plusMonths(state.settledPage.toLong())
 
-    Card(
+    Box(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-        )
+        contentAlignment = Alignment.TopCenter
     ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+        Card(
+            modifier = Modifier
+                .widthIn(max = CalendarCardMaxWidth)
+                .fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+            )
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                IconButton(
-                    enabled = previousEnabled,
-                    onClick = onPreviousMonth
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = stringResource(R.string.cd_previous_month)
-                    )
-                }
-                Text(
-                    text = stringResource(
-                        R.string.label_search_calendar_month,
-                        settledMonth.year,
-                        settledMonth.monthValue
-                    ),
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                )
-                IconButton(
-                    enabled = nextEnabled,
-                    onClick = onNextMonth
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = stringResource(R.string.cd_next_month)
-                    )
-                }
-            }
-
-            Row(modifier = Modifier.fillMaxWidth()) {
-                orderedDaysOfWeek.forEach { dayOfWeek ->
+                    IconButton(
+                        enabled = previousEnabled,
+                        onClick = onPreviousMonth
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.cd_previous_month)
+                        )
+                    }
                     Text(
-                        text = stringResource(dayOfWeekRes(dayOfWeek)),
+                        text = stringResource(
+                            R.string.label_search_calendar_month,
+                            settledMonth.year,
+                            settledMonth.monthValue
+                        ),
                         modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = when (dayOfWeek) {
-                            DayOfWeek.SATURDAY -> MaterialTheme.colorScheme.primary
-                            DayOfWeek.SUNDAY -> MaterialTheme.colorScheme.error
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant
-                        },
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
+                    IconButton(
+                        enabled = nextEnabled,
+                        onClick = onNextMonth
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = stringResource(R.string.cd_next_month)
+                        )
+                    }
                 }
-            }
 
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                val cellSize = (maxWidth - 24.dp) / 7
-                val calendarHeight = cellSize * 6 + 50.dp
-                HorizontalPager(
-                    state = state,
-                    pageSpacing = 12.dp,
-                    beyondViewportPageCount = 1,
-                    flingBehavior = PagerDefaults.flingBehavior(
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    orderedDaysOfWeek.forEach { dayOfWeek ->
+                        Text(
+                            text = stringResource(dayOfWeekRes(dayOfWeek)),
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = when (dayOfWeek) {
+                                DayOfWeek.SATURDAY -> MaterialTheme.colorScheme.primary
+                                DayOfWeek.SUNDAY -> MaterialTheme.colorScheme.error
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                }
+
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                    val cellSize = (maxWidth - 24.dp) / 7
+                    val calendarHeight = cellSize * 6 + 50.dp
+                    HorizontalPager(
                         state = state,
-                        pagerSnapDistance = PagerSnapDistance.atMost(1)
-                    ),
-                    key = { it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(calendarHeight)
-                ) { page ->
-                    val pageMonth = anchorMonth.plusMonths(page.toLong())
-                    CalendarMonthGrid(
-                        month = pageMonth,
-                        firstDayOfWeek = orderedDaysOfWeek.first()
-                    ) { date, cellModifier ->
-                        dayContent(pageMonth, date, cellModifier)
+                        pageSpacing = 12.dp,
+                        beyondViewportPageCount = 1,
+                        flingBehavior = PagerDefaults.flingBehavior(
+                            state = state,
+                            pagerSnapDistance = PagerSnapDistance.atMost(1)
+                        ),
+                        key = { it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(calendarHeight)
+                    ) { page ->
+                        val pageMonth = anchorMonth.plusMonths(page.toLong())
+                        CalendarMonthGrid(
+                            month = pageMonth,
+                            firstDayOfWeek = orderedDaysOfWeek.first()
+                        ) { date, cellModifier ->
+                            dayContent(pageMonth, date, cellModifier)
+                        }
                     }
                 }
             }
@@ -6624,11 +7022,59 @@ private fun ChangeLessonScreen(
     onClear: () -> Unit,
     onBack: () -> Unit
 ) {
-    var subject by remember(initialLesson.subject) { mutableStateOf(initialLesson.subject) }
-    var teacher by remember(initialLesson.teacher) { mutableStateOf(initialLesson.teacher) }
-    var location by remember(initialLesson.location) { mutableStateOf(initialLesson.location.orEmpty()) }
-    var subjectEditedByUser by remember { mutableStateOf(false) }
+    var subject by rememberSaveable(date.toEpochDay(), slotLabel, initialLesson.subject) {
+        mutableStateOf(initialLesson.subject)
+    }
+    var teacher by rememberSaveable(date.toEpochDay(), slotLabel, initialLesson.teacher) {
+        mutableStateOf(initialLesson.teacher)
+    }
+    var location by rememberSaveable(date.toEpochDay(), slotLabel, initialLesson.location) {
+        mutableStateOf(initialLesson.location.orEmpty())
+    }
+    var subjectEditedByUser by rememberSaveable(date.toEpochDay(), slotLabel) {
+        mutableStateOf(false)
+    }
+    var showDiscardConfirmDialog by rememberSaveable(date.toEpochDay(), slotLabel) {
+        mutableStateOf(false)
+    }
     val canSave = subject.trim().isNotBlank()
+    val hasUnsavedChanges =
+        subject != initialLesson.subject ||
+            teacher != initialLesson.teacher ||
+            location != initialLesson.location.orEmpty()
+
+    fun handleBackRequest() {
+        if (hasUnsavedChanges) {
+            showDiscardConfirmDialog = true
+        } else {
+            onBack()
+        }
+    }
+
+    BackHandler { handleBackRequest() }
+
+    if (showDiscardConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showDiscardConfirmDialog = false },
+            title = { Text(stringResource(R.string.dialog_unsaved_task_changes_title)) },
+            text = { Text(stringResource(R.string.dialog_unsaved_task_changes_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDiscardConfirmDialog = false
+                        onBack()
+                    }
+                ) {
+                    Text(stringResource(R.string.btn_discard_changes))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDiscardConfirmDialog = false }) {
+                    Text(stringResource(R.string.btn_cancel))
+                }
+            }
+        )
+    }
 
     val teacherCandidates = remember(subject, subjectTeacherCandidates) {
         val key = subjectTeacherCandidates.keys.firstOrNull { it.equals(subject.trim(), ignoreCase = true) }
@@ -6673,7 +7119,7 @@ private fun ChangeLessonScreen(
             TopAppBar(
                 title = { Text(stringResource(R.string.title_change_lesson)) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = ::handleBackRequest) {
                         Icon(
                             imageVector = Icons.Filled.Close,
                             contentDescription = stringResource(R.string.btn_back)
@@ -6692,14 +7138,17 @@ private fun ChangeLessonScreen(
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+        AdaptiveContentPane(
+            modifier = Modifier.padding(padding),
+            maxWidth = FormContentMaxWidth
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
                 shape = RoundedCornerShape(20.dp),
@@ -6841,6 +7290,7 @@ private fun ChangeLessonScreen(
                 ) {
                     Text(stringResource(R.string.btn_clear_lesson_change))
                 }
+            }
             }
         }
     }
@@ -7498,6 +7948,6 @@ private fun SettingsEntity?.toClassSlots(): List<ClassSlot> {
     return generateClassSlots(
         s.periodsPerDay, s.periodDurationMin, s.breakBetweenPeriodsMin,
         s.lunchBreakMin, s.firstPeriodStartHour, s.firstPeriodStartMinute,
-        s.useKosenMode, s.lunchAfterPeriod
+        s.periodLabelStyle, s.lunchAfterPeriod
     )
 }

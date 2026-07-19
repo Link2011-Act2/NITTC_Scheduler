@@ -46,6 +46,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -61,6 +62,7 @@ import jp.linkserver.nittcsc.data.ExamLessonEntity
 import jp.linkserver.nittcsc.data.HolidaySpecialLabel
 import jp.linkserver.nittcsc.data.SettingsEntity
 import jp.linkserver.nittcsc.logic.generateClassSlots
+import jp.linkserver.nittcsc.logic.formatPeriodLabel
 import androidx.compose.ui.res.stringResource
 import java.time.LocalDate
 import java.time.LocalTime
@@ -129,13 +131,15 @@ fun ExamTimetablePeriodListScreen(
             )
         }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+        AdaptiveContentPane(
+            modifier = Modifier.padding(padding),
+            maxWidth = ListContentMaxWidth
         ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
             item {
                 Text(
                     text = stringResource(R.string.desc_exam_timetable_periods),
@@ -213,6 +217,7 @@ fun ExamTimetablePeriodListScreen(
                     }
                 }
             }
+            }
         }
     }
 }
@@ -225,6 +230,52 @@ private data class ExamSlotDraft(
     val teacher: String,
     val location: String,
     val memo: String
+)
+
+private val ExamDraftsSaver = listSaver<Map<LocalDate, List<ExamSlotDraft>>, Any>(
+    save = { draftsByDate ->
+        draftsByDate
+            .toSortedMap()
+            .flatMap { (date, drafts) ->
+                drafts.sortedBy(ExamSlotDraft::slotIndex).flatMap { draft ->
+                    listOf(
+                        date.toEpochDay(),
+                        draft.slotIndex,
+                        draft.start.hour,
+                        draft.start.minute,
+                        draft.end.hour,
+                        draft.end.minute,
+                        draft.subject,
+                        draft.teacher,
+                        draft.location,
+                        draft.memo
+                    )
+                }
+            }
+    },
+    restore = { saved ->
+        saved.chunked(10)
+            .mapNotNull { values ->
+                if (values.size != 10) return@mapNotNull null
+                val date = LocalDate.ofEpochDay((values[0] as Number).toLong())
+                date to ExamSlotDraft(
+                    slotIndex = (values[1] as Number).toInt(),
+                    start = LocalTime.of(
+                        (values[2] as Number).toInt(),
+                        (values[3] as Number).toInt()
+                    ),
+                    end = LocalTime.of(
+                        (values[4] as Number).toInt(),
+                        (values[5] as Number).toInt()
+                    ),
+                    subject = values[6] as String,
+                    teacher = values[7] as String,
+                    location = values[8] as String,
+                    memo = values[9] as String
+                )
+            }
+            .groupBy(keySelector = { it.first }, valueTransform = { it.second })
+    }
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -275,7 +326,7 @@ fun ExamTimetableEditorScreen(
                     lunchBreakMin = settings.examLunchBreakMin,
                     firstPeriodStartHour = settings.examFirstPeriodStartHour,
                     firstPeriodStartMinute = settings.examFirstPeriodStartMinute,
-                    useKosenMode = false,
+                    periodLabelStyle = settings.periodLabelStyle,
                     lunchAfterPeriod = settings.examLunchAfterPeriod
                 ).map { slot ->
                     ExamSlotDraft(slot.index, slot.start, slot.end, "", "", "", "")
@@ -283,7 +334,13 @@ fun ExamTimetableEditorScreen(
             }
         }
     }
-    var draftsByDate by remember(period, initialDrafts) { mutableStateOf(initialDrafts) }
+    var draftsByDate by rememberSaveable(
+        period,
+        initialDrafts,
+        stateSaver = ExamDraftsSaver
+    ) {
+        mutableStateOf(initialDrafts)
+    }
     var showDiscardConfirmDialog by rememberSaveable(period.startDate) { mutableStateOf(false) }
     var selectedDateEpochDay by rememberSaveable(period.startDate) {
         mutableStateOf(period.startDate.toEpochDay())
@@ -450,13 +507,15 @@ fun ExamTimetableEditorScreen(
             )
         }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+        AdaptiveContentPane(
+            modifier = Modifier.padding(padding),
+            maxWidth = FormContentMaxWidth
         ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
             item {
                 Row(
                     modifier = Modifier
@@ -550,7 +609,10 @@ fun ExamTimetableEditorScreen(
                                 color = MaterialTheme.colorScheme.primaryContainer
                             ) {
                                 Text(
-                                    text = stringResource(R.string.label_exam_period_number, draft.slotIndex + 1),
+                                    text = formatPeriodLabel(
+                                        draft.slotIndex,
+                                        settings.periodLabelStyle
+                                    ),
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -701,6 +763,7 @@ fun ExamTimetableEditorScreen(
                         )
                     }
                 }
+            }
             }
         }
     }

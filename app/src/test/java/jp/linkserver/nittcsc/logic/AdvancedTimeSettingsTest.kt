@@ -15,7 +15,7 @@ class AdvancedTimeSettingsTest {
             lunchAfterPeriod = 3,
             firstPeriodStartHour = 8,
             firstPeriodStartMinute = 50,
-            useKosenMode = false
+            periodLabelStyle = PeriodLabelStyle.SINGLE_KOSHI
         )
 
         val result = validateAdvancedTimeEditor(
@@ -51,7 +51,7 @@ class AdvancedTimeSettingsTest {
             lunchAfterPeriod = 2,
             firstPeriodStartHour = 9,
             firstPeriodStartMinute = 0,
-            useKosenMode = false
+            periodLabelStyle = PeriodLabelStyle.SINGLE_KOSHI
         )
         val changedPeriods = draft.periodRanges.toMutableList().also { periods ->
             periods[1] = periods[1].copy(endMinute = "55")
@@ -79,7 +79,7 @@ class AdvancedTimeSettingsTest {
             lunchAfterPeriod = 3,
             firstPeriodStartHour = 8,
             firstPeriodStartMinute = 50,
-            useKosenMode = false
+            periodLabelStyle = PeriodLabelStyle.SINGLE_KOSHI
         )
 
         val result = validateAdvancedTimeEditor(

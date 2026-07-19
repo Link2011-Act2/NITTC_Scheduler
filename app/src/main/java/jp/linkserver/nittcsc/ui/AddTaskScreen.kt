@@ -87,33 +87,36 @@ fun AddTaskScreen(
 ) {
     val haptic = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
+    val editorStateKey = "${if (isPlan) "plan" else "task"}:${task?.id ?: 0L}"
 
-    var title by remember { mutableStateOf(task?.title ?: "") }
-    var description by remember { mutableStateOf(task?.description ?: "") }
-    var subject by remember { mutableStateOf(task?.subject ?: "") }
-    var teacher by remember { mutableStateOf(task?.teacher ?: "") }
+    var title by rememberSaveable(editorStateKey) { mutableStateOf(task?.title ?: "") }
+    var description by rememberSaveable(editorStateKey) { mutableStateOf(task?.description ?: "") }
+    var subject by rememberSaveable(editorStateKey) { mutableStateOf(task?.subject ?: "") }
+    var teacher by rememberSaveable(editorStateKey) { mutableStateOf(task?.teacher ?: "") }
     // 新規タスクで教科名が事前設定されている場合は自動検索を即座にトリガーする
-    var subjectEditedByUser by remember {
+    var subjectEditedByUser by rememberSaveable(editorStateKey) {
         mutableStateOf(autoResolveInitialSubject && (task?.id ?: 0L) == 0L && task?.subject?.isNotBlank() == true)
     }
-    var dueDate by remember { mutableStateOf(task?.dueDate ?: LocalDate.now()) }
-    var dueHour by remember { mutableStateOf(task?.dueHour ?: defaultDueHour) }
-    var dueMinute by remember { mutableStateOf(task?.dueMinute ?: defaultDueMinute) }
-    var priority by remember { mutableStateOf(task?.priority ?: 0) }
+    var dueDate by rememberSaveable(editorStateKey, stateSaver = LocalDateSaver) {
+        mutableStateOf(task?.dueDate ?: LocalDate.now())
+    }
+    var dueHour by rememberSaveable(editorStateKey) { mutableStateOf(task?.dueHour ?: defaultDueHour) }
+    var dueMinute by rememberSaveable(editorStateKey) { mutableStateOf(task?.dueMinute ?: defaultDueMinute) }
+    var priority by rememberSaveable(editorStateKey) { mutableStateOf(task?.priority ?: 0) }
     val defaultReminderDateTime = remember(task?.id) {
         val now = LocalDateTime.now()
         val baseDate = if (now.toLocalTime() >= LocalTime.of(20, 0)) now.toLocalDate().plusDays(1) else now.toLocalDate()
         baseDate to LocalTime.of(20, 0)
     }
-    var reminderExpanded by rememberSaveable(task?.id) { mutableStateOf(task?.reminderEnabled == true) }
-    var reminderEnabled by remember { mutableStateOf(task?.reminderEnabled ?: false) }
-    var reminderDate by remember {
+    var reminderExpanded by rememberSaveable(editorStateKey) { mutableStateOf(task?.reminderEnabled == true) }
+    var reminderEnabled by rememberSaveable(editorStateKey) { mutableStateOf(task?.reminderEnabled ?: false) }
+    var reminderDate by rememberSaveable(editorStateKey, stateSaver = LocalDateSaver) {
         mutableStateOf(task?.reminderDate ?: defaultReminderDateTime.first)
     }
-    var reminderHour by remember {
+    var reminderHour by rememberSaveable(editorStateKey) {
         mutableStateOf(if (task?.reminderEnabled == true) task.reminderHour else defaultReminderDateTime.second.hour)
     }
-    var reminderMinute by remember {
+    var reminderMinute by rememberSaveable(editorStateKey) {
         mutableStateOf(if (task?.reminderEnabled == true) task.reminderMinute else defaultReminderDateTime.second.minute)
     }
     var showSubjectSuggestions by remember { mutableStateOf(false) }
@@ -339,14 +342,17 @@ fun AddTaskScreen(
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+        AdaptiveContentPane(
+            modifier = Modifier.padding(padding),
+            maxWidth = FormContentMaxWidth
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
 
             // ── 基本情報 ──────────────────────────────────────────
             SectionLabel(stringResource(R.string.section_task_basic))
@@ -795,6 +801,7 @@ fun AddTaskScreen(
 
             // bottom spacer for scroll
             androidx.compose.foundation.layout.Spacer(modifier = Modifier.padding(bottom = 8.dp))
+            }
         }
     }
 }

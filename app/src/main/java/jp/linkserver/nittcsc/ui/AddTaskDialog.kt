@@ -71,15 +71,19 @@ fun AddTaskDialog(
     val context = LocalContext.current
     val dateFormatter = DateTimeFormatter.ofPattern("yyyy/MM/dd")
 
-    var title by remember { mutableStateOf(task?.title ?: "") }
-    var description by remember { mutableStateOf(task?.description ?: "") }
-    var subject by remember { mutableStateOf(task?.subject ?: "") }
-    var teacher by remember { mutableStateOf(task?.teacher ?: "") }
-    var dueDate by remember { mutableStateOf(task?.dueDate ?: LocalDate.now()) }
-    var dueHour by remember { mutableStateOf(task?.dueHour ?: defaultDueHour) }
-    var dueMinute by remember { mutableStateOf(task?.dueMinute ?: defaultDueMinute) }
-    var priority by remember { mutableStateOf(task?.priority ?: 0) }
-    var useTeacherMatching by remember { mutableStateOf(task?.useTeacherMatching ?: false) }
+    var title by rememberSaveable(task?.id) { mutableStateOf(task?.title ?: "") }
+    var description by rememberSaveable(task?.id) { mutableStateOf(task?.description ?: "") }
+    var subject by rememberSaveable(task?.id) { mutableStateOf(task?.subject ?: "") }
+    var teacher by rememberSaveable(task?.id) { mutableStateOf(task?.teacher ?: "") }
+    var dueDate by rememberSaveable(task?.id, stateSaver = LocalDateSaver) {
+        mutableStateOf(task?.dueDate ?: LocalDate.now())
+    }
+    var dueHour by rememberSaveable(task?.id) { mutableStateOf(task?.dueHour ?: defaultDueHour) }
+    var dueMinute by rememberSaveable(task?.id) { mutableStateOf(task?.dueMinute ?: defaultDueMinute) }
+    var priority by rememberSaveable(task?.id) { mutableStateOf(task?.priority ?: 0) }
+    var useTeacherMatching by rememberSaveable(task?.id) {
+        mutableStateOf(task?.useTeacherMatching ?: false)
+    }
     var showSubjectSuggestions by remember { mutableStateOf(false) }
     var isAutoResolvingDate by remember { mutableStateOf(false) }
     val teacherCandidatesForSubject = remember(subject, subjectTeacherCandidates) {

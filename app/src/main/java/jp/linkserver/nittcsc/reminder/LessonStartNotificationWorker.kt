@@ -38,6 +38,8 @@ import jp.linkserver.nittcsc.data.ResolvedLesson
 import jp.linkserver.nittcsc.data.SettingsEntity
 import jp.linkserver.nittcsc.logic.ClassSlot
 import jp.linkserver.nittcsc.logic.JapaneseHolidayCalculator
+import jp.linkserver.nittcsc.logic.PeriodLabelStyle
+import jp.linkserver.nittcsc.logic.formatPeriodLabel
 import jp.linkserver.nittcsc.logic.generateClassSlots
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -84,7 +86,7 @@ class LessonStartNotificationWorker(
             null
         }
         val slot = if (isExamDate) {
-            examLesson?.toClassSlot() ?: return Result.success()
+            examLesson?.toClassSlot(settings.periodLabelStyle) ?: return Result.success()
         } else {
             settings.classSlots().firstOrNull { it.index == slotIndex } ?: return Result.success()
         }
@@ -536,15 +538,15 @@ class LessonStartNotificationWorker(
             lunchBreakMin = lunchBreakMin,
             firstPeriodStartHour = firstPeriodStartHour,
             firstPeriodStartMinute = firstPeriodStartMinute,
-            useKosenMode = useKosenMode,
+            periodLabelStyle = periodLabelStyle,
             lunchAfterPeriod = lunchAfterPeriod
         )
     }
 
-    private fun ExamLessonEntity.toClassSlot(): ClassSlot {
+    private fun ExamLessonEntity.toClassSlot(periodLabelStyle: PeriodLabelStyle): ClassSlot {
         return ClassSlot(
             index = slotIndex,
-            label = "${slotIndex + 1}時間目",
+            label = formatPeriodLabel(slotIndex, periodLabelStyle),
             start = java.time.LocalTime.of(startHour, startMinute),
             end = java.time.LocalTime.of(endHour, endMinute)
         )
@@ -636,7 +638,7 @@ class LessonStartNotificationWorker(
                     dateExamLessons.values.sortedBy { it.slotIndex }.map { exam ->
                         ClassSlot(
                             index = exam.slotIndex,
-                            label = "${exam.slotIndex + 1}時間目",
+                            label = formatPeriodLabel(exam.slotIndex, settings.periodLabelStyle),
                             start = java.time.LocalTime.of(exam.startHour, exam.startMinute),
                             end = java.time.LocalTime.of(exam.endHour, exam.endMinute)
                         )
@@ -842,7 +844,7 @@ class LessonStartNotificationWorker(
                 lunchBreakMin = lunchBreakMin,
                 firstPeriodStartHour = firstPeriodStartHour,
                 firstPeriodStartMinute = firstPeriodStartMinute,
-                useKosenMode = useKosenMode,
+                periodLabelStyle = periodLabelStyle,
                 lunchAfterPeriod = lunchAfterPeriod
             )
         }

@@ -6,6 +6,8 @@ import jp.linkserver.nittcsc.data.HolidaySpecialLabel
 import jp.linkserver.nittcsc.logic.ExportRange
 import jp.linkserver.nittcsc.logic.GeneratedLesson
 import jp.linkserver.nittcsc.logic.JapaneseHolidayCalculator
+import jp.linkserver.nittcsc.logic.PeriodLabelStyle
+import jp.linkserver.nittcsc.logic.formatPeriodLabel
 import jp.linkserver.nittcsc.logic.generateClassSlots
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
@@ -21,7 +23,7 @@ class SchedulerRepository(private val db: AppDatabase) {
     private val dataTransfer = SchedulerDataTransfer(this, db)
 
     companion object {
-        private const val CURRENT_EXPORT_VERSION = 11
+        private const val CURRENT_EXPORT_VERSION = 12
         private const val MIN_SUPPORTED_IMPORT_VERSION = 1
         private const val MAX_FUTURE_META_DRIFT_MS = 5 * 60 * 1000L
         const val DATASET_TASKS = "tasks"
@@ -108,7 +110,7 @@ class SchedulerRepository(private val db: AppDatabase) {
         lunchAfterPeriod: Int,
         firstPeriodStartHour: Int,
         firstPeriodStartMinute: Int,
-        useKosenMode: Boolean,
+        periodLabelStyle: PeriodLabelStyle,
         arrivalHour: Int,
         arrivalMinute: Int,
         departureHour: Int,
@@ -125,7 +127,8 @@ class SchedulerRepository(private val db: AppDatabase) {
                     lunchAfterPeriod = lunchAfterPeriod,
                     firstPeriodStartHour = firstPeriodStartHour,
                     firstPeriodStartMinute = firstPeriodStartMinute,
-                    useKosenMode = useKosenMode,
+                    useKosenMode = periodLabelStyle == PeriodLabelStyle.PAIR_KOSHI,
+                    periodLabelStyle = periodLabelStyle,
                     arrivalHour = arrivalHour,
                     arrivalMinute = arrivalMinute,
                     departureHour = departureHour,
@@ -706,7 +709,10 @@ class SchedulerRepository(private val db: AppDatabase) {
                                     date = date,
                                     slot = jp.linkserver.nittcsc.logic.ClassSlot(
                                         index = exam.slotIndex,
-                                        label = "${exam.slotIndex + 1}時間目",
+                                        label = formatPeriodLabel(
+                                            exam.slotIndex,
+                                            settings.periodLabelStyle
+                                        ),
                                         start = LocalTime.of(exam.startHour, exam.startMinute),
                                         end = LocalTime.of(exam.endHour, exam.endMinute)
                                     ),
@@ -728,7 +734,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                 val slots = generateClassSlots(
                     settings.periodsPerDay, settings.periodDurationMin, settings.breakBetweenPeriodsMin,
                     settings.lunchBreakMin, settings.firstPeriodStartHour, settings.firstPeriodStartMinute,
-                    settings.useKosenMode, settings.lunchAfterPeriod
+                    settings.periodLabelStyle, settings.lunchAfterPeriod
                 )
                 for (slot in slots) {
                     if ((date to slot.index) in cancelledLessons) continue
@@ -1088,7 +1094,7 @@ class SchedulerRepository(private val db: AppDatabase) {
             lunchBreakMin = settings.lunchBreakMin,
             firstPeriodStartHour = settings.firstPeriodStartHour,
             firstPeriodStartMinute = settings.firstPeriodStartMinute,
-            useKosenMode = settings.useKosenMode,
+            periodLabelStyle = settings.periodLabelStyle,
             lunchAfterPeriod = settings.lunchAfterPeriod
         )
 
@@ -1139,7 +1145,7 @@ class SchedulerRepository(private val db: AppDatabase) {
             lunchBreakMin = settings.lunchBreakMin,
             firstPeriodStartHour = settings.firstPeriodStartHour,
             firstPeriodStartMinute = settings.firstPeriodStartMinute,
-            useKosenMode = settings.useKosenMode,
+            periodLabelStyle = settings.periodLabelStyle,
             lunchAfterPeriod = settings.lunchAfterPeriod
         )
 
@@ -1200,7 +1206,7 @@ class SchedulerRepository(private val db: AppDatabase) {
             lunchBreakMin = settings.lunchBreakMin,
             firstPeriodStartHour = settings.firstPeriodStartHour,
             firstPeriodStartMinute = settings.firstPeriodStartMinute,
-            useKosenMode = settings.useKosenMode,
+            periodLabelStyle = settings.periodLabelStyle,
             lunchAfterPeriod = settings.lunchAfterPeriod
         )
         

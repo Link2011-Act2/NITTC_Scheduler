@@ -10,6 +10,18 @@ data class ClassSlot(
     val end: LocalTime
 )
 
+enum class PeriodLabelStyle {
+    PAIR_KOSHI,
+    SINGLE_KOSHI,
+    KOMA
+}
+
+fun formatPeriodLabel(index: Int, style: PeriodLabelStyle): String = when (style) {
+    PeriodLabelStyle.PAIR_KOSHI -> "${index * 2 + 1}/${index * 2 + 2}校時"
+    PeriodLabelStyle.SINGLE_KOSHI -> "${index + 1}校時"
+    PeriodLabelStyle.KOMA -> "${index + 1}コマ"
+}
+
 val CLASS_SLOTS = listOf(
     ClassSlot(0, "1/2校時", LocalTime.of(8, 40), LocalTime.of(10, 10)),
     ClassSlot(1, "3/4校時", LocalTime.of(10, 20), LocalTime.of(11, 50)),
@@ -24,7 +36,7 @@ fun generateClassSlots(
     lunchBreakMin: Int,
     firstPeriodStartHour: Int,
     firstPeriodStartMinute: Int,
-    useKosenMode: Boolean,
+    periodLabelStyle: PeriodLabelStyle,
     lunchAfterPeriod: Int = periodsPerDay / 2
 ): List<ClassSlot> {
     val lunchAfter = lunchAfterPeriod.coerceIn(0, periodsPerDay)
@@ -40,7 +52,7 @@ fun generateClassSlots(
         currentMin += periodDurationMin
         val endH = currentMin / 60
         val endM = currentMin % 60
-        val label = if (useKosenMode) "${i * 2 + 1}/${i * 2 + 2}校時" else "${i + 1}校時"
+        val label = formatPeriodLabel(i, periodLabelStyle)
         slots.add(
             ClassSlot(
                 i,

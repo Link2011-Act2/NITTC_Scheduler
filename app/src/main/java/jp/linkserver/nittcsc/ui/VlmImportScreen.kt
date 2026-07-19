@@ -540,10 +540,14 @@ fun VlmImportScreen(
             )
         }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+        AdaptiveContentPane(
+            modifier = Modifier.padding(padding),
+            maxWidth = ListContentMaxWidth
         ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
             if (downloadedModelFiles.isNotEmpty()) {
                 item {
                     Card(
@@ -1048,6 +1052,7 @@ fun VlmImportScreen(
                         }
                     }
                 }
+            }
             }
         }
 

@@ -1,6 +1,7 @@
 package jp.linkserver.nittcsc.data
 
 import androidx.room.TypeConverter
+import jp.linkserver.nittcsc.logic.PeriodLabelStyle
 import java.time.LocalDate
 
 class Converters {
@@ -35,4 +36,12 @@ class Converters {
     fun toLessonStartNotificationChipMode(value: String): LessonStartNotificationChipMode =
         runCatching { LessonStartNotificationChipMode.valueOf(value) }
             .getOrDefault(LessonStartNotificationChipMode.MINUTE_TEXT)
+
+    @TypeConverter
+    fun fromPeriodLabelStyle(value: PeriodLabelStyle): String = value.name
+
+    @TypeConverter
+    fun toPeriodLabelStyle(value: String): PeriodLabelStyle =
+        runCatching { PeriodLabelStyle.valueOf(value) }
+            .getOrDefault(PeriodLabelStyle.PAIR_KOSHI)
 }

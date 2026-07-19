@@ -169,8 +169,9 @@ fun TaskScreen(
         }
     }
 
-    Box(
-        modifier = modifier.fillMaxSize()
+    AdaptiveContentPane(
+        modifier = modifier,
+        maxWidth = FormContentMaxWidth
     ) {
         LazyColumn(
             state = listState,

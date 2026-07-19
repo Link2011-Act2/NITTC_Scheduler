@@ -3,6 +3,7 @@ package jp.linkserver.nittcsc.data
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import jp.linkserver.nittcsc.logic.PeriodLabelStyle
 import java.time.LocalDate
 
 enum class DayType {
@@ -45,6 +46,7 @@ data class SettingsEntity(
     val firstPeriodStartHour: Int = 8,
     val firstPeriodStartMinute: Int = 40,
     val useKosenMode: Boolean = true,
+    val periodLabelStyle: PeriodLabelStyle = PeriodLabelStyle.PAIR_KOSHI,
     val useDrawerNavigation: Boolean = false,
     val addTasksToCalendar: Boolean = false,
     val showCurrentTimeMarker: Boolean = false,

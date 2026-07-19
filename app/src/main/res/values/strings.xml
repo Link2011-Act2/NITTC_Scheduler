@@ -414,20 +414,20 @@
 
     <!-- Settings: Timetable Settings Section -->
     <string name="section_timetable_settings">時間割設定</string>
-    <string name="label_koshi_notation">校時表記</string>
-    <string name="mode_kosen">高専（1/2校時）</string>
-    <string name="mode_regular">普通校（1校時）</string>
+    <string name="label_koshi_notation">校時表記の種類</string>
+    <string name="period_label_pair_koshi">1/2校時</string>
+    <string name="period_label_single_koshi">1校時</string>
+    <string name="period_label_koma">1コマ</string>
     <string name="label_periods_per_day">1日の授業コマ数</string>
     <string name="section_exam_timetable_settings">テスト日の時間割設定</string>
     <string name="desc_exam_timetable_settings">中間・期末試験の時間割を作成するときに使います。通常の時間割には影響しません</string>
     <string name="label_exam_arrival_time">テスト日の登校時刻</string>
-    <string name="label_exam_first_period_start">1時間目の開始時刻</string>
+    <string name="label_exam_first_period_start">最初の授業の開始時刻</string>
     <string name="label_exam_periods_per_day">テストのコマ数</string>
     <string name="label_exam_period_duration">試験時間</string>
     <string name="label_exam_break_duration">試験間の休憩</string>
     <string name="label_exam_lunch_duration">昼休み時間</string>
     <string name="label_exam_lunch_after">昼休みの位置</string>
-    <string name="label_exam_period_number">%1$d時間目</string>
     <string name="msg_settings_auto_save">変更は自動保存されます</string>
     <string name="unit_period">コマ</string>
     <string name="label_period_duration">1コマの授業時間</string>
@@ -549,6 +549,8 @@
     <string name="warning_advanced_time_lunch_middle_not_connected">昼休みは前後の授業の間にぴったり入るようにしてください。</string>
     <string name="label_update_show_latest_for_testing">最新ビルドを常にアップデートとして扱う</string>
     <string name="desc_update_show_latest_for_testing">IntDev 用のデバッグ設定です。自分より新しいバージョンでなくても、GitHub の最新 Release を更新ありとして扱います。</string>
+    <string name="label_disable_tutorial_first_time_check_for_testing">チュートリアルの初回判定を無効化</string>
+    <string name="desc_disable_tutorial_first_time_check_for_testing">IntDev 用の一時設定です。オンの間は表示済みの案内も、画面へ入り直した時などに再表示します。アプリを再起動するとオフに戻ります。</string>
     <string name="label_update_current_version_override_for_testing">アップデート確認用の現在バージョン</string>
     <string name="desc_update_current_version_override_for_testing">空欄なら実際のバージョン（%1$s）を使います。IntDev 用のデバッグ設定です。</string>
     <string name="section_data_transfer">設定データの移行</string>
@@ -635,6 +637,13 @@
     <string name="legend_ab_toggle">タップで切替: A → B → 休日</string>
     <string name="legend_ab_override_long_press">長押しでカスタム</string>
     <string name="btn_create_exam_timetable">試験時間割を作成</string>
+    <string name="tutorial_exam_button_first_visit">画面上部の試験時間割ボタンから、試験日ごとの時間割を設定できます。</string>
+    <string name="tutorial_exam_label_created">試験用ラベルを設定しました。「時間割編集」タブを開き、画面上部の試験時間割ボタンから内容を設定できます。</string>
+    <string name="tutorial_lesson_long_press">授業を長押しすると、課題・予定の追加や授業メモ、授業変更などのアクションを開けます。</string>
+    <string name="tutorial_ab_multi_day_drag">日付を長押ししたまま別の日付までドラッグすると、選んだ範囲のA日・B日・休日をまとめて変更できます。</string>
+    <string name="tutorial_ab_custom_long_press">日付を長押しすると、授業曜日の指定や中間・期末ラベルなど、その日だけの設定をカスタムできます。</string>
+    <string name="btn_open_timetable_edit">時間割編集を開く</string>
+    <string name="btn_got_it">わかった</string>
     <string name="title_exam_timetable_periods">テスト時間割</string>
     <string name="desc_exam_timetable_periods">中間・期末に設定された期間を選び、日ごとの試験内容を入力します。</string>
     <string name="msg_exam_timetable_no_periods">中間または期末に設定された日がありません。A/B表の日付を長押しして、先に特別ラベルを設定してください。</string>

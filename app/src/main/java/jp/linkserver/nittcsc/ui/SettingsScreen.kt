@@ -95,9 +95,11 @@ import jp.linkserver.nittcsc.data.LessonStartNotificationChipMode
 import jp.linkserver.nittcsc.data.LongBreakEntity
 import jp.linkserver.nittcsc.logic.AdvancedTimeValidation
 import jp.linkserver.nittcsc.logic.AdvancedTimeValidationError
+import jp.linkserver.nittcsc.logic.PeriodLabelStyle
 import jp.linkserver.nittcsc.logic.TimeRangeDraft
 import jp.linkserver.nittcsc.logic.buildAdvancedTimeEditorDraft
 import jp.linkserver.nittcsc.logic.generateClassSlots
+import jp.linkserver.nittcsc.logic.formatPeriodLabel
 import jp.linkserver.nittcsc.logic.resizeTimeRangeDrafts
 import jp.linkserver.nittcsc.logic.validateAdvancedTimeEditor
 import jp.linkserver.nittcsc.update.clearDismissedUpdateNotification
@@ -148,7 +150,9 @@ fun SettingsScreen(
     onUpdateLessonStartNotificationChipMode: (LessonStartNotificationChipMode) -> Unit = {},
     onAddLessonNotificationExclusion: (String, String?, Boolean) -> Unit = { _, _, _ -> },
     onDeleteLessonNotificationExclusion: (LessonNotificationExclusionEntity) -> Unit = {},
-    onUpdateScheduleSettings: (periodsPerDay: Int, periodDurationMin: Int, breakBetweenPeriodsMin: Int, lunchBreakMin: Int, lunchAfterPeriod: Int, startHour: Int, startMinute: Int, useKosenMode: Boolean, arrivalHour: Int, arrivalMinute: Int, departureHour: Int, departureMinute: Int) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _ -> },
+    tutorialFirstTimeCheckDisabledForTesting: Boolean = false,
+    onToggleTutorialFirstTimeCheckDisabledForTesting: (Boolean) -> Unit = {},
+    onUpdateScheduleSettings: (periodsPerDay: Int, periodDurationMin: Int, breakBetweenPeriodsMin: Int, lunchBreakMin: Int, lunchAfterPeriod: Int, startHour: Int, startMinute: Int, periodLabelStyle: PeriodLabelStyle, arrivalHour: Int, arrivalMinute: Int, departureHour: Int, departureMinute: Int) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _ -> },
     onUpdateExamTimetableSettings: (periodsPerDay: Int, periodDurationMin: Int, breakBetweenPeriodsMin: Int, lunchBreakMin: Int, lunchAfterPeriod: Int, startHour: Int, startMinute: Int, arrivalHour: Int, arrivalMinute: Int) -> Unit = { _, _, _, _, _, _, _, _, _ -> },
     onExportAllAsJson: suspend () -> String = { "{}" },
     onImportAllFromJson: (String) -> Unit = {}
@@ -214,7 +218,10 @@ fun SettingsScreen(
     var lunchAfterPeriod by remember(s) { mutableStateOf(s?.lunchAfterPeriod?.toString() ?: "2") }
     var startHour by remember(s) { mutableStateOf(s?.firstPeriodStartHour?.toString() ?: "8") }
     var startMinute by remember(s) { mutableStateOf(s?.firstPeriodStartMinute?.toString() ?: "40") }
-    var useKosenMode by remember(s) { mutableStateOf(s?.useKosenMode ?: true) }
+    var periodLabelStyle by remember(s) {
+        mutableStateOf(s?.periodLabelStyle ?: PeriodLabelStyle.PAIR_KOSHI)
+    }
+    var showPeriodLabelStyleMenu by rememberSaveable { mutableStateOf(false) }
     // 登下校時刻（空文字 = 未設定）
     var arrivalHour by remember(s) { mutableStateOf(if ((s?.arrivalHour ?: -1) >= 0) s!!.arrivalHour.toString() else "") }
     var arrivalMinute by remember(s) { mutableStateOf(if ((s?.arrivalMinute ?: -1) >= 0) s!!.arrivalMinute.toString().padStart(2,'0') else "") }
@@ -335,7 +342,7 @@ fun SettingsScreen(
             lunchAfterPeriod = settings.lunchAfterPeriod,
             firstPeriodStartHour = settings.firstPeriodStartHour,
             firstPeriodStartMinute = settings.firstPeriodStartMinute,
-            useKosenMode = settings.useKosenMode
+            periodLabelStyle = settings.periodLabelStyle
         )
         advancedPeriodCount = settings.periodsPerDay.toString()
         advancedLunchAfterPeriod = settings.lunchAfterPeriod.coerceIn(0, settings.periodsPerDay)
@@ -415,7 +422,7 @@ fun SettingsScreen(
             lunchAfterPeriod = settings.examLunchAfterPeriod,
             firstPeriodStartHour = settings.examFirstPeriodStartHour,
             firstPeriodStartMinute = settings.examFirstPeriodStartMinute,
-            useKosenMode = false
+            periodLabelStyle = settings.periodLabelStyle
         )
         advancedExamPeriodCount = settings.examPeriodsPerDay.toString()
         advancedExamLunchAfterPeriod = settings.examLunchAfterPeriod.coerceIn(0, settings.examPeriodsPerDay)
@@ -485,7 +492,7 @@ fun SettingsScreen(
         lunchAfterPeriod,
         startHour,
         startMinute,
-        useKosenMode,
+        periodLabelStyle,
         arrivalHour,
         arrivalMinute,
         departureHour,
@@ -514,14 +521,14 @@ fun SettingsScreen(
             s.lunchAfterPeriod != la ||
             s.firstPeriodStartHour != h ||
             s.firstPeriodStartMinute != m ||
-            s.useKosenMode != useKosenMode ||
+            s.periodLabelStyle != periodLabelStyle ||
             s.arrivalHour != ah ||
             s.arrivalMinute != am ||
             s.departureHour != dh ||
             s.departureMinute != dm
 
         if (changed) {
-            onUpdateScheduleSettings(p, d, b, l, la, h, m, useKosenMode, ah, am, dh, dm)
+            onUpdateScheduleSettings(p, d, b, l, la, h, m, periodLabelStyle, ah, am, dh, dm)
         }
     }
 
@@ -781,14 +788,17 @@ fun SettingsScreen(
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp)
-                .verticalScroll(settingsScrollState, enabled = !isDraggingLunch && !isDraggingExamLunch),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
+        AdaptiveContentPane(
+            modifier = Modifier.padding(padding),
+            maxWidth = ListContentMaxWidth
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+                    .verticalScroll(settingsScrollState, enabled = !isDraggingLunch && !isDraggingExamLunch),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
             // ── 時間割設定 ──────────────────────────────────────────
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(
@@ -825,30 +835,40 @@ fun SettingsScreen(
                         modifier = Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        // 校時表記切り替え
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(stringResource(R.string.label_koshi_notation), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth()
+                        ExposedDropdownMenuBox(
+                            expanded = showPeriodLabelStyleMenu,
+                            onExpandedChange = {
+                                showPeriodLabelStyleMenu = !showPeriodLabelStyleMenu
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            OutlinedTextField(
+                                value = stringResource(periodLabelStyle.labelRes),
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text(stringResource(R.string.label_koshi_notation)) },
+                                trailingIcon = {
+                                    ExposedDropdownMenuDefaults.TrailingIcon(
+                                        expanded = showPeriodLabelStyleMenu
+                                    )
+                                },
+                                modifier = Modifier
+                                    .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                                    .fillMaxWidth()
+                            )
+                            ExposedDropdownMenu(
+                                expanded = showPeriodLabelStyleMenu,
+                                onDismissRequest = { showPeriodLabelStyleMenu = false }
                             ) {
-                                RadioButton(
-                                    selected = useKosenMode,
-                                    onClick = { useKosenMode = true }
-                                )
-                                Text(
-                                    stringResource(R.string.mode_kosen),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    modifier = Modifier.padding(end = 16.dp)
-                                )
-                                RadioButton(
-                                    selected = !useKosenMode,
-                                    onClick = { useKosenMode = false }
-                                )
-                                Text(
-                                    stringResource(R.string.mode_regular),
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
+                                PeriodLabelStyle.entries.forEach { style ->
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(style.labelRes)) },
+                                        onClick = {
+                                            periodLabelStyle = style
+                                            showPeriodLabelStyleMenu = false
+                                        }
+                                    )
+                                }
                             }
                         }
 
@@ -860,7 +880,7 @@ fun SettingsScreen(
                                 lunchRange = advancedLunchRange,
                                 lunchAfterPeriod = advancedLunchAfterPeriod,
                                 previewLunchAfterPeriod = previewLunchAfterPeriod,
-                                useKosenMode = useKosenMode,
+                                periodLabelStyle = periodLabelStyle,
                                 arrivalHour = arrivalHour,
                                 arrivalMinute = arrivalMinute,
                                 departureHour = departureHour,
@@ -1015,7 +1035,7 @@ fun SettingsScreen(
                                     lunchRange = advancedExamLunchRange,
                                     lunchAfterPeriod = advancedExamLunchAfterPeriod,
                                     previewLunchAfterPeriod = previewExamLunchAfterPeriod,
-                                    useKosenMode = false,
+                                    periodLabelStyle = periodLabelStyle,
                                     arrivalHour = examArrivalHour,
                                     arrivalMinute = examArrivalMinute,
                                     departureHour = "",
@@ -1120,7 +1140,7 @@ fun SettingsScreen(
                                 lunchBreakMin = examLunchBreakMin.toIntOrNull()?.coerceIn(0, 180) ?: 50,
                                 firstPeriodStartHour = examStartHour.toIntOrNull()?.coerceIn(0, 23) ?: 8,
                                 firstPeriodStartMinute = examStartMinute.toIntOrNull()?.coerceIn(0, 59) ?: 50,
-                                useKosenMode = false,
+                                periodLabelStyle = periodLabelStyle,
                                 lunchAfterPeriod = examLunchAfterPeriod.toIntOrNull()?.coerceIn(0, previewPeriods) ?: 3
                             )
                             Surface(
@@ -1138,7 +1158,7 @@ fun SettingsScreen(
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Text(
-                                                text = stringResource(R.string.label_exam_period_number, slot.index + 1),
+                                                text = slot.label,
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 fontWeight = FontWeight.SemiBold
                                             )
@@ -1413,6 +1433,12 @@ fun SettingsScreen(
 
                         if (isIntDev) {
                             SettingsSwitchRow(
+                                title = stringResource(R.string.label_disable_tutorial_first_time_check_for_testing),
+                                description = stringResource(R.string.desc_disable_tutorial_first_time_check_for_testing),
+                                checked = tutorialFirstTimeCheckDisabledForTesting,
+                                onCheckedChange = onToggleTutorialFirstTimeCheckDisabledForTesting
+                            )
+                            SettingsSwitchRow(
                                 title = stringResource(R.string.label_update_show_latest_for_testing),
                                 description = stringResource(R.string.desc_update_show_latest_for_testing),
                                 checked = showLatestReleaseForTesting,
@@ -1592,6 +1618,7 @@ fun SettingsScreen(
                     }
                 }
             }
+            }
         }
     }
 
@@ -1677,7 +1704,7 @@ private fun AdvancedTimeBlocksEditor(
     lunchRange: TimeRangeDraft,
     lunchAfterPeriod: Int,
     previewLunchAfterPeriod: Int?,
-    useKosenMode: Boolean,
+    periodLabelStyle: PeriodLabelStyle,
     arrivalHour: String,
     arrivalMinute: String,
     departureHour: String,
@@ -1726,7 +1753,7 @@ private fun AdvancedTimeBlocksEditor(
                     periodRanges = periodRanges,
                     lunchRange = lunchRange,
                     lunchAfterPeriod = displayedLunchAfterPeriod,
-                    useKosenMode = useKosenMode,
+                    periodLabelStyle = periodLabelStyle,
                     arrivalHour = arrivalHour,
                     arrivalMinute = arrivalMinute,
                     departureHour = departureHour,
@@ -1798,13 +1825,12 @@ private fun AdvancedTimeBlocksEditor(
     }
 }
 
-private fun periodLabel(index: Int, useKosenMode: Boolean): String {
-    return if (useKosenMode) {
-        "${index * 2 + 1}/${index * 2 + 2}校時"
-    } else {
-        "${index + 1}限"
+private val PeriodLabelStyle.labelRes: Int
+    get() = when (this) {
+        PeriodLabelStyle.PAIR_KOSHI -> R.string.period_label_pair_koshi
+        PeriodLabelStyle.SINGLE_KOSHI -> R.string.period_label_single_koshi
+        PeriodLabelStyle.KOMA -> R.string.period_label_koma
     }
-}
 
 private data class AdvancedTimeListItem(
     val key: String,
@@ -1820,7 +1846,7 @@ private fun buildAdvancedTimeItems(
     periodRanges: List<TimeRangeDraft>,
     lunchRange: TimeRangeDraft,
     lunchAfterPeriod: Int,
-    useKosenMode: Boolean,
+    periodLabelStyle: PeriodLabelStyle,
     arrivalHour: String,
     arrivalMinute: String,
     departureHour: String,
@@ -1851,7 +1877,7 @@ private fun buildAdvancedTimeItems(
         if (index < periodRanges.size) {
             items += AdvancedTimeListItem(
                 key = "period-$index",
-                label = periodLabel(index, useKosenMode),
+                label = formatPeriodLabel(index, periodLabelStyle),
                 isLunch = false,
                 range = periodRanges[index],
                 periodIndex = index

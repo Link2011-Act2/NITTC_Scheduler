@@ -130,13 +130,17 @@ internal fun AbTableScreen(
         resetDragState()
     }
 
-    LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+    AdaptiveContentPane(
+        modifier = modifier,
+        maxWidth = CalendarContentMaxWidth
     ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
 
         item {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
@@ -259,6 +263,7 @@ internal fun AbTableScreen(
                     }
                 }
             }
+        }
         }
     }
 
@@ -634,4 +639,3 @@ private fun dayTypeVisual(dayType: DayType): DayTypeVisual {
         DayType.HOLIDAY -> DayTypeVisual(colorScheme.surfaceVariant, colorScheme.onSurfaceVariant)
     }
 }
-
