@@ -32,8 +32,8 @@ val buildNumberFiles = (
     ).filter { it.isFile }
 ).sortedBy { it.relativeTo(rootProject.projectDir).invariantSeparatorsPath }
 
-val appCodeName = "Elena" // トリッカルから取ります
-val appVersionName = "1.0.0-IntDev_RC5_rev4"
+val appCodeName = "Silphir" // トリッカルから取ります
+val appVersionName = "1.0.0-RC5"
 val buildContentHash = MessageDigest.getInstance("SHA-256").run {
     buildNumberFiles.forEach { file ->
         update(file.relativeTo(rootProject.projectDir).invariantSeparatorsPath.toByteArray())
@@ -291,7 +291,7 @@ android {
         applicationId = "jp.linkserver.nittcsc"
         minSdk = 26
         targetSdk = 36
-        versionCode = 15
+        versionCode = 16
         versionName = appVersionName
         buildConfigField("String", "BUILD_NUMBER", "\"$generatedBuildNumber\"")
 

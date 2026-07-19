@@ -641,7 +641,7 @@
     <string name="btn_open_timetable_edit">時間割編集を開く</string>
     <string name="btn_got_it">わかった</string>
     <string name="title_exam_timetable_periods">テスト時間割</string>
-    <string name="desc_exam_timetable_periods">中間・期末に設定された期間を選び、日ごとの試験内容を入力します。</string>
+    <string name="desc_exam_timetable_periods">テスト期間の時間割を設定できます</string>
     <string name="msg_exam_timetable_no_periods">中間または期末に設定された日がありません。A/B表の日付を長押しして、先に特別ラベルを設定してください。</string>
     <string name="label_exam_period_range">%1$s～%2$s</string>
     <string name="label_exam_period_progress">%1$d / %2$d日 設定済み</string>
