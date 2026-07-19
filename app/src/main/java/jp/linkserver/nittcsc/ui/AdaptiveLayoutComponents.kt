@@ -2,9 +2,13 @@ package jp.linkserver.nittcsc.ui
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -42,5 +46,35 @@ internal fun AdaptiveContentPane(
             },
             content = content
         )
+    }
+}
+
+@Composable
+internal fun <T> EqualHeightEditorRow(
+    items: List<T>,
+    columnCount: Int,
+    modifier: Modifier = Modifier,
+    itemContent: @Composable (T, Modifier) -> Unit
+) {
+    val matchItemHeights = items.size > 1
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(
+                if (matchItemHeights) Modifier.height(IntrinsicSize.Min) else Modifier
+            ),
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)
+    ) {
+        items.forEach { item ->
+            itemContent(
+                item,
+                Modifier
+                    .weight(1f)
+                    .then(if (matchItemHeights) Modifier.fillMaxHeight() else Modifier)
+            )
+        }
+        repeat((columnCount - items.size).coerceAtLeast(0)) {
+            Spacer(Modifier.weight(1f))
+        }
     }
 }

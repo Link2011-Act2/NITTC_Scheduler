@@ -1,5 +1,6 @@
 package jp.linkserver.nittcsc.logic
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -37,5 +38,13 @@ class AdaptiveLayoutTest {
     fun twoPaneLayoutStartsAt720Dp() {
         assertFalse(shouldUseTwoPaneLayout(719))
         assertTrue(shouldUseTwoPaneLayout(720))
+    }
+
+    @Test
+    fun editorColumnsPreserveTheMinimumCardWidth() {
+        assertEquals(1, adaptiveEditorColumnCount(683, enabled = true))
+        assertEquals(2, adaptiveEditorColumnCount(684, enabled = true))
+        assertEquals(3, adaptiveEditorColumnCount(1016, enabled = true))
+        assertEquals(1, adaptiveEditorColumnCount(1016, enabled = false))
     }
 }

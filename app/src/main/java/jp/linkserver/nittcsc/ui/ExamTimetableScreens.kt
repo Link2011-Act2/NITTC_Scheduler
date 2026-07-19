@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -55,14 +56,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import jp.linkserver.nittcsc.InternalFeatureFlags
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.DayTypeEntity
 import jp.linkserver.nittcsc.data.ExamDayScheduleEntity
 import jp.linkserver.nittcsc.data.ExamLessonEntity
 import jp.linkserver.nittcsc.data.HolidaySpecialLabel
 import jp.linkserver.nittcsc.data.SettingsEntity
+import jp.linkserver.nittcsc.logic.adaptiveEditorColumnCount
 import jp.linkserver.nittcsc.logic.generateClassSlots
-import jp.linkserver.nittcsc.logic.formatPeriodLabel
+import jp.linkserver.nittcsc.logic.formatExamPeriodLabel
+import jp.linkserver.nittcsc.logic.forExamTimetable
 import androidx.compose.ui.res.stringResource
 import java.time.LocalDate
 import java.time.LocalTime
@@ -326,7 +330,7 @@ fun ExamTimetableEditorScreen(
                     lunchBreakMin = settings.examLunchBreakMin,
                     firstPeriodStartHour = settings.examFirstPeriodStartHour,
                     firstPeriodStartMinute = settings.examFirstPeriodStartMinute,
-                    periodLabelStyle = settings.periodLabelStyle,
+                    periodLabelStyle = settings.periodLabelStyle.forExamTimetable(),
                     lunchAfterPeriod = settings.examLunchAfterPeriod
                 ).map { slot ->
                     ExamSlotDraft(slot.index, slot.start, slot.end, "", "", "", "")
@@ -349,12 +353,6 @@ fun ExamTimetableEditorScreen(
         ?: period.startDate
     val selectedDrafts = draftsByDate[selectedDate].orEmpty()
     val hasUnsavedChanges = examName != initialExamName || draftsByDate != initialDrafts
-    val fieldColors = TextFieldDefaults.colors(
-        focusedContainerColor = Color.Transparent,
-        unfocusedContainerColor = Color.Transparent,
-        disabledContainerColor = Color.Transparent
-    )
-
     fun updateDraft(slotIndex: Int, transform: (ExamSlotDraft) -> ExamSlotDraft) {
         draftsByDate = draftsByDate.toMutableMap().also { map ->
             map[selectedDate] = selectedDrafts.map { draft ->
@@ -511,260 +509,304 @@ fun ExamTimetableEditorScreen(
             modifier = Modifier.padding(padding),
             maxWidth = FormContentMaxWidth
         ) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val columnCount = adaptiveEditorColumnCount(
+                    availableWidthDp = maxWidth.value.toInt(),
+                    enabled = InternalFeatureFlags.ADAPTIVE_LARGE_SCREEN_LAYOUT
+                )
+                val draftRows = remember(selectedDrafts, columnCount) {
+                    selectedDrafts.chunked(columnCount)
+                }
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            period.dates.forEach { date ->
+                                val selected = date == selectedDate
+                                Surface(
+                                    modifier = Modifier.clickable {
+                                        selectedDateEpochDay = date.toEpochDay()
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (selected) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.surfaceContainerHigh
+                                    }
+                                ) {
+                                    Text(
+                                        text = date.format(examTabDateFormatter),
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = if (selected) {
+                                            MaterialTheme.colorScheme.onPrimary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    item {
+                        val schedule = existingSchedules[selectedDate]
+                        Text(
+                            text = stringResource(
+                                R.string.label_exam_editor_arrival,
+                                schedule?.arrivalHour ?: settings.examArrivalHour,
+                                schedule?.arrivalMinute ?: settings.examArrivalMinute
+                            ),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    items(draftRows, key = { row -> row.first().slotIndex }) { row ->
+                        EqualHeightEditorRow(
+                            items = row,
+                            columnCount = columnCount
+                        ) { draft, cardModifier ->
+                            ExamSlotEditorCard(
+                                modifier = cardModifier,
+                                date = selectedDate,
+                                draft = draft,
+                                periodLabel = formatExamPeriodLabel(
+                                    draft.slotIndex,
+                                    settings.periodLabelStyle
+                                ),
+                                subjectSuggestions = subjectSuggestions,
+                                subjectTeacherCandidates = subjectTeacherCandidates,
+                                onUpdateDraft = { updated ->
+                                    updateDraft(draft.slotIndex) { updated }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExamSlotEditorCard(
+    modifier: Modifier = Modifier,
+    date: LocalDate,
+    draft: ExamSlotDraft,
+    periodLabel: String,
+    subjectSuggestions: List<String>,
+    subjectTeacherCandidates: Map<String, List<String>>,
+    onUpdateDraft: (ExamSlotDraft) -> Unit
+) {
+    var showSubjectSuggestions by remember(date, draft.slotIndex) {
+        mutableStateOf(false)
+    }
+    val filteredSubjectSuggestions = remember(draft.subject, subjectSuggestions) {
+        val query = draft.subject.trim()
+        subjectSuggestions
+            .asSequence()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .filter { query.isBlank() || it.contains(query, ignoreCase = true) }
+            .distinct()
+            .sorted()
+            .take(8)
+            .toList()
+    }
+    val teacherCandidatesForSubject = remember(draft.subject, subjectTeacherCandidates) {
+        val subject = draft.subject.trim()
+        subjectTeacherCandidates.entries
+            .firstOrNull { it.key.equals(subject, ignoreCase = true) }
+            ?.value
+            .orEmpty()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
+    }
+    val fieldColors = TextFieldDefaults.colors(
+        focusedContainerColor = Color.Transparent,
+        unfocusedContainerColor = Color.Transparent,
+        disabledContainerColor = Color.Transparent
+    )
+
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-            item {
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Text(
+                        text = periodLabel,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = "%02d:%02d–%02d:%02d".format(
+                        draft.start.hour,
+                        draft.start.minute,
+                        draft.end.hour,
+                        draft.end.minute
+                    ),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            Text(
+                text = stringResource(R.string.label_exam_subject),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Box(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextField(
+                        value = draft.subject,
+                        onValueChange = { value ->
+                            val matchedSubject = subjectSuggestions.firstOrNull {
+                                it.equals(value.trim(), ignoreCase = true)
+                            }
+                            val matchedTeachers = matchedSubject
+                                ?.let { subjectTeacherCandidates[it].orEmpty() }
+                                .orEmpty()
+                            onUpdateDraft(
+                                draft.copy(
+                                    subject = value,
+                                    teacher = matchedTeachers.singleOrNull() ?: draft.teacher
+                                )
+                            )
+                            showSubjectSuggestions = false
+                        },
+                        placeholder = {
+                            Text(
+                                text = stringResource(R.string.label_exam_no_test),
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                        },
+                        textStyle = MaterialTheme.typography.titleMedium,
+                        singleLine = true,
+                        colors = fieldColors,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (filteredSubjectSuggestions.isNotEmpty()) {
+                        IconButton(onClick = { showSubjectSuggestions = true }) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = stringResource(R.string.label_exam_subject),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+                DropdownMenu(
+                    expanded = showSubjectSuggestions && filteredSubjectSuggestions.isNotEmpty(),
+                    onDismissRequest = { showSubjectSuggestions = false },
+                    modifier = Modifier.fillMaxWidth(0.95f)
+                ) {
+                    filteredSubjectSuggestions.forEach { candidate ->
+                        DropdownMenuItem(
+                            text = { Text(candidate) },
+                            onClick = {
+                                val matchedTeachers = subjectTeacherCandidates[candidate].orEmpty()
+                                onUpdateDraft(
+                                    draft.copy(
+                                        subject = candidate,
+                                        teacher = matchedTeachers.singleOrNull() ?: draft.teacher
+                                    )
+                                )
+                                showSubjectSuggestions = false
+                            }
+                        )
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                TextField(
+                    value = draft.teacher,
+                    onValueChange = { value -> onUpdateDraft(draft.copy(teacher = value)) },
+                    placeholder = { Text(stringResource(R.string.label_exam_teacher)) },
+                    textStyle = MaterialTheme.typography.bodySmall,
+                    singleLine = true,
+                    colors = fieldColors,
+                    modifier = Modifier.weight(1f)
+                )
+                TextField(
+                    value = draft.location,
+                    onValueChange = { value -> onUpdateDraft(draft.copy(location = value)) },
+                    placeholder = { Text(stringResource(R.string.label_exam_location)) },
+                    textStyle = MaterialTheme.typography.bodySmall,
+                    singleLine = true,
+                    colors = fieldColors,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            if (teacherCandidatesForSubject.size > 1) {
+                Text(
+                    text = stringResource(R.string.label_task_teacher_candidates),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    period.dates.forEach { date ->
-                        val selected = date == selectedDate
-                        Surface(
-                            modifier = Modifier.clickable {
-                                selectedDateEpochDay = date.toEpochDay()
+                    teacherCandidatesForSubject.forEach { candidate ->
+                        AssistChip(
+                            onClick = {
+                                onUpdateDraft(draft.copy(teacher = candidate))
                             },
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (selected) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainerHigh
-                            }
-                        ) {
-                            Text(
-                                text = date.format(examTabDateFormatter),
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                style = MaterialTheme.typography.titleSmall,
-                                color = if (selected) {
-                                    MaterialTheme.colorScheme.onPrimary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                    }
-                }
-            }
-            item {
-                val schedule = existingSchedules[selectedDate]
-                Text(
-                    text = stringResource(
-                        R.string.label_exam_editor_arrival,
-                        schedule?.arrivalHour ?: settings.examArrivalHour,
-                        schedule?.arrivalMinute ?: settings.examArrivalMinute
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            items(selectedDrafts, key = { it.slotIndex }) { draft ->
-                var showSubjectSuggestions by remember(selectedDate, draft.slotIndex) {
-                    mutableStateOf(false)
-                }
-                val filteredSubjectSuggestions = remember(draft.subject, subjectSuggestions) {
-                    val query = draft.subject.trim()
-                    subjectSuggestions
-                        .asSequence()
-                        .map { it.trim() }
-                        .filter { it.isNotBlank() }
-                        .filter { query.isBlank() || it.contains(query, ignoreCase = true) }
-                        .distinct()
-                        .sorted()
-                        .take(8)
-                        .toList()
-                }
-                val teacherCandidatesForSubject = remember(draft.subject, subjectTeacherCandidates) {
-                    val subject = draft.subject.trim()
-                    subjectTeacherCandidates.entries
-                        .firstOrNull { it.key.equals(subject, ignoreCase = true) }
-                        ?.value
-                        .orEmpty()
-                        .map { it.trim() }
-                        .filter { it.isNotBlank() }
-                        .distinct()
-                        .sorted()
-                }
-                Card(
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(50),
-                                color = MaterialTheme.colorScheme.primaryContainer
-                            ) {
-                                Text(
-                                    text = formatPeriodLabel(
-                                        draft.slotIndex,
-                                        settings.periodLabelStyle
-                                    ),
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                            Spacer(Modifier.weight(1f))
-                            Text(
-                                text = "%02d:%02d–%02d:%02d".format(
-                                    draft.start.hour,
-                                    draft.start.minute,
-                                    draft.end.hour,
-                                    draft.end.minute
-                                ),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                        Text(
-                            text = stringResource(R.string.label_exam_subject),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                TextField(
-                                    value = draft.subject,
-                                    onValueChange = { value ->
-                                        val matchedSubject = subjectSuggestions.firstOrNull {
-                                            it.equals(value.trim(), ignoreCase = true)
-                                        }
-                                        val matchedTeachers = matchedSubject
-                                            ?.let { subjectTeacherCandidates[it].orEmpty() }
-                                            .orEmpty()
-                                        updateDraft(draft.slotIndex) { current ->
-                                            current.copy(
-                                                subject = value,
-                                                teacher = matchedTeachers.singleOrNull() ?: current.teacher
-                                            )
-                                        }
-                                        showSubjectSuggestions = false
-                                    },
-                                    placeholder = {
-                                        Text(
-                                            text = stringResource(R.string.label_exam_no_test),
-                                            style = MaterialTheme.typography.titleMedium
-                                        )
-                                    },
-                                    textStyle = MaterialTheme.typography.titleMedium,
-                                    singleLine = true,
-                                    colors = fieldColors,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                if (filteredSubjectSuggestions.isNotEmpty()) {
-                                    IconButton(onClick = { showSubjectSuggestions = true }) {
-                                        Icon(
-                                            imageVector = Icons.Default.Search,
-                                            contentDescription = stringResource(R.string.label_exam_subject),
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                }
-                            }
-                            DropdownMenu(
-                                expanded = showSubjectSuggestions && filteredSubjectSuggestions.isNotEmpty(),
-                                onDismissRequest = { showSubjectSuggestions = false },
-                                modifier = Modifier.fillMaxWidth(0.95f)
-                            ) {
-                                filteredSubjectSuggestions.forEach { candidate ->
-                                    DropdownMenuItem(
-                                        text = { Text(candidate) },
-                                        onClick = {
-                                            val matchedTeachers = subjectTeacherCandidates[candidate].orEmpty()
-                                            updateDraft(draft.slotIndex) { current ->
-                                                current.copy(
-                                                    subject = candidate,
-                                                    teacher = matchedTeachers.singleOrNull() ?: current.teacher
-                                                )
-                                            }
-                                            showSubjectSuggestions = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            TextField(
-                                value = draft.teacher,
-                                onValueChange = { value -> updateDraft(draft.slotIndex) { it.copy(teacher = value) } },
-                                placeholder = { Text(stringResource(R.string.label_exam_teacher)) },
-                                textStyle = MaterialTheme.typography.bodySmall,
-                                singleLine = true,
-                                colors = fieldColors,
-                                modifier = Modifier.weight(1f)
-                            )
-                            TextField(
-                                value = draft.location,
-                                onValueChange = { value -> updateDraft(draft.slotIndex) { it.copy(location = value) } },
-                                placeholder = { Text(stringResource(R.string.label_exam_location)) },
-                                textStyle = MaterialTheme.typography.bodySmall,
-                                singleLine = true,
-                                colors = fieldColors,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                        if (teacherCandidatesForSubject.size > 1) {
-                            Text(
-                                text = stringResource(R.string.label_task_teacher_candidates),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                teacherCandidatesForSubject.forEach { candidate ->
-                                    AssistChip(
-                                        onClick = {
-                                            updateDraft(draft.slotIndex) { it.copy(teacher = candidate) }
-                                        },
-                                        label = { Text(candidate) }
-                                    )
-                                }
-                            }
-                        }
-                        HorizontalDivider()
-                        Text(
-                            text = stringResource(R.string.label_exam_memo),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        TextField(
-                            value = draft.memo,
-                            onValueChange = { value -> updateDraft(draft.slotIndex) { it.copy(memo = value) } },
-                            placeholder = { Text(stringResource(R.string.placeholder_not_set)) },
-                            textStyle = MaterialTheme.typography.bodyMedium,
-                            minLines = 2,
-                            colors = fieldColors,
-                            modifier = Modifier.fillMaxWidth()
+                            label = { Text(candidate) }
                         )
                     }
                 }
             }
-            }
+            HorizontalDivider()
+            Text(
+                text = stringResource(R.string.label_exam_memo),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            TextField(
+                value = draft.memo,
+                onValueChange = { value -> onUpdateDraft(draft.copy(memo = value)) },
+                placeholder = { Text(stringResource(R.string.placeholder_not_set)) },
+                textStyle = MaterialTheme.typography.bodyMedium,
+                minLines = 2,
+                colors = fieldColors,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }

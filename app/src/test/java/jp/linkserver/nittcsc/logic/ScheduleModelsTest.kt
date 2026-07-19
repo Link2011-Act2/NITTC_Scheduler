@@ -13,4 +13,12 @@ class ScheduleModelsTest {
         assertEquals("1コマ", formatPeriodLabel(0, PeriodLabelStyle.KOMA))
         assertEquals("2コマ", formatPeriodLabel(1, PeriodLabelStyle.KOMA))
     }
+
+    @Test
+    fun `exam labels use single koshi when pair koshi is selected`() {
+        assertEquals("1校時", formatExamPeriodLabel(0, PeriodLabelStyle.PAIR_KOSHI))
+        assertEquals("2校時", formatExamPeriodLabel(1, PeriodLabelStyle.PAIR_KOSHI))
+        assertEquals("2校時", formatExamPeriodLabel(1, PeriodLabelStyle.SINGLE_KOSHI))
+        assertEquals("2コマ", formatExamPeriodLabel(1, PeriodLabelStyle.KOMA))
+    }
 }

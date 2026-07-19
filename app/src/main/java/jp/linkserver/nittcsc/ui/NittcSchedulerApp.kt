@@ -51,9 +51,6 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -191,12 +188,14 @@ import jp.linkserver.nittcsc.logic.ExportRange
 import jp.linkserver.nittcsc.logic.ExportResult
 import jp.linkserver.nittcsc.logic.NaturalLanguageLessonCandidate
 import jp.linkserver.nittcsc.logic.NaturalLanguageTaskParser
+import jp.linkserver.nittcsc.logic.adaptiveEditorColumnCount
 import jp.linkserver.nittcsc.logic.shouldUseLargeScreenLayout
 import jp.linkserver.nittcsc.logic.shouldUseNavigationRail
 import jp.linkserver.nittcsc.logic.shouldUseTwoPaneLayout
 import jp.linkserver.nittcsc.logic.buildLessonAutocompleteOptions
 import jp.linkserver.nittcsc.logic.findTaskLessonSlotIndex
-import jp.linkserver.nittcsc.logic.formatPeriodLabel
+import jp.linkserver.nittcsc.logic.formatExamPeriodLabel
+import jp.linkserver.nittcsc.logic.forExamTimetable
 import jp.linkserver.nittcsc.logic.generateClassSlots
 import jp.linkserver.nittcsc.logic.japaneseDayOfWeekSearchText
 import jp.linkserver.nittcsc.logic.matchesTaskPlanSearch
@@ -2847,30 +2846,22 @@ private fun TimetableInputScreen(
         }
         HorizontalDivider()
         val classSlots = remember(state.settings) { state.settings.toClassSlots() }
-        val lessonEditor: @Composable (ClassSlot) -> Unit = { slot ->
+        val lessonEditor: @Composable (ClassSlot, Modifier) -> Unit = { slot, cardModifier ->
             val lesson = state.lessons[state.selectedDayOfWeek to slot.index]
             LessonEditorCard(
+                modifier = cardModifier,
                 title = slot.label,
                 lesson = lesson,
                 onAutoSave = { draft -> onAutoSaveLesson(state.selectedDayOfWeek, slot.index, draft) },
                 onSave = { draft -> onSaveLesson(state.selectedDayOfWeek, slot.index, draft) }
             )
         }
-        if (useLargeScreenLayout) {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 320.dp),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                contentPadding = PaddingValues(vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                gridItems(classSlots, key = { it.index }) { slot ->
-                    lessonEditor(slot)
-                }
-            }
-        } else {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val columnCount = adaptiveEditorColumnCount(
+                availableWidthDp = maxWidth.value.toInt(),
+                enabled = useLargeScreenLayout
+            )
+            val slotRows = remember(classSlots, columnCount) { classSlots.chunked(columnCount) }
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
@@ -2878,8 +2869,12 @@ private fun TimetableInputScreen(
                 contentPadding = PaddingValues(vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(classSlots, key = { it.index }) { slot ->
-                    lessonEditor(slot)
+                items(slotRows, key = { row -> row.first().index }) { row ->
+                    EqualHeightEditorRow(
+                        items = row,
+                        columnCount = columnCount,
+                        itemContent = lessonEditor
+                    )
                 }
             }
         }
@@ -2888,6 +2883,7 @@ private fun TimetableInputScreen(
 
 @Composable
 private fun LessonEditorCard(
+    modifier: Modifier = Modifier,
     title: String,
     lesson: LessonEntity?,
     onAutoSave: (LessonDraft) -> Unit,
@@ -2942,6 +2938,7 @@ private fun LessonEditorCard(
     )
 
     Card(
+        modifier = modifier,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         shape = RoundedCornerShape(20.dp)
     ) {
@@ -3236,7 +3233,7 @@ private fun OutputScreen(
             return savedLessons.map { lesson ->
                 ClassSlot(
                     index = lesson.slotIndex,
-                    label = formatPeriodLabel(
+                    label = formatExamPeriodLabel(
                         lesson.slotIndex,
                         state.settings?.periodLabelStyle ?: jp.linkserver.nittcsc.logic.PeriodLabelStyle.PAIR_KOSHI
                     ),
@@ -3253,7 +3250,7 @@ private fun OutputScreen(
             lunchBreakMin = settings.examLunchBreakMin,
             firstPeriodStartHour = settings.examFirstPeriodStartHour,
             firstPeriodStartMinute = settings.examFirstPeriodStartMinute,
-            periodLabelStyle = settings.periodLabelStyle,
+            periodLabelStyle = settings.periodLabelStyle.forExamTimetable(),
             lunchAfterPeriod = settings.examLunchAfterPeriod
         )
     }

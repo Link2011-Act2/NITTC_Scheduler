@@ -39,7 +39,7 @@ import jp.linkserver.nittcsc.data.SettingsEntity
 import jp.linkserver.nittcsc.logic.ClassSlot
 import jp.linkserver.nittcsc.logic.JapaneseHolidayCalculator
 import jp.linkserver.nittcsc.logic.PeriodLabelStyle
-import jp.linkserver.nittcsc.logic.formatPeriodLabel
+import jp.linkserver.nittcsc.logic.formatExamPeriodLabel
 import jp.linkserver.nittcsc.logic.generateClassSlots
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -541,7 +541,7 @@ class LessonStartNotificationWorker(
     private fun ExamLessonEntity.toClassSlot(periodLabelStyle: PeriodLabelStyle): ClassSlot {
         return ClassSlot(
             index = slotIndex,
-            label = formatPeriodLabel(slotIndex, periodLabelStyle),
+            label = formatExamPeriodLabel(slotIndex, periodLabelStyle),
             start = java.time.LocalTime.of(startHour, startMinute),
             end = java.time.LocalTime.of(endHour, endMinute)
         )
@@ -625,7 +625,7 @@ class LessonStartNotificationWorker(
                     dateExamLessons.values.sortedBy { it.slotIndex }.map { exam ->
                         ClassSlot(
                             index = exam.slotIndex,
-                            label = formatPeriodLabel(exam.slotIndex, settings.periodLabelStyle),
+                            label = formatExamPeriodLabel(exam.slotIndex, settings.periodLabelStyle),
                             start = java.time.LocalTime.of(exam.startHour, exam.startMinute),
                             end = java.time.LocalTime.of(exam.endHour, exam.endMinute)
                         )

@@ -13,3 +13,16 @@ internal fun shouldUseNavigationRail(
 
 internal fun shouldUseTwoPaneLayout(windowWidthDp: Int): Boolean =
     windowWidthDp >= TWO_PANE_MIN_WIDTH_DP
+
+internal fun adaptiveEditorColumnCount(
+    availableWidthDp: Int,
+    enabled: Boolean,
+    horizontalPaddingDp: Int = 32,
+    minColumnWidthDp: Int = 320,
+    columnSpacingDp: Int = 12
+): Int {
+    if (!enabled) return 1
+    val contentWidthDp = (availableWidthDp - horizontalPaddingDp).coerceAtLeast(0)
+    return ((contentWidthDp + columnSpacingDp) / (minColumnWidthDp + columnSpacingDp))
+        .coerceAtLeast(1)
+}

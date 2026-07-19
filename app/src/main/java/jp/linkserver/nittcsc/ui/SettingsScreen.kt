@@ -100,6 +100,7 @@ import jp.linkserver.nittcsc.logic.TimeRangeDraft
 import jp.linkserver.nittcsc.logic.buildAdvancedTimeEditorDraft
 import jp.linkserver.nittcsc.logic.generateClassSlots
 import jp.linkserver.nittcsc.logic.formatPeriodLabel
+import jp.linkserver.nittcsc.logic.forExamTimetable
 import jp.linkserver.nittcsc.logic.resizeTimeRangeDrafts
 import jp.linkserver.nittcsc.logic.validateAdvancedTimeEditor
 import jp.linkserver.nittcsc.update.clearDismissedUpdateNotification
@@ -418,7 +419,7 @@ fun SettingsScreen(
             lunchAfterPeriod = settings.examLunchAfterPeriod,
             firstPeriodStartHour = settings.examFirstPeriodStartHour,
             firstPeriodStartMinute = settings.examFirstPeriodStartMinute,
-            periodLabelStyle = settings.periodLabelStyle
+            periodLabelStyle = settings.periodLabelStyle.forExamTimetable()
         )
         advancedExamPeriodCount = settings.examPeriodsPerDay.toString()
         advancedExamLunchAfterPeriod = settings.examLunchAfterPeriod.coerceIn(0, settings.examPeriodsPerDay)
@@ -1029,7 +1030,7 @@ fun SettingsScreen(
                                     lunchRange = advancedExamLunchRange,
                                     lunchAfterPeriod = advancedExamLunchAfterPeriod,
                                     previewLunchAfterPeriod = previewExamLunchAfterPeriod,
-                                    periodLabelStyle = periodLabelStyle,
+                                    periodLabelStyle = periodLabelStyle.forExamTimetable(),
                                     arrivalHour = examArrivalHour,
                                     arrivalMinute = examArrivalMinute,
                                     departureHour = "",
@@ -1134,7 +1135,7 @@ fun SettingsScreen(
                                 lunchBreakMin = examLunchBreakMin.toIntOrNull()?.coerceIn(0, 180) ?: 50,
                                 firstPeriodStartHour = examStartHour.toIntOrNull()?.coerceIn(0, 23) ?: 8,
                                 firstPeriodStartMinute = examStartMinute.toIntOrNull()?.coerceIn(0, 59) ?: 50,
-                                periodLabelStyle = periodLabelStyle,
+                                periodLabelStyle = periodLabelStyle.forExamTimetable(),
                                 lunchAfterPeriod = examLunchAfterPeriod.toIntOrNull()?.coerceIn(0, previewPeriods) ?: 3
                             )
                             Surface(

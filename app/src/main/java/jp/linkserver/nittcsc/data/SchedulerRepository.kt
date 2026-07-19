@@ -7,7 +7,7 @@ import jp.linkserver.nittcsc.logic.ExportRange
 import jp.linkserver.nittcsc.logic.GeneratedLesson
 import jp.linkserver.nittcsc.logic.JapaneseHolidayCalculator
 import jp.linkserver.nittcsc.logic.PeriodLabelStyle
-import jp.linkserver.nittcsc.logic.formatPeriodLabel
+import jp.linkserver.nittcsc.logic.formatExamPeriodLabel
 import jp.linkserver.nittcsc.logic.generateClassSlots
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
@@ -691,7 +691,7 @@ class SchedulerRepository(private val db: AppDatabase) {
                                     date = date,
                                     slot = jp.linkserver.nittcsc.logic.ClassSlot(
                                         index = exam.slotIndex,
-                                        label = formatPeriodLabel(
+                                        label = formatExamPeriodLabel(
                                             exam.slotIndex,
                                             settings.periodLabelStyle
                                         ),

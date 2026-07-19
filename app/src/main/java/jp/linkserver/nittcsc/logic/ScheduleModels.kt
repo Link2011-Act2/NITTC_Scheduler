@@ -22,6 +22,12 @@ fun formatPeriodLabel(index: Int, style: PeriodLabelStyle): String = when (style
     PeriodLabelStyle.KOMA -> "${index + 1}コマ"
 }
 
+fun PeriodLabelStyle.forExamTimetable(): PeriodLabelStyle =
+    if (this == PeriodLabelStyle.PAIR_KOSHI) PeriodLabelStyle.SINGLE_KOSHI else this
+
+fun formatExamPeriodLabel(index: Int, style: PeriodLabelStyle): String =
+    formatPeriodLabel(index, style.forExamTimetable())
+
 val CLASS_SLOTS = listOf(
     ClassSlot(0, "1/2校時", LocalTime.of(8, 40), LocalTime.of(10, 10)),
     ClassSlot(1, "3/4校時", LocalTime.of(10, 20), LocalTime.of(11, 50)),
