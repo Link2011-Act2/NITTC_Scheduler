@@ -19,6 +19,7 @@ import jp.linkserver.nittcsc.logic.CLASS_SLOTS
 import jp.linkserver.nittcsc.logic.ClassSlot
 import jp.linkserver.nittcsc.logic.JapaneseHolidayCalculator
 import jp.linkserver.nittcsc.logic.PeriodLabelStyle
+import jp.linkserver.nittcsc.logic.applyChangedLesson
 import jp.linkserver.nittcsc.logic.formatExamPeriodLabel
 import jp.linkserver.nittcsc.logic.forExamTimetable
 import jp.linkserver.nittcsc.logic.generateClassSlots
@@ -119,9 +120,8 @@ object WidgetDataHelper {
 
         val lessonDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek ?: date.dayOfWeek.value
         val lessonDayType = dayTypeEntity?.overrideLessonDayType ?: dayType
-        val lesson = lessons[lessonDayOfWeek to slotIndex] ?: return null
-
-        val baseLesson = when (lesson.mode) {
+        val lesson = lessons[lessonDayOfWeek to slotIndex]
+        val baseLesson = when (lesson?.mode) {
             LessonMode.WEEKLY -> if (lesson.weeklySubject.isBlank()) null
             else ResolvedLesson(lesson.weeklySubject, lesson.weeklyTeacher, lesson.weeklyLocation)
 
@@ -132,13 +132,9 @@ object WidgetDataHelper {
                 else ResolvedLesson(lesson.bSubject, lesson.bTeacher, lesson.bLocation)
                 DayType.HOLIDAY -> null
             }
+            null -> null
         }
-        val changedLesson = changedLessons[date to slotIndex]
-        return if (baseLesson != null && changedLesson != null) {
-            ResolvedLesson(changedLesson.subject, changedLesson.teacher, changedLesson.location)
-        } else {
-            baseLesson
-        }
+        return applyChangedLesson(baseLesson, changedLessons[date to slotIndex])
     }
 
     fun classSlotsForDate(data: WidgetData, date: LocalDate): List<ClassSlot> {

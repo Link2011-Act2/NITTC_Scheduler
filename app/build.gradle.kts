@@ -33,7 +33,7 @@ val buildNumberFiles = (
 ).sortedBy { it.relativeTo(rootProject.projectDir).invariantSeparatorsPath }
 
 val appCodeName = "Silphir" // トリッカルから取ります
-val appVersionName = "1.0.0-RC6"
+val appVersionName = "1.0.0-IntDex_RC7_rev0"
 val buildContentHash = MessageDigest.getInstance("SHA-256").run {
     buildNumberFiles.forEach { file ->
         update(file.relativeTo(rootProject.projectDir).invariantSeparatorsPath.toByteArray())

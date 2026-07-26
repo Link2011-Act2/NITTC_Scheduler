@@ -27,6 +27,7 @@ import jp.linkserver.nittcsc.logic.ExportRange
 import jp.linkserver.nittcsc.logic.GeneratedLesson
 import jp.linkserver.nittcsc.logic.JapaneseHolidayCalculator
 import jp.linkserver.nittcsc.logic.PeriodLabelStyle
+import jp.linkserver.nittcsc.logic.applyChangedLesson
 import jp.linkserver.nittcsc.sync.DirectConnectResult
 import jp.linkserver.nittcsc.sync.DiscoveredSyncDevice
 import jp.linkserver.nittcsc.sync.LocalSyncManager
@@ -706,9 +707,14 @@ class SchedulerViewModel(
         dayTypeEntities: Map<LocalDate, DayTypeEntity> = emptyMap(),
         changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity> = emptyMap()
     ): ResolvedLesson? {
-        val baseLesson = resolveBaseLessonForDate(date, slotIndex, lessons, dayTypeMap, dayTypeEntities) ?: return null
-        val changedLesson = changedLessons[date to slotIndex] ?: return baseLesson
-        return ResolvedLesson(changedLesson.subject, changedLesson.teacher, changedLesson.location)
+        if (date.dayOfWeek.value !in 1..5) return null
+        val dayTypeEntity = dayTypeEntities[date]
+        val dayType = dayTypeEntity?.dayType ?: dayTypeMap[date] ?: defaultDayType(date)
+        if (dayType == DayType.HOLIDAY) return null
+        return applyChangedLesson(
+            baseLesson = resolveBaseLessonForDate(date, slotIndex, lessons, dayTypeMap, dayTypeEntities),
+            changedLesson = changedLessons[date to slotIndex]
+        )
     }
 
     fun resolveBaseLessonForDate(

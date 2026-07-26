@@ -7,6 +7,7 @@ import jp.linkserver.nittcsc.logic.ExportRange
 import jp.linkserver.nittcsc.logic.GeneratedLesson
 import jp.linkserver.nittcsc.logic.JapaneseHolidayCalculator
 import jp.linkserver.nittcsc.logic.PeriodLabelStyle
+import jp.linkserver.nittcsc.logic.applyChangedLesson
 import jp.linkserver.nittcsc.logic.formatExamPeriodLabel
 import jp.linkserver.nittcsc.logic.generateClassSlots
 import androidx.room.withTransaction
@@ -803,12 +804,12 @@ class SchedulerRepository(private val db: AppDatabase) {
     }
 
     private suspend fun resolveEffectiveLessonForDate(date: LocalDate, slotIndex: Int): ResolvedLesson? {
-        val baseLesson = resolveBaseLessonForDate(date, slotIndex) ?: return null
-        val changedLesson = dao.getChangedLesson(date, slotIndex) ?: return baseLesson
-        return ResolvedLesson(
-            subject = changedLesson.subject,
-            teacher = changedLesson.teacher,
-            location = changedLesson.location
+        if (date.dayOfWeek.value !in 1..5) return null
+        val dayType = dao.getDayType(date)?.dayType ?: DayType.A
+        if (dayType == DayType.HOLIDAY) return null
+        return applyChangedLesson(
+            baseLesson = resolveBaseLessonForDate(date, slotIndex),
+            changedLesson = dao.getChangedLesson(date, slotIndex)
         )
     }
 

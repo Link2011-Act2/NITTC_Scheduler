@@ -14,6 +14,7 @@ import com.google.android.gms.nearby.connection.Payload
 import com.google.android.gms.nearby.connection.PayloadCallback
 import com.google.android.gms.nearby.connection.PayloadTransferUpdate
 import com.google.android.gms.nearby.connection.Strategy
+import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.SchedulerRepository
 import jp.linkserver.nittcsc.sync.SyncChoice
 import jp.linkserver.nittcsc.sync.SyncConflict
@@ -85,7 +86,9 @@ class NearbySyncManager(
 
     /** アプリ起動中は常に広告を流してほかの端末から見つけられるようにする（検索画面を開かなくてもよい）。 */
     fun startStandbyAdvertising() {
-        if (standbyActive) return
+        if (standbyActive || _state.value.phase != NearbyPhase.IDLE) return
+        // 無線がOFFの場合は、ユーザー操作なしに設定画面を出さず待受を見送る。
+        if (!readNearbyRadioState(appContext).isReady) return
         standbyActive = true
         val advOptions = AdvertisingOptions.Builder().setStrategy(STRATEGY).build()
         connectionsClient.startAdvertising(localName, SERVICE_ID, connectionLifecycleCallback, advOptions)
@@ -105,6 +108,15 @@ class NearbySyncManager(
     }
 
     fun startSearching() {
+        // UI以外から呼ばれた場合や、確認直後に無線がOFFになった場合にも開始しない。
+        if (!readNearbyRadioState(appContext).isReady) {
+            _state.value = NearbyState(
+                phase = NearbyPhase.ERROR,
+                message = appContext.getString(R.string.nearby_radio_required_error),
+                isError = true
+            )
+            return
+        }
         receivedPayloadChannel.close()
         receivedPayloadChannel = Channel(Channel.BUFFERED)
         payloadBuffer.clear()

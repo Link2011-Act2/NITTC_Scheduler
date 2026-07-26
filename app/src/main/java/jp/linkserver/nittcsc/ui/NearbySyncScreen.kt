@@ -1,7 +1,10 @@
 package jp.linkserver.nittcsc.ui
 
 import android.Manifest
+import android.bluetooth.BluetoothAdapter
+import android.content.Intent
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -47,6 +50,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,9 +65,11 @@ import androidx.compose.ui.unit.dp
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.sync.NearbyEndpoint
 import jp.linkserver.nittcsc.sync.NearbyPhase
+import jp.linkserver.nittcsc.sync.NearbyRadioState
 import jp.linkserver.nittcsc.sync.NearbyState
 import jp.linkserver.nittcsc.sync.SyncChoice
 import jp.linkserver.nittcsc.sync.SyncConflict
+import jp.linkserver.nittcsc.sync.readNearbyRadioState
 import androidx.compose.foundation.selection.toggleable
 
 private fun nearbyPermissions(): Array<String> {
@@ -104,6 +110,19 @@ fun NearbySyncScreen(
     val context = LocalContext.current
     var permissionDenied by remember { mutableStateOf(false) }
     var conflictSubmitting by remember { mutableStateOf(false) }
+    var startRequested by remember { mutableStateOf(false) }
+    var showRadioRequired by remember { mutableStateOf(false) }
+    var radioCheckRequest by remember { mutableIntStateOf(0) }
+    var radioState by remember {
+        mutableStateOf(
+            NearbyRadioState(
+                bluetoothAvailable = true,
+                bluetoothEnabled = false,
+                wifiAvailable = true,
+                wifiEnabled = false
+            )
+        )
+    }
 
     LaunchedEffect(nearbyState.phase, nearbyState.pendingConflicts.size) {
         if (nearbyState.phase != NearbyPhase.CONFLICT || nearbyState.pendingConflicts.isEmpty()) {
@@ -115,9 +134,36 @@ fun NearbySyncScreen(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
         if (results.values.all { it }) {
+            startRequested = true
+            radioCheckRequest++
+        } else {
+            startRequested = false
+            permissionDenied = true
+        }
+    }
+
+    val bluetoothEnableLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        radioCheckRequest++
+    }
+
+    val wifiSettingsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        radioCheckRequest++
+    }
+
+    LaunchedEffect(startRequested, radioCheckRequest) {
+        if (!startRequested) return@LaunchedEffect
+        val checkedState = readNearbyRadioState(context)
+        radioState = checkedState
+        if (checkedState.isReady) {
+            startRequested = false
+            showRadioRequired = false
             onStartSearching()
         } else {
-            permissionDenied = true
+            showRadioRequired = true
         }
     }
 
@@ -214,6 +260,82 @@ fun NearbySyncScreen(
             }
             }
         }
+    }
+
+    if (showRadioRequired) {
+        val bluetoothLabel = stringResource(R.string.nearby_radio_bluetooth)
+        val wifiLabel = stringResource(R.string.nearby_radio_wifi)
+        val unavailableRadios = listOfNotNull(
+            bluetoothLabel.takeUnless { radioState.bluetoothAvailable },
+            wifiLabel.takeUnless { radioState.wifiAvailable }
+        )
+        val disabledRadios = listOfNotNull(
+            bluetoothLabel.takeIf { radioState.bluetoothAvailable && !radioState.bluetoothEnabled },
+            wifiLabel.takeIf { radioState.wifiAvailable && !radioState.wifiEnabled }
+        )
+        AlertDialog(
+            onDismissRequest = {
+                startRequested = false
+                showRadioRequired = false
+            },
+            title = { Text(stringResource(R.string.nearby_radio_required_title)) },
+            text = {
+                Text(
+                    if (unavailableRadios.isNotEmpty()) {
+                        stringResource(
+                            R.string.nearby_radio_unsupported_message,
+                            unavailableRadios.joinToString("・")
+                        )
+                    } else {
+                        stringResource(
+                            R.string.nearby_radio_required_message,
+                            disabledRadios.joinToString("・")
+                        )
+                    }
+                )
+            },
+            confirmButton = {
+                if (unavailableRadios.isEmpty()) {
+                    Column(horizontalAlignment = Alignment.End) {
+                        if (!radioState.bluetoothEnabled) {
+                            TextButton(
+                                onClick = {
+                                    bluetoothEnableLauncher.launch(
+                                        Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+                                    )
+                                }
+                            ) {
+                                Text(stringResource(R.string.nearby_btn_enable_bluetooth))
+                            }
+                        }
+                        if (!radioState.wifiEnabled) {
+                            TextButton(
+                                onClick = {
+                                    val action = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                        Settings.Panel.ACTION_WIFI
+                                    } else {
+                                        Settings.ACTION_WIFI_SETTINGS
+                                    }
+                                    wifiSettingsLauncher.launch(Intent(action))
+                                }
+                            ) {
+                                Text(stringResource(R.string.nearby_btn_open_wifi_settings))
+                            }
+                        }
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        startRequested = false
+                        showRadioRequired = false
+                    }
+                ) {
+                    Text(stringResource(R.string.btn_cancel))
+                }
+            }
+        )
     }
 
     // --- 認証コード確認ダイアログ ---

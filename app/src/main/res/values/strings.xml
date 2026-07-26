@@ -785,6 +785,14 @@
     <string name="nearby_btn_reject">拒否</string>
     <string name="nearby_idle_description">Nearby通信を使って近くのデバイスと直接同期します。同じWi-Fiに繋がっていなくても使えます。</string>
     <string name="nearby_permission_required">同期通信をするために、Bluetooth・位置情報の権限が必要です。設定から許可してください。</string>
+    <string name="nearby_radio_required_title">通信機能をオンにしてください</string>
+    <string name="nearby_radio_required_message">Nearby同期を開始するには%1$sをオンにしてください。Androidの仕様により、アプリから自動ではオンにできません。</string>
+    <string name="nearby_radio_unsupported_message">この端末では%1$sを利用できないため、Nearby同期を開始できません。</string>
+    <string name="nearby_radio_required_error">Nearby同期を開始するには、BluetoothとWi-Fiをオンにしてください。</string>
+    <string name="nearby_radio_bluetooth">Bluetooth</string>
+    <string name="nearby_radio_wifi">Wi-Fi</string>
+    <string name="nearby_btn_enable_bluetooth">Bluetoothをオン</string>
+    <string name="nearby_btn_open_wifi_settings">Wi-Fi設定を開く</string>
     <string name="nearby_btn_start_search">検索を開始する</string>
     <string name="nearby_searching">近くのデバイスを検索中...</string>
     <string name="nearby_no_devices">まだデバイスが見つかりません</string>

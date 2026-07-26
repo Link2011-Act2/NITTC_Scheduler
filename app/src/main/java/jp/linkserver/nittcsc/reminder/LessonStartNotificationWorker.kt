@@ -39,6 +39,7 @@ import jp.linkserver.nittcsc.data.SettingsEntity
 import jp.linkserver.nittcsc.logic.ClassSlot
 import jp.linkserver.nittcsc.logic.JapaneseHolidayCalculator
 import jp.linkserver.nittcsc.logic.PeriodLabelStyle
+import jp.linkserver.nittcsc.logic.applyChangedLesson
 import jp.linkserver.nittcsc.logic.formatExamPeriodLabel
 import jp.linkserver.nittcsc.logic.generateClassSlots
 import kotlinx.coroutines.Dispatchers
@@ -497,13 +498,7 @@ class LessonStartNotificationWorker(
         val lessonDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek ?: date.dayOfWeek.value
         val lessonDayType = dayTypeEntity?.overrideLessonDayType ?: dayType
         val base = lessons[lessonDayOfWeek to slotIndex]?.let { resolveLesson(lessonDayType, it) }
-            ?: return null
-        val changed = changedLessons[date to slotIndex]
-        return if (changed != null) {
-            ResolvedLesson(changed.subject, changed.teacher, changed.location)
-        } else {
-            base
-        }
+        return applyChangedLesson(base, changedLessons[date to slotIndex])
     }
 
     private fun resolveLesson(dayType: DayType, lesson: LessonEntity): ResolvedLesson? {
@@ -795,13 +790,7 @@ class LessonStartNotificationWorker(
             val lessonDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek ?: date.dayOfWeek.value
             val lessonDayType = dayTypeEntity?.overrideLessonDayType ?: dayType
             val base = lessons[lessonDayOfWeek to slotIndex]?.let { resolveLessonForSchedule(lessonDayType, it) }
-                ?: return null
-            val changed = changedLessons[date to slotIndex]
-            return if (changed != null) {
-                ResolvedLesson(changed.subject, changed.teacher, changed.location)
-            } else {
-                base
-            }
+            return applyChangedLesson(base, changedLessons[date to slotIndex])
         }
 
         private fun resolveLessonForSchedule(dayType: DayType, lesson: LessonEntity): ResolvedLesson? {

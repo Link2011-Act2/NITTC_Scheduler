@@ -203,6 +203,7 @@ import jp.linkserver.nittcsc.logic.normalizeSearchText
 import jp.linkserver.nittcsc.logic.planMatchesLesson
 import jp.linkserver.nittcsc.logic.taskMatchesLesson
 import jp.linkserver.nittcsc.logic.tokenizeSearchQuery
+import jp.linkserver.nittcsc.logic.usesNoLessonAppearance
 import jp.linkserver.nittcsc.ml.ModelDownloadManager
 import jp.linkserver.nittcsc.ml.VlmInferenceEngine
 import jp.linkserver.nittcsc.ml.VlmInferenceService
@@ -1275,7 +1276,10 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     }
 
     fun openLessonChangeEditor(date: LocalDate, slotIndex: Int) {
-        val originalLesson = resolveOriginalLesson(date, slotIndex) ?: return
+        val originalLesson = resolveOriginalLesson(date, slotIndex) ?: ResolvedLesson(
+            subject = resources.getString(R.string.label_no_class_short),
+            teacher = ""
+        )
         val currentLesson = resolveDisplayedLesson(date, slotIndex) ?: originalLesson
         lessonChangeEditor = LessonChangeEditorState(
             date = date,
@@ -3273,7 +3277,7 @@ private fun OutputScreen(
             examSlotsForDate(date).any { slot -> resolveExamLesson(date, slot.index) != null }
         } else {
             dayTypeForDate(date) != DayType.HOLIDAY &&
-                classSlots.any { slot -> resolveLesson(date, slot.index)?.subject?.isNotBlank() == true }
+                classSlots.any { slot -> !resolveLesson(date, slot.index).usesNoLessonAppearance() }
         }
     }
     LaunchedEffect(hasVisibleLesson) {
@@ -4412,7 +4416,7 @@ private fun LessonSearchScreen(
                 classSlots.forEach { slot ->
                     if (isLessonCancelled(date, slot.index)) return@forEach
                     val lesson = resolveLesson(date, slot.index) ?: return@forEach
-                    if (lesson.subject.isBlank()) return@forEach
+                    if (lesson.subject.isBlank() || lesson.usesNoLessonAppearance()) return@forEach
 
                     val searchableText = normalizeSearchText(
                         listOf(
@@ -5144,8 +5148,9 @@ private fun LessonSearchSelectedDaySchedule(
         classSlots.forEach { slot ->
             key(slot.index) {
                 val lesson = resolveLesson(date, slot.index)
-                val cancelled = isLessonCancelled(date, slot.index)
-                val changed = changedLessonForDate(date, slot.index) != null
+                    ?.takeUnless { it.usesNoLessonAppearance() }
+                val cancelled = lesson != null && isLessonCancelled(date, slot.index)
+                val changed = lesson != null && changedLessonForDate(date, slot.index) != null
                 val matches = lesson != null && lessonMatchesSearchQuery(query, date, slot, lesson)
                 val cardColor = if (matches) {
                     MaterialTheme.colorScheme.primaryContainer
@@ -5322,7 +5327,7 @@ private fun DayScheduleTable(
     val today = LocalDate.now()
     val hapticDaySchedule = LocalHapticFeedback.current
     data class LessonActionDialogData(
-        val lesson: ResolvedLesson,
+        val lesson: ResolvedLesson?,
         val originalLesson: ResolvedLesson?,
         val isChanged: Boolean,
         val slotIndex: Int,
@@ -5341,6 +5346,7 @@ private fun DayScheduleTable(
     var lessonNoteEditor by remember { mutableStateOf<LessonNoteEditorData?>(null) }
     if (lessonActionDialog != null) {
         val lessonSnap = lessonActionDialog!!
+        val actionLesson = lessonSnap.lesson
         LessonActionDialog(
             date = date,
             slotIndex = lessonSnap.slotIndex,
@@ -5350,19 +5356,19 @@ private fun DayScheduleTable(
             cancelled = lessonSnap.cancelled,
             isExam = lessonSnap.isExam,
             onDismiss = { lessonActionDialog = null },
-            onAddTask = onAddFromLesson?.let {
+            onAddTask = if (actionLesson != null && onAddFromLesson != null) {
                 {
                     lessonActionDialog = null
-                    it(lessonSnap.lesson.subject, lessonSnap.lesson.teacher, false, date, lessonSnap.lessonStartTime, lessonSnap.isExam)
+                    onAddFromLesson(actionLesson.subject, actionLesson.teacher, false, date, lessonSnap.lessonStartTime, lessonSnap.isExam)
                 }
-            },
-            onAddPlan = onAddFromLesson?.let {
+            } else null,
+            onAddPlan = if (actionLesson != null && onAddFromLesson != null) {
                 {
                     lessonActionDialog = null
-                    it(lessonSnap.lesson.subject, lessonSnap.lesson.teacher, true, date, lessonSnap.lessonStartTime, lessonSnap.isExam)
+                    onAddFromLesson(actionLesson.subject, actionLesson.teacher, true, date, lessonSnap.lessonStartTime, lessonSnap.isExam)
                 }
-            },
-            onToggleCancelled = if (!lessonSnap.isExam) {
+            } else null,
+            onToggleCancelled = if (!lessonSnap.isExam && actionLesson != null) {
                 {
                     onSetLessonCancelled(date, lessonSnap.slotIndex, !lessonSnap.cancelled)
                     lessonActionDialog = null
@@ -5374,7 +5380,7 @@ private fun DayScheduleTable(
                     onEditChangedLesson(date, lessonSnap.slotIndex)
                 }
             } else null,
-            onEditNote = if (lessonSnap.isExam || lessonNotesEnabled) {
+            onEditNote = if (actionLesson != null && (lessonSnap.isExam || lessonNotesEnabled)) {
                 {
                     lessonActionDialog = null
                     val currentText = if (lessonSnap.isExam) {
@@ -5387,7 +5393,7 @@ private fun DayScheduleTable(
                     lessonNoteEditor = LessonNoteEditorData(
                         date = date,
                         slotIndex = lessonSnap.slotIndex,
-                        lesson = lessonSnap.lesson,
+                        lesson = actionLesson,
                         currentText = currentText,
                         isExam = lessonSnap.isExam
                     )
@@ -5457,7 +5463,9 @@ private fun DayScheduleTable(
         emptyList()
     } else {
         classSlots.mapNotNull { slot ->
-            resolveLesson(date, slot.index)?.let { lesson -> slot to lesson }
+            resolveLesson(date, slot.index)
+                ?.takeUnless { it.usesNoLessonAppearance() }
+                ?.let { lesson -> slot to lesson }
         }
     }
     val taskLessonSlotIndexes = dateTasks.associateWith { task ->
@@ -5506,6 +5514,7 @@ private fun DayScheduleTable(
             } else {
                 classSlots.filter { slot ->
                     val lesson = resolveLesson(date, slot.index)
+                        ?.takeUnless { it.usesNoLessonAppearance() }
                     lesson != null && planMatchesLesson(plan, lesson)
                 }
             }
@@ -5572,7 +5581,11 @@ private fun DayScheduleTable(
         segments.forEach { seg ->
             val rawHeightDp = (seg.durationMin * dpPerMinute).dp
             val slot = if (seg.slotIndex != null) classSlots.find { it.index == seg.slotIndex } else null
-            val lesson = if (!isHoliday && seg.slotIndex != null) resolveLesson(date, seg.slotIndex) else null
+            val lesson = if (!isHoliday && seg.slotIndex != null) {
+                resolveLesson(date, seg.slotIndex)?.takeUnless { it.usesNoLessonAppearance() }
+            } else {
+                null
+            }
             val changedLesson = if (!isHoliday && !isExamSchedule && seg.slotIndex != null) changedLessonForDate(date, seg.slotIndex) else null
             val originalLesson = if (!isHoliday && !isExamSchedule && seg.slotIndex != null && changedLesson != null) resolveOriginalLesson(date, seg.slotIndex) else null
             val isChangedLesson = changedLesson != null && originalLesson != null
@@ -5986,7 +5999,7 @@ private fun DayScheduleTable(
                         .fillMaxHeight()
                         .padding(start = 8.dp, end = 4.dp, bottom = 2.dp)
                 ) {
-                    val overlayTickReserveWidth = if (slot != null && lesson != null && sortedSegTicks.isNotEmpty()) {
+                    val overlayTickReserveWidth = if (slot != null && sortedSegTicks.isNotEmpty()) {
                         with(density) {
                             textMeasurer.measure(
                                 text = "\u2713 " + "あ".repeat(7),
@@ -5997,7 +6010,7 @@ private fun DayScheduleTable(
                     } else {
                         0.dp
                     }
-                    if (slot != null && !(lesson == null && segmentTicks.isNotEmpty())) {
+                    if (slot != null) {
                         Card(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -6010,7 +6023,7 @@ private fun DayScheduleTable(
                                             primaryPlan != null -> onOpenPlan(primaryPlan)
                                         }
                                     },
-                                    onLongClick = if (lesson != null && lesson.subject.isNotBlank()) {
+                                    onLongClick = if ((!isExamSchedule && !isHoliday) || lesson != null) {
                                         {
                                             hapticDaySchedule.performHapticFeedback(HapticFeedbackType.LongPress)
                                             lessonActionDialog = LessonActionDialogData(
@@ -6513,7 +6526,7 @@ private fun WeekScheduleTable(
         val date: LocalDate,
         val slotIndex: Int,
         val lessonStartTime: LocalTime,
-        val lesson: ResolvedLesson,
+        val lesson: ResolvedLesson?,
         val originalLesson: ResolvedLesson?,
         val isChanged: Boolean,
         val cancelled: Boolean,
@@ -6669,12 +6682,13 @@ private fun WeekScheduleTable(
                     val dateSlot = examSlot ?: slot
                     val isExamSlot = isExamDate && examSlot != null
                     val isHoliday = dayType == DayType.HOLIDAY && !isExamDate
-                    val lesson = when {
+                    val resolvedLesson = when {
                         isHoliday -> null
                         isExamSlot -> resolveExamLesson(date, slot.index)
                         isExamDate -> null
                         else -> resolveLesson(date, slot.index)
                     }
+                    val lesson = resolvedLesson?.takeUnless { it.usesNoLessonAppearance() }
                     val changedLesson = if (!isHoliday && !isExamDate) changedLessonForDate(date, slot.index) else null
                     val originalLesson = if (!isHoliday && !isExamDate && changedLesson != null) resolveOriginalLesson(date, slot.index) else null
                     val isChangedLesson = changedLesson != null && originalLesson != null
@@ -6716,7 +6730,7 @@ private fun WeekScheduleTable(
                                 .fillMaxSize()
                                 .combinedClickable(
                                     onClick = { onDayClick(date) },
-                                    onLongClick = if (lesson != null && lesson.subject.isNotBlank()) {
+                                    onLongClick = if ((!isHoliday && !isExamDate) || lesson != null) {
                                         {
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                             lessonActionDialog = WeekLessonActionDialogData(
@@ -6892,6 +6906,7 @@ private fun WeekScheduleTable(
     }
 
     lessonActionDialog?.let { target ->
+        val actionLesson = target.lesson
         LessonActionDialog(
             date = target.date,
             slotIndex = target.slotIndex,
@@ -6901,19 +6916,19 @@ private fun WeekScheduleTable(
             cancelled = target.cancelled,
             isExam = target.isExam,
             onDismiss = { lessonActionDialog = null },
-            onAddTask = onAddFromLesson?.let {
+            onAddTask = if (actionLesson != null && onAddFromLesson != null) {
                 {
                     lessonActionDialog = null
-                    it(target.lesson.subject, target.lesson.teacher, false, target.date, target.lessonStartTime, target.isExam)
+                    onAddFromLesson(actionLesson.subject, actionLesson.teacher, false, target.date, target.lessonStartTime, target.isExam)
                 }
-            },
-            onAddPlan = onAddFromLesson?.let {
+            } else null,
+            onAddPlan = if (actionLesson != null && onAddFromLesson != null) {
                 {
                     lessonActionDialog = null
-                    it(target.lesson.subject, target.lesson.teacher, true, target.date, target.lessonStartTime, target.isExam)
+                    onAddFromLesson(actionLesson.subject, actionLesson.teacher, true, target.date, target.lessonStartTime, target.isExam)
                 }
-            },
-            onToggleCancelled = if (!target.isExam) {
+            } else null,
+            onToggleCancelled = if (!target.isExam && actionLesson != null) {
                 {
                     onSetLessonCancelled(target.date, target.slotIndex, !target.cancelled)
                     lessonActionDialog = null
@@ -6925,7 +6940,7 @@ private fun WeekScheduleTable(
                     onEditChangedLesson(target.date, target.slotIndex)
                 }
             } else null,
-            onEditNote = if (target.isExam || lessonNotesEnabled) {
+            onEditNote = if (actionLesson != null && (target.isExam || lessonNotesEnabled)) {
                 {
                     lessonActionDialog = null
                     val currentText = if (target.isExam) {
@@ -6936,7 +6951,7 @@ private fun WeekScheduleTable(
                     lessonNoteEditor = WeekLessonNoteEditorData(
                         date = target.date,
                         slotIndex = target.slotIndex,
-                        lesson = target.lesson,
+                        lesson = actionLesson,
                         currentText = currentText,
                         isExam = target.isExam
                     )
@@ -7291,7 +7306,7 @@ private fun ChangeLessonScreen(
 private fun LessonActionDialog(
     date: LocalDate,
     slotIndex: Int,
-    lesson: ResolvedLesson,
+    lesson: ResolvedLesson?,
     originalLesson: ResolvedLesson?,
     isChanged: Boolean,
     cancelled: Boolean,
@@ -7321,6 +7336,7 @@ private fun LessonActionDialog(
     val strActionHint = stringResource(R.string.dialog_lesson_action_hint)
     val strStatusCancelled = stringResource(R.string.label_lesson_status_cancelled)
     val strStatusNormal = stringResource(R.string.label_lesson_status_normal)
+    val strNoLesson = stringResource(R.string.label_no_class_short)
     val strSlotInfo = stringResource(R.string.label_lesson_slot_info, date.format(dateFormatter), slotIndex + 1)
 
     AlertDialog(
@@ -7336,7 +7352,7 @@ private fun LessonActionDialog(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                if (!isExam) {
+                if (!isExam && lesson != null) {
                     Surface(
                         shape = RoundedCornerShape(50),
                         color = if (cancelled) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer
@@ -7360,13 +7376,17 @@ private fun LessonActionDialog(
                         verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         Text(
-                            text = lesson.subject,
+                            text = lesson?.subject ?: strNoLesson,
                             style = MaterialTheme.typography.titleLarge,
-                            fontWeight = if (cancelled) FontWeight.Light else FontWeight.Bold,
+                            fontWeight = when {
+                                lesson == null -> FontWeight.Normal
+                                cancelled -> FontWeight.Light
+                                else -> FontWeight.Bold
+                            },
                             textDecoration = if (cancelled) androidx.compose.ui.text.style.TextDecoration.LineThrough else null,
                             modifier = Modifier.alpha(if (cancelled) 0.65f else 1f)
                         )
-                        if (isChanged && originalLesson != null && originalLesson.subject.isNotBlank()) {
+                        if (lesson != null && isChanged && originalLesson != null && originalLesson.subject.isNotBlank()) {
                             Text(
                                 text = originalLesson.subject,
                                 style = MaterialTheme.typography.labelSmall,
@@ -7375,7 +7395,7 @@ private fun LessonActionDialog(
                                 modifier = Modifier.alpha(0.7f)
                             )
                         }
-                        if (lesson.teacher.isNotBlank()) {
+                        if (!lesson?.teacher.isNullOrBlank()) {
                             Text(
                                 text = lesson.teacher,
                                 style = MaterialTheme.typography.bodyMedium,
@@ -7384,11 +7404,13 @@ private fun LessonActionDialog(
                         }
                     }
                 }
-                Text(
-                    text = "$strAddFromLessonTitle / $strActionHint",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                if (onAddTask != null || onAddPlan != null) {
+                    Text(
+                        text = "$strAddFromLessonTitle / $strActionHint",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         },
         confirmButton = {
