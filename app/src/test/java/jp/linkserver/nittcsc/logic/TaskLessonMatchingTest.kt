@@ -36,6 +36,13 @@ class TaskLessonMatchingTest {
         assertEquals(1, findTaskLessonSlotIndex(task, lessonSlots, ignoreDueTime = true))
     }
 
+    @Test
+    fun supplementaryLessonStillMatchesRelatedTask() {
+        val task = task(subject = "補講", teacher = "山田", useTeacherMatching = true)
+
+        assertTrue(taskMatchesLesson(task, ResolvedLesson("補講", "山田", "3-A")))
+    }
+
     private fun task(
         subject: String,
         teacher: String? = null,

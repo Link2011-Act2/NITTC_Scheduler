@@ -82,6 +82,7 @@ $env:PATH="$env:JAVA_HOME\bin;$env:PATH"
 - ローカル同期とNearby同期は、設定を移行せず、時間割・A/B日・課題・予定などのデータだけを同期する。この境界を変更しない。
 - カレンダーイベントIDなど端末固有IDは、他端末へそのまま移行しない。
 - 同期対象を追加したら、`SchedulerRepository.SYNC_DATASET_KEYS`、`SchedulerDataTransfer` の入出力、`touchSyncDatasetMeta`、`SyncPayloadCoordinator`、`LocalSyncManager`、`NearbySyncManager` をすべて確認する。
+- 同期ペイロード、同期対象、競合・マージ判定、ローカル同期またはNearby同期の通信手順を変更したら、`data/SyncProtocolVersion.kt` の `CURRENT_SYNC_PROTOCOL_VERSION` を必ず1増やし、旧バージョンとの互換性確認とテストを追加する。バージョン情報を持たない従来版は `LEGACY_SYNC_PROTOCOL_VERSION = 0` として扱う。
 - 同期競合を黙って上書きしない。既存の競合確認・自動承認UIの方針を維持する。
 - インポート形式を変更したらエクスポートバージョンを更新し、可能なら旧バージョンの読み込みテストを追加する。
 

@@ -3277,7 +3277,7 @@ private fun OutputScreen(
             examSlotsForDate(date).any { slot -> resolveExamLesson(date, slot.index) != null }
         } else {
             dayTypeForDate(date) != DayType.HOLIDAY &&
-                classSlots.any { slot -> !resolveLesson(date, slot.index).usesNoLessonAppearance() }
+                classSlots.any { slot -> resolveLesson(date, slot.index)?.subject?.isNotBlank() == true }
         }
     }
     LaunchedEffect(hasVisibleLesson) {
@@ -4416,7 +4416,7 @@ private fun LessonSearchScreen(
                 classSlots.forEach { slot ->
                     if (isLessonCancelled(date, slot.index)) return@forEach
                     val lesson = resolveLesson(date, slot.index) ?: return@forEach
-                    if (lesson.subject.isBlank() || lesson.usesNoLessonAppearance()) return@forEach
+                    if (lesson.subject.isBlank()) return@forEach
 
                     val searchableText = normalizeSearchText(
                         listOf(
@@ -5148,19 +5148,19 @@ private fun LessonSearchSelectedDaySchedule(
         classSlots.forEach { slot ->
             key(slot.index) {
                 val lesson = resolveLesson(date, slot.index)
-                    ?.takeUnless { it.usesNoLessonAppearance() }
-                val cancelled = lesson != null && isLessonCancelled(date, slot.index)
-                val changed = lesson != null && changedLessonForDate(date, slot.index) != null
+                val usesNoLessonAppearance = lesson.usesNoLessonAppearance()
+                val cancelled = isLessonCancelled(date, slot.index)
+                val changed = changedLessonForDate(date, slot.index) != null
                 val matches = lesson != null && lessonMatchesSearchQuery(query, date, slot, lesson)
-                val cardColor = if (matches) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainerLow
+                val cardColor = when {
+                    matches -> MaterialTheme.colorScheme.primaryContainer
+                    usesNoLessonAppearance -> MaterialTheme.colorScheme.surfaceContainer
+                    else -> MaterialTheme.colorScheme.surfaceContainerLow
                 }
-                val mainContentColor = if (matches) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurface
+                val mainContentColor = when {
+                    matches -> MaterialTheme.colorScheme.onPrimaryContainer
+                    usesNoLessonAppearance -> MaterialTheme.colorScheme.onSurfaceVariant
+                    else -> MaterialTheme.colorScheme.onSurface
                 }
 
                 Surface(
@@ -5214,7 +5214,7 @@ private fun LessonSearchSelectedDaySchedule(
                                     modifier = Modifier.weight(1f),
                                     style = MaterialTheme.typography.titleMedium,
                                     color = mainContentColor.copy(alpha = if (cancelled) 0.55f else 1f),
-                                    fontWeight = FontWeight.Bold,
+                                    fontWeight = if (usesNoLessonAppearance) FontWeight.Normal else FontWeight.Bold,
                                     textDecoration = if (cancelled) {
                                         androidx.compose.ui.text.style.TextDecoration.LineThrough
                                     } else {
@@ -5464,7 +5464,6 @@ private fun DayScheduleTable(
     } else {
         classSlots.mapNotNull { slot ->
             resolveLesson(date, slot.index)
-                ?.takeUnless { it.usesNoLessonAppearance() }
                 ?.let { lesson -> slot to lesson }
         }
     }
@@ -5514,7 +5513,6 @@ private fun DayScheduleTable(
             } else {
                 classSlots.filter { slot ->
                     val lesson = resolveLesson(date, slot.index)
-                        ?.takeUnless { it.usesNoLessonAppearance() }
                     lesson != null && planMatchesLesson(plan, lesson)
                 }
             }
@@ -5582,10 +5580,11 @@ private fun DayScheduleTable(
             val rawHeightDp = (seg.durationMin * dpPerMinute).dp
             val slot = if (seg.slotIndex != null) classSlots.find { it.index == seg.slotIndex } else null
             val lesson = if (!isHoliday && seg.slotIndex != null) {
-                resolveLesson(date, seg.slotIndex)?.takeUnless { it.usesNoLessonAppearance() }
+                resolveLesson(date, seg.slotIndex)
             } else {
                 null
             }
+            val usesNoLessonAppearance = lesson.usesNoLessonAppearance()
             val changedLesson = if (!isHoliday && !isExamSchedule && seg.slotIndex != null) changedLessonForDate(date, seg.slotIndex) else null
             val originalLesson = if (!isHoliday && !isExamSchedule && seg.slotIndex != null && changedLesson != null) resolveOriginalLesson(date, seg.slotIndex) else null
             val isChangedLesson = changedLesson != null && originalLesson != null
@@ -6039,10 +6038,10 @@ private fun DayScheduleTable(
                                     } else null
                                 ),
                             colors = CardDefaults.cardColors(
-                                containerColor = if (lesson != null)
-                                    MaterialTheme.colorScheme.surfaceContainerLow
-                                else
+                                containerColor = if (usesNoLessonAppearance)
                                     MaterialTheme.colorScheme.surfaceContainer
+                                else
+                                    MaterialTheme.colorScheme.surfaceContainerLow
                             ),
                             shape = RoundedCornerShape(12.dp)
                         ) {
@@ -6162,7 +6161,7 @@ private fun DayScheduleTable(
                                         .fillMaxWidth()
                                 ) {
                                     val subjectStyle = MaterialTheme.typography.titleLarge.copy(
-                                        fontWeight = if (lesson != null) FontWeight.Bold else FontWeight.Normal
+                                        fontWeight = if (usesNoLessonAppearance) FontWeight.Normal else FontWeight.Bold
                                     )
                                     val detailTitleStyle = MaterialTheme.typography.labelSmall.copy(
                                         fontWeight = FontWeight.Bold
@@ -6286,12 +6285,12 @@ private fun DayScheduleTable(
                                                 text = lesson?.subject ?: strNoLesson,
                                                 style = MaterialTheme.typography.titleLarge,
                                                 fontWeight = when {
-                                                    lesson == null -> FontWeight.Normal
+                                                    usesNoLessonAppearance -> FontWeight.Normal
                                                     isCancelled -> FontWeight.Light
                                                     else -> FontWeight.Bold
                                                 },
-                                                color = if (lesson != null) MaterialTheme.colorScheme.onSurface
-                                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                color = if (usesNoLessonAppearance) MaterialTheme.colorScheme.onSurfaceVariant
+                                                        else MaterialTheme.colorScheme.onSurface,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
                                                 textDecoration = if (isCancelled) androidx.compose.ui.text.style.TextDecoration.LineThrough else null
@@ -6688,7 +6687,8 @@ private fun WeekScheduleTable(
                         isExamDate -> null
                         else -> resolveLesson(date, slot.index)
                     }
-                    val lesson = resolvedLesson?.takeUnless { it.usesNoLessonAppearance() }
+                    val lesson = resolvedLesson
+                    val usesNoLessonAppearance = lesson.usesNoLessonAppearance()
                     val changedLesson = if (!isHoliday && !isExamDate) changedLessonForDate(date, slot.index) else null
                     val originalLesson = if (!isHoliday && !isExamDate && changedLesson != null) resolveOriginalLesson(date, slot.index) else null
                     val isChangedLesson = changedLesson != null && originalLesson != null
@@ -6714,10 +6714,10 @@ private fun WeekScheduleTable(
                     val lessonMemo = examMemoForDate(date, slot.index)
                         ?: lessonNotesByDateSlot[date to slot.index]?.text?.trim()?.ifBlank { null }
                     val isCancelled = !isHoliday && !isExamDate && isLessonCancelled(date, slot.index)
-                    val bgColor = if (lesson != null) MaterialTheme.colorScheme.surfaceContainerLow
-                                  else MaterialTheme.colorScheme.surfaceContainer
-                    val contentColor = if (lesson != null) MaterialTheme.colorScheme.onSurface
-                                       else MaterialTheme.colorScheme.onSurfaceVariant
+                    val bgColor = if (usesNoLessonAppearance) MaterialTheme.colorScheme.surfaceContainer
+                                  else MaterialTheme.colorScheme.surfaceContainerLow
+                    val contentColor = if (usesNoLessonAppearance) MaterialTheme.colorScheme.onSurfaceVariant
+                                       else MaterialTheme.colorScheme.onSurface
 
                     Box(
                         modifier = Modifier
@@ -6774,7 +6774,11 @@ private fun WeekScheduleTable(
                                         Text(
                                             text = lesson.subject,
                                             style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = if (isCancelled) FontWeight.Light else FontWeight.Bold,
+                                            fontWeight = when {
+                                                usesNoLessonAppearance -> FontWeight.Normal
+                                                isCancelled -> FontWeight.Light
+                                                else -> FontWeight.Bold
+                                            },
                                             color = contentColor,
                                             maxLines = 3,
                                             overflow = TextOverflow.Ellipsis,

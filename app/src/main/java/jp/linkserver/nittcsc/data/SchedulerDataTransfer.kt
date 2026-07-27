@@ -269,7 +269,7 @@ internal class SchedulerDataTransfer(
         val now = System.currentTimeMillis()
         val datasetMetaByKey = dao.getAllSyncDatasetMeta().associateBy { it.datasetKey }
 
-        val root = org.json.JSONObject()
+        val root = org.json.JSONObject().putCurrentSyncProtocolVersion()
         root.put("device", org.json.JSONObject().also { d ->
             d.put("deviceId", profile?.deviceId ?: "")
             d.put("deviceName", profile?.deviceName ?: "")
