@@ -16,7 +16,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertHasClickAction
-import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertTouchHeightIsEqualTo
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -26,6 +26,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.unit.dp
+import androidx.test.espresso.Espresso
 import jp.linkserver.nittcsc.data.UiDesignMode
 import jp.linkserver.nittcsc.ui.components.AppButtonGroup
 import jp.linkserver.nittcsc.ui.components.AppFabMenu
@@ -79,6 +80,7 @@ class UiDesignSwitchTest {
         }
 
         composeRule.onNodeWithTag("design-input").performTextInput("draft")
+        Espresso.closeSoftKeyboard()
         composeRule.onNodeWithText("open-details").performClick()
         composeRule.onNodeWithTag("design-switch").performClick()
 
@@ -102,7 +104,7 @@ class UiDesignSwitchTest {
 
         composeRule.onNodeWithContentDescription("設定")
             .assertHasClickAction()
-            .assertHeightIsAtLeast(48.dp)
+            .assertTouchHeightIsEqualTo(48.dp)
     }
 
     @Test

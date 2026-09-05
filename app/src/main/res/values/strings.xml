@@ -492,6 +492,11 @@
 
     <!-- Settings: Timetable Settings Section -->
     <string name="section_timetable_settings">時間割設定</string>
+    <string name="settings_timetable_time_editor_title">授業時間</string>
+    <string name="settings_exam_time_editor_title">試験時間</string>
+    <string name="settings_time_editor_summary">コマ数、授業時間、休憩時間を設定します</string>
+    <string name="settings_expanded_state">展開中</string>
+    <string name="settings_collapsed_state">折りたたみ中</string>
     <string name="label_semester_timetables">前期・後期で時間割を分ける</string>
     <string name="desc_semester_timetables">オンにすると4〜9月は前期、10〜3月は後期の時間割を使用します</string>
     <string name="label_first_term">前期</string>

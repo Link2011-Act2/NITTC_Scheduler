@@ -11,13 +11,12 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.InternalFeatureFlags
 import androidx.compose.ui.res.stringResource
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -25,16 +24,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -45,7 +40,6 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Button
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
@@ -53,17 +47,13 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -84,7 +74,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.semantics.Role
@@ -115,13 +104,14 @@ import jp.linkserver.nittcsc.update.isShowLatestReleaseForTestingEnabled
 import jp.linkserver.nittcsc.update.setShowLatestReleaseForTestingEnabled
 import jp.linkserver.nittcsc.update.setUpdateCurrentVersionOverrideForTesting
 import jp.linkserver.nittcsc.viewmodel.SchedulerUiState
-import jp.linkserver.nittcsc.ui.components.AppCard
+import jp.linkserver.nittcsc.ui.components.AppSettingsCategory
+import jp.linkserver.nittcsc.ui.components.AppSettingsExpandableItem
+import jp.linkserver.nittcsc.ui.components.AppSettingsGroup
+import jp.linkserver.nittcsc.ui.components.AppSettingsNavigationItem
+import jp.linkserver.nittcsc.ui.components.AppSettingsScaffold
 import jp.linkserver.nittcsc.ui.components.AppDialog
-import jp.linkserver.nittcsc.ui.components.AppFlexibleTopAppBar
-import jp.linkserver.nittcsc.ui.components.AppIconButton
 import jp.linkserver.nittcsc.ui.components.AppListItem
 import jp.linkserver.nittcsc.ui.components.AppPrimaryButton
-import jp.linkserver.nittcsc.ui.components.AppSwitch
 import jp.linkserver.nittcsc.ui.components.SettingsNavigationCard
 import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
 import kotlinx.coroutines.Dispatchers
@@ -854,43 +844,17 @@ fun SettingsScreen(
     }
 
     val useExpressiveDesign = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
-    val topAppBarScrollBehavior = if (useExpressiveDesign) {
-        TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    } else {
-        null
-    }
-
-    Scaffold(
-        modifier = if (topAppBarScrollBehavior != null) {
-            Modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection)
-        } else {
-            Modifier
-        },
-        topBar = {
-            AppFlexibleTopAppBar(
-                title = { Text(stringResource(R.string.settings_title)) },
-                navigationIcon = {
-                    AppIconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_back))
-                    }
-                },
-                scrollBehavior = topAppBarScrollBehavior
-            )
-        }
-    ) { padding ->
-        AdaptiveContentPane(
-            modifier = Modifier.padding(padding),
-            maxWidth = ListContentMaxWidth
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp)
-                    .verticalScroll(settingsScrollState, enabled = !isDraggingLunch && !isDraggingExamLunch),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
-            ) {
-            // ── 時間割設定 ──────────────────────────────────────────
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    AppSettingsScaffold(
+        title = stringResource(R.string.settings_title),
+        onBack = onBack,
+        scrollState = settingsScrollState,
+        scrollEnabled = !isDraggingLunch && !isDraggingExamLunch
+    ) {
+        // ── 時間割設定 ──────────────────────────────────────────
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (useExpressiveDesign) {
+                AppSettingsCategory(title = stringResource(R.string.section_timetable_settings))
+            } else {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -898,11 +862,9 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(
-                        text = stringResource(R.string.section_timetable_settings),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
+                    AppSettingsCategory(
+                        title = stringResource(R.string.section_timetable_settings),
+                        modifier = Modifier
                     )
                     Icon(
                         imageVector = if (expandTimetableSettings) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
@@ -914,23 +876,34 @@ fun SettingsScreen(
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
+            }
 
-                if (expandTimetableSettings) Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
+            if (useExpressiveDesign || expandTimetableSettings) AppSettingsGroup(
+                standardContentPadding = PaddingValues(16.dp),
+                standardSpacing = 12.dp
+            ) {
+                if (useExpressiveDesign) {
+                    item("time-editor-expansion") {
+                        AppSettingsExpandableItem(
+                            title = stringResource(R.string.settings_timetable_time_editor_title),
+                            summary = stringResource(R.string.settings_time_editor_summary),
+                            expanded = expandTimetableSettings,
+                            onClick = { expandTimetableSettings = !expandTimetableSettings }
+                        )
+                    }
+                }
+                if (expandTimetableSettings) {
+                    item("special_timetable_settings_title") {
                         SettingsNavigationCard(
                             title = stringResource(R.string.special_timetable_settings_title),
                             description = stringResource(R.string.special_timetable_settings_description),
                             onClick = onOpenSpecialTimetableSettings
                         )
+                    }
+                    standardOnly("HorizontalDivider_1") {
                         HorizontalDivider()
+                    }
+                    item("label_koshi_notation", contentPadding = PaddingValues(20.dp)) {
                         ExposedDropdownMenuBox(
                             expanded = showPeriodLabelStyleMenu,
                             onExpandedChange = {
@@ -967,8 +940,10 @@ fun SettingsScreen(
                                 }
                             }
                         }
+                    }
 
-                        if (enabledAdvancedTimeSettingsUi) {
+                    if (enabledAdvancedTimeSettingsUi) {
+                        item("label_periods_per_day", contentPadding = PaddingValues(20.dp)) {
                             AdvancedTimeBlocksEditor(
                                 periodCountLabel = stringResource(R.string.label_periods_per_day),
                                 periodCount = advancedPeriodCount,
@@ -1014,7 +989,7 @@ fun SettingsScreen(
                                 },
                                 onLunchDragPreview = { targetPosition ->
                                     val targetCount = advancedPeriodCount.toIntOrNull()?.coerceIn(1, 12)
-                                        ?: advancedPeriodRanges.size
+                                    ?: advancedPeriodRanges.size
                                     val nextPosition = targetPosition.coerceIn(0, targetCount)
                                     previewLunchAfterPeriod = nextPosition
                                     nextPosition
@@ -1029,12 +1004,24 @@ fun SettingsScreen(
                                     isDraggingLunch = false
                                 }
                             )
-                        } else {
+                        }
+                    } else {
+                        item("label_periods_per_day", contentPadding = PaddingValues(20.dp)) {
                             NumberSettingRow(label = stringResource(R.string.label_periods_per_day), value = periodsPerDay, unit = stringResource(R.string.unit_period), onValueChange = { periodsPerDay = it })
+                        }
+                        item("label_period_duration", contentPadding = PaddingValues(20.dp)) {
                             NumberSettingRow(label = stringResource(R.string.label_period_duration), value = periodDurationMin, unit = stringResource(R.string.unit_minute), onValueChange = { periodDurationMin = it })
+                        }
+                        item("label_break_duration", contentPadding = PaddingValues(20.dp)) {
                             NumberSettingRow(label = stringResource(R.string.label_break_duration), value = breakBetweenPeriodsMin, unit = stringResource(R.string.unit_minute), onValueChange = { breakBetweenPeriodsMin = it })
+                        }
+                        item("label_lunch_duration", contentPadding = PaddingValues(20.dp)) {
                             NumberSettingRow(label = stringResource(R.string.label_lunch_duration), value = lunchBreakMin, unit = stringResource(R.string.unit_minute), onValueChange = { lunchBreakMin = it })
+                        }
+                        item("label_lunch_after", contentPadding = PaddingValues(20.dp)) {
                             NumberSettingRow(label = stringResource(R.string.label_lunch_after), value = lunchAfterPeriod, unit = stringResource(R.string.unit_after_period), onValueChange = { lunchAfterPeriod = it })
+                        }
+                        item("label_first_period_start", contentPadding = PaddingValues(20.dp)) {
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(stringResource(R.string.label_first_period_start), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                                 Row(
@@ -1060,6 +1047,8 @@ fun SettingsScreen(
                                     )
                                 }
                             }
+                        }
+                        item("label_arrival_time", contentPadding = PaddingValues(20.dp)) {
                             TimeSettingRow(
                                 label = stringResource(R.string.label_arrival_time),
                                 hour = arrivalHour,
@@ -1067,6 +1056,8 @@ fun SettingsScreen(
                                 onHourChange = { arrivalHour = it },
                                 onMinuteChange = { arrivalMinute = it }
                             )
+                        }
+                        item("label_departure_time", contentPadding = PaddingValues(20.dp)) {
                             TimeSettingRow(
                                 label = stringResource(R.string.label_departure_time),
                                 hour = departureHour,
@@ -1075,113 +1066,131 @@ fun SettingsScreen(
                                 onMinuteChange = { departureMinute = it }
                             )
                         }
+                    }
+                    item("Text_12", contentPadding = PaddingValues(20.dp)) {
                         Text(
                             text = "変更は自動保存されます",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+
+
                 }
             }
+        }
 
-            if (s?.enableExamTimetable != false) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
+        if (s?.enableExamTimetable != false) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (useExpressiveDesign) {
+                AppSettingsCategory(title = stringResource(R.string.section_exam_timetable_settings))
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { expandExamTimetableSettings = !expandExamTimetableSettings },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    AppSettingsCategory(
+                        title = stringResource(R.string.section_exam_timetable_settings),
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { expandExamTimetableSettings = !expandExamTimetableSettings },
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = stringResource(R.string.section_exam_timetable_settings),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Icon(
-                            imageVector = if (expandExamTimetableSettings) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                            contentDescription = if (expandExamTimetableSettings) {
-                                stringResource(R.string.desc_close)
-                            } else {
-                                stringResource(R.string.desc_expand)
-                            },
-                            tint = MaterialTheme.colorScheme.primary
+                    )
+                    Icon(
+                        imageVector = if (expandExamTimetableSettings) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                        contentDescription = if (expandExamTimetableSettings) {
+                            stringResource(R.string.desc_close)
+                        } else {
+                            stringResource(R.string.desc_expand)
+                        },
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            if (useExpressiveDesign || expandExamTimetableSettings) AppSettingsGroup(
+                standardContentPadding = PaddingValues(16.dp),
+                standardSpacing = 12.dp
+            ) {
+                if (useExpressiveDesign) {
+                    item("time-editor-expansion") {
+                        AppSettingsExpandableItem(
+                            title = stringResource(R.string.settings_exam_time_editor_title),
+                            summary = stringResource(R.string.settings_time_editor_summary),
+                            expanded = expandExamTimetableSettings,
+                            onClick = { expandExamTimetableSettings = !expandExamTimetableSettings }
                         )
                     }
-                    if (expandExamTimetableSettings && s?.enableExamTimetable != false) Surface(
-                        shape = MaterialTheme.shapes.medium,
-                        color = MaterialTheme.colorScheme.surfaceContainer,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Text(
-                                text = stringResource(R.string.desc_exam_timetable_settings),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            if (enabledAdvancedTimeSettingsUi) {
-                                AdvancedTimeBlocksEditor(
-                                    periodCountLabel = stringResource(R.string.label_exam_periods_per_day),
-                                    periodCount = advancedExamPeriodCount,
-                                    periodRanges = advancedExamPeriodRanges,
-                                    lunchRange = advancedExamLunchRange,
-                                    lunchAfterPeriod = advancedExamLunchAfterPeriod,
-                                    previewLunchAfterPeriod = previewExamLunchAfterPeriod,
-                                    periodLabelStyle = periodLabelStyle.forExamTimetable(),
-                                    arrivalHour = examArrivalHour,
-                                    arrivalMinute = examArrivalMinute,
-                                    departureHour = "",
-                                    departureMinute = "",
-                                    startLabel = stringResource(R.string.label_exam_arrival_time),
-                                    showEndPoint = false,
-                                    startPointOptional = false,
-                                    expandedItemKey = expandedAdvancedExamTimeItemKey,
-                                    isDraggingLunch = isDraggingExamLunch,
-                                    validationError = advancedExamTimeValidation.error,
-                                    onPeriodCountChange = { advancedExamPeriodCount = it },
-                                    onExpandedItemChange = { expandedAdvancedExamTimeItemKey = it },
-                                    onRangeChange = { periodIndex, isLunch, updated ->
-                                        if (isLunch) {
-                                            advancedExamLunchRange = updated
-                                        } else if (periodIndex != null) {
-                                            advancedExamPeriodRanges = advancedExamPeriodRanges.toMutableList().also {
-                                                it[periodIndex] = updated
-                                            }
+                }
+                if (expandExamTimetableSettings) {
+                    item("desc_exam_timetable_settings", contentPadding = PaddingValues(20.dp)) {
+                        Text(
+                            text = stringResource(R.string.desc_exam_timetable_settings),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (enabledAdvancedTimeSettingsUi) {
+                        item("label_exam_periods_per_day", contentPadding = PaddingValues(20.dp)) {
+                            AdvancedTimeBlocksEditor(
+                                periodCountLabel = stringResource(R.string.label_exam_periods_per_day),
+                                periodCount = advancedExamPeriodCount,
+                                periodRanges = advancedExamPeriodRanges,
+                                lunchRange = advancedExamLunchRange,
+                                lunchAfterPeriod = advancedExamLunchAfterPeriod,
+                                previewLunchAfterPeriod = previewExamLunchAfterPeriod,
+                                periodLabelStyle = periodLabelStyle.forExamTimetable(),
+                                arrivalHour = examArrivalHour,
+                                arrivalMinute = examArrivalMinute,
+                                departureHour = "",
+                                departureMinute = "",
+                                startLabel = stringResource(R.string.label_exam_arrival_time),
+                                showEndPoint = false,
+                                startPointOptional = false,
+                                expandedItemKey = expandedAdvancedExamTimeItemKey,
+                                isDraggingLunch = isDraggingExamLunch,
+                                validationError = advancedExamTimeValidation.error,
+                                onPeriodCountChange = { advancedExamPeriodCount = it },
+                                onExpandedItemChange = { expandedAdvancedExamTimeItemKey = it },
+                                onRangeChange = { periodIndex, isLunch, updated ->
+                                    if (isLunch) {
+                                        advancedExamLunchRange = updated
+                                    } else if (periodIndex != null) {
+                                        advancedExamPeriodRanges = advancedExamPeriodRanges.toMutableList().also {
+                                            it[periodIndex] = updated
                                         }
-                                    },
-                                    onPointChange = { key, updated ->
-                                        if (key == "start") {
-                                            examArrivalHour = updated.hour
-                                            examArrivalMinute = updated.minute
-                                        }
-                                    },
-                                    onLunchDragStart = {
-                                        expandedAdvancedExamTimeItemKey = null
-                                        isDraggingExamLunch = true
-                                        previewExamLunchAfterPeriod = advancedExamLunchAfterPeriod
-                                    },
-                                    onLunchDragPreview = { targetPosition ->
-                                        val targetCount = advancedExamPeriodCount.toIntOrNull()?.coerceIn(1, 12)
-                                            ?: advancedExamPeriodRanges.size
-                                        val nextPosition = targetPosition.coerceIn(0, targetCount)
-                                        previewExamLunchAfterPeriod = nextPosition
-                                        nextPosition
-                                    },
-                                    onLunchDragEnd = {
-                                        advancedExamLunchAfterPeriod = previewExamLunchAfterPeriod
-                                            ?: advancedExamLunchAfterPeriod
-                                        previewExamLunchAfterPeriod = null
-                                        isDraggingExamLunch = false
-                                    },
-                                    onLunchDragCancel = {
-                                        previewExamLunchAfterPeriod = null
-                                        isDraggingExamLunch = false
                                     }
-                                )
-                            } else {
+                                },
+                                onPointChange = { key, updated ->
+                                    if (key == "start") {
+                                        examArrivalHour = updated.hour
+                                        examArrivalMinute = updated.minute
+                                    }
+                                },
+                                onLunchDragStart = {
+                                    expandedAdvancedExamTimeItemKey = null
+                                    isDraggingExamLunch = true
+                                    previewExamLunchAfterPeriod = advancedExamLunchAfterPeriod
+                                },
+                                onLunchDragPreview = { targetPosition ->
+                                    val targetCount = advancedExamPeriodCount.toIntOrNull()?.coerceIn(1, 12)
+                                    ?: advancedExamPeriodRanges.size
+                                    val nextPosition = targetPosition.coerceIn(0, targetCount)
+                                    previewExamLunchAfterPeriod = nextPosition
+                                    nextPosition
+                                },
+                                onLunchDragEnd = {
+                                    advancedExamLunchAfterPeriod = previewExamLunchAfterPeriod
+                                    ?: advancedExamLunchAfterPeriod
+                                    previewExamLunchAfterPeriod = null
+                                    isDraggingExamLunch = false
+                                },
+                                onLunchDragCancel = {
+                                    previewExamLunchAfterPeriod = null
+                                    isDraggingExamLunch = false
+                                }
+                            )
+                        }
+                    } else {
+                        item("label_exam_arrival_time", contentPadding = PaddingValues(20.dp)) {
                             TimeSettingRow(
                                 label = stringResource(R.string.label_exam_arrival_time),
                                 hour = examArrivalHour,
@@ -1189,6 +1198,8 @@ fun SettingsScreen(
                                 onHourChange = { examArrivalHour = it },
                                 onMinuteChange = { examArrivalMinute = it }
                             )
+                        }
+                        item("label_exam_first_period_start", contentPadding = PaddingValues(20.dp)) {
                             TimeSettingRow(
                                 label = stringResource(R.string.label_exam_first_period_start),
                                 hour = examStartHour,
@@ -1196,48 +1207,60 @@ fun SettingsScreen(
                                 onHourChange = { examStartHour = it },
                                 onMinuteChange = { examStartMinute = it }
                             )
+                        }
+                        item("label_exam_periods_per_day", contentPadding = PaddingValues(20.dp)) {
                             NumberSettingRow(
                                 label = stringResource(R.string.label_exam_periods_per_day),
                                 value = examPeriodsPerDay,
                                 unit = stringResource(R.string.unit_period),
                                 onValueChange = { examPeriodsPerDay = it }
                             )
+                        }
+                        item("label_exam_period_duration", contentPadding = PaddingValues(20.dp)) {
                             NumberSettingRow(
                                 label = stringResource(R.string.label_exam_period_duration),
                                 value = examPeriodDurationMin,
                                 unit = stringResource(R.string.unit_minute),
                                 onValueChange = { examPeriodDurationMin = it }
                             )
+                        }
+                        item("label_exam_break_duration", contentPadding = PaddingValues(20.dp)) {
                             NumberSettingRow(
                                 label = stringResource(R.string.label_exam_break_duration),
                                 value = examBreakBetweenPeriodsMin,
                                 unit = stringResource(R.string.unit_minute),
                                 onValueChange = { examBreakBetweenPeriodsMin = it }
                             )
+                        }
+                        item("label_exam_lunch_duration", contentPadding = PaddingValues(20.dp)) {
                             NumberSettingRow(
                                 label = stringResource(R.string.label_exam_lunch_duration),
                                 value = examLunchBreakMin,
                                 unit = stringResource(R.string.unit_minute),
                                 onValueChange = { examLunchBreakMin = it }
                             )
+                        }
+                        item("label_exam_lunch_after", contentPadding = PaddingValues(20.dp)) {
                             NumberSettingRow(
                                 label = stringResource(R.string.label_exam_lunch_after),
                                 value = examLunchAfterPeriod,
                                 unit = stringResource(R.string.unit_after_period),
                                 onValueChange = { examLunchAfterPeriod = it }
                             )
+                        }
 
-                            val previewPeriods = examPeriodsPerDay.toIntOrNull()?.coerceIn(1, 12) ?: 4
-                            val previewSlots = generateClassSlots(
-                                periodsPerDay = previewPeriods,
-                                periodDurationMin = examPeriodDurationMin.toIntOrNull()?.coerceIn(10, 180) ?: 50,
-                                breakBetweenPeriodsMin = examBreakBetweenPeriodsMin.toIntOrNull()?.coerceIn(0, 120) ?: 20,
-                                lunchBreakMin = examLunchBreakMin.toIntOrNull()?.coerceIn(0, 180) ?: 50,
-                                firstPeriodStartHour = examStartHour.toIntOrNull()?.coerceIn(0, 23) ?: 8,
-                                firstPeriodStartMinute = examStartMinute.toIntOrNull()?.coerceIn(0, 59) ?: 50,
-                                periodLabelStyle = periodLabelStyle.forExamTimetable(),
-                                lunchAfterPeriod = examLunchAfterPeriod.toIntOrNull()?.coerceIn(0, previewPeriods) ?: 3
-                            )
+                        val previewPeriods = examPeriodsPerDay.toIntOrNull()?.coerceIn(1, 12) ?: 4
+                        val previewSlots = generateClassSlots(
+                            periodsPerDay = previewPeriods,
+                            periodDurationMin = examPeriodDurationMin.toIntOrNull()?.coerceIn(10, 180) ?: 50,
+                            breakBetweenPeriodsMin = examBreakBetweenPeriodsMin.toIntOrNull()?.coerceIn(0, 120) ?: 20,
+                            lunchBreakMin = examLunchBreakMin.toIntOrNull()?.coerceIn(0, 180) ?: 50,
+                            firstPeriodStartHour = examStartHour.toIntOrNull()?.coerceIn(0, 23) ?: 8,
+                            firstPeriodStartMinute = examStartMinute.toIntOrNull()?.coerceIn(0, 59) ?: 50,
+                            periodLabelStyle = periodLabelStyle.forExamTimetable(),
+                            lunchAfterPeriod = examLunchAfterPeriod.toIntOrNull()?.coerceIn(0, previewPeriods) ?: 3
+                        )
+                        item("Surface_9", contentPadding = PaddingValues(20.dp)) {
                             Surface(
                                 shape = MaterialTheme.shapes.medium,
                                 color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -1271,85 +1294,81 @@ fun SettingsScreen(
                                     }
                                 }
                             }
-                            }
-                            Text(
-                                text = stringResource(R.string.msg_settings_auto_save),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
                         }
                     }
-            }
+                    item("msg_settings_auto_save", contentPadding = PaddingValues(20.dp)) {
+                        Text(
+                            text = stringResource(R.string.msg_settings_auto_save),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
 
-            // ── 通知設定 ──────────────────────────────────────────
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = stringResource(R.string.section_notification_settings),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
 
-                Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    LessonStartNotificationSettingsContent(
-                        enabled = enabledLessonStartNotifications,
-                        notificationsEnabled = notificationsEnabled,
-                        promotedNotificationsEnabled = promotedNotificationsEnabled,
-                        liveUpdatesEnabled = enabledLessonStartLiveUpdates,
-                        liveUpdatesSupported = supportsLessonStartLiveUpdates,
-                        progressCountsDown = enabledLessonStartProgressCountsDown,
-                        liveUpdateEarlyMinutes = lessonStartLiveUpdateEarlyMinutes,
-                        chipMode = lessonStartChipMode,
-                        minutesBefore = lessonStartNotificationMinutesBefore,
-                        exclusions = state.lessonNotificationExclusions,
-                        subjectSuggestions = subjectSuggestions,
-                        subjectTeacherCandidates = subjectTeacherCandidates,
-                        onToggleEnabled = onToggleLessonStartNotifications,
-                        onOpenNotificationSettings = {
-                            val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                            context.startActivity(intent)
-                        },
-                        onOpenPromotedNotificationSettings = {
-                            val intent = if (Build.VERSION.SDK_INT >= 36) {
-                                Intent(Settings.ACTION_APP_NOTIFICATION_PROMOTION_SETTINGS)
-                                    .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                            } else {
-                                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                                    .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                            }
-                            context.startActivity(intent)
-                        },
-                        onToggleLiveUpdates = onToggleLessonStartNotificationLiveUpdates,
-                        onToggleProgressCountsDown = onToggleLessonStartNotificationProgressCountsDown,
-                        onUpdateLiveUpdateEarlyMinutes = onUpdateLessonStartNotificationLiveUpdateEarlyMinutes,
-                        onUpdateChipMode = onUpdateLessonStartNotificationChipMode,
-                        onMinutesBeforeChange = { lessonStartNotificationMinutesBefore = it },
-                        onAddExclusion = onAddLessonNotificationExclusion,
-                        onDeleteExclusion = onDeleteLessonNotificationExclusion
-                    )
                 }
             }
+        }
 
-            // ── 表示設定 ──────────────────────────────────────────
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = stringResource(R.string.section_display_settings),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
+        // ── 通知設定 ──────────────────────────────────────────
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            AppSettingsCategory(title = stringResource(R.string.section_notification_settings))
 
-                AppCard(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column {
-                        if (InternalFeatureFlags.MATERIAL_3_EXPRESSIVE) {
+            LessonStartNotificationSettingsContent(
+                enabled = enabledLessonStartNotifications,
+                notificationsEnabled = notificationsEnabled,
+                promotedNotificationsEnabled = promotedNotificationsEnabled,
+                liveUpdatesEnabled = enabledLessonStartLiveUpdates,
+                liveUpdatesSupported = supportsLessonStartLiveUpdates,
+                progressCountsDown = enabledLessonStartProgressCountsDown,
+                liveUpdateEarlyMinutes = lessonStartLiveUpdateEarlyMinutes,
+                chipMode = lessonStartChipMode,
+                minutesBefore = lessonStartNotificationMinutesBefore,
+                exclusions = state.lessonNotificationExclusions,
+                subjectSuggestions = subjectSuggestions,
+                subjectTeacherCandidates = subjectTeacherCandidates,
+                onToggleEnabled = onToggleLessonStartNotifications,
+                onOpenNotificationSettings = {
+                    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    context.startActivity(intent)
+                },
+                onOpenPromotedNotificationSettings = {
+                    val intent = if (Build.VERSION.SDK_INT >= 36) {
+                        Intent(Settings.ACTION_APP_NOTIFICATION_PROMOTION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    } else {
+                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    }
+                    context.startActivity(intent)
+                },
+                onToggleLiveUpdates = onToggleLessonStartNotificationLiveUpdates,
+                onToggleProgressCountsDown = onToggleLessonStartNotificationProgressCountsDown,
+                onUpdateLiveUpdateEarlyMinutes = onUpdateLessonStartNotificationLiveUpdateEarlyMinutes,
+                onUpdateChipMode = onUpdateLessonStartNotificationChipMode,
+                onMinutesBeforeChange = { lessonStartNotificationMinutesBefore = it },
+                onAddExclusion = onAddLessonNotificationExclusion,
+                onDeleteExclusion = onDeleteLessonNotificationExclusion
+            )
+        }
+
+        // ── 表示設定 ──────────────────────────────────────────
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            AppSettingsCategory(title = stringResource(R.string.section_display_settings))
+
+            AppSettingsGroup {
+                if (InternalFeatureFlags.MATERIAL_3_EXPRESSIVE) {
+                    item("label_ui_design") {
+                        if (useExpressiveDesign) {
+                            AppSettingsNavigationItem(
+                                title = stringResource(R.string.label_ui_design),
+                                summary = when (state.uiDesignMode) {
+                                    UiDesignMode.MATERIAL_3 -> stringResource(R.string.ui_design_material_3)
+                                    UiDesignMode.MATERIAL_3_EXPRESSIVE -> stringResource(R.string.ui_design_material_3_expressive_current)
+                                },
+                                onClick = { showUiDesignModeDialog = true }
+                            )
+                        } else {
                             AppListItem(
                                 headlineContent = {
                                     Text(
@@ -1361,339 +1380,327 @@ fun SettingsScreen(
                                     Text(
                                         text = when (state.uiDesignMode) {
                                             UiDesignMode.MATERIAL_3 ->
-                                                stringResource(R.string.ui_design_material_3)
+                                            stringResource(R.string.ui_design_material_3)
                                             UiDesignMode.MATERIAL_3_EXPRESSIVE ->
-                                                stringResource(R.string.ui_design_material_3_expressive_current)
+                                            stringResource(R.string.ui_design_material_3_expressive_current)
                                         }
                                     )
                                 },
                                 onClick = { showUiDesignModeDialog = true }
                             )
-                            HorizontalDivider()
                         }
-                        SettingsSwitchRow(
-                            title = stringResource(R.string.label_show_current_time_marker),
-                            description = stringResource(R.string.desc_show_current_time_marker),
-                            checked = enabledCurrentTimeMarker,
-                            onCheckedChange = onToggleCurrentTimeMarker
-                        )
-                        SettingsSwitchRow(
-                            title = stringResource(R.string.label_show_weekday_on_dates),
-                            description = stringResource(R.string.desc_show_weekday_on_dates),
-                            checked = enabledShowWeekdayOnDates,
-                            onCheckedChange = onToggleShowWeekdayOnDates
-                        )
+                    }
+                    standardOnly("HorizontalDivider_1") {
+                        HorizontalDivider()
                     }
                 }
+                item("label_show_current_time_marker") {
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.label_show_current_time_marker),
+                        description = stringResource(R.string.desc_show_current_time_marker),
+                        checked = enabledCurrentTimeMarker,
+                        onCheckedChange = onToggleCurrentTimeMarker
+                    )
+                }
+                item("label_show_weekday_on_dates") {
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.label_show_weekday_on_dates),
+                        description = stringResource(R.string.desc_show_weekday_on_dates),
+                        checked = enabledShowWeekdayOnDates,
+                        onCheckedChange = onToggleShowWeekdayOnDates
+                    )
+                }
+
             }
+        }
 
-            // ── カレンダー連携 ──────────────────────────────────────────
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = stringResource(R.string.section_task_plan_settings),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
+        // ── カレンダー連携 ──────────────────────────────────────────
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            AppSettingsCategory(title = stringResource(R.string.section_task_plan_settings))
 
-                Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column {
-                        SettingsSwitchRow(
-                            title = stringResource(R.string.label_add_tasks_to_calendar),
-                            description = stringResource(R.string.desc_add_tasks_to_calendar),
-                            checked = enabledTaskCalendarSync,
-                            onCheckedChange = onToggleAddTasksToCalendar
-                        )
-                        SettingsSwitchRow(
-                            title = stringResource(R.string.label_sync_lessons_to_calendar),
-                            description = stringResource(R.string.desc_sync_lessons_to_calendar),
-                            checked = enabledLessonCalendarSync,
-                            onCheckedChange = { enabled ->
-                                if (enabled) {
-                                    openLessonCalendarSyncWizard()
-                                } else {
-                                    onToggleSyncLessonsToCalendar(false)
-                                }
-                            }
-                        )
-                        if (enabledLessonCalendarSync) {
-                            Column(
-                                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.label_lesson_calendar_sync_period),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                LessonCalendarSyncDateRow(
-                                    label = stringResource(R.string.label_lesson_calendar_sync_start),
-                                    date = lessonCalendarSyncStart,
-                                    onClick = { lessonCalendarDatePickerTarget = "start" }
-                                )
-                                LessonCalendarSyncDateRow(
-                                    label = stringResource(R.string.label_lesson_calendar_sync_end),
-                                    date = lessonCalendarSyncEnd,
-                                    onClick = { lessonCalendarDatePickerTarget = "end" }
-                                )
+            AppSettingsGroup {
+                item("label_add_tasks_to_calendar") {
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.label_add_tasks_to_calendar),
+                        description = stringResource(R.string.desc_add_tasks_to_calendar),
+                        checked = enabledTaskCalendarSync,
+                        onCheckedChange = onToggleAddTasksToCalendar
+                    )
+                }
+                item("label_sync_lessons_to_calendar") {
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.label_sync_lessons_to_calendar),
+                        description = stringResource(R.string.desc_sync_lessons_to_calendar),
+                        checked = enabledLessonCalendarSync,
+                        onCheckedChange = { enabled ->
+                            if (enabled) {
+                                openLessonCalendarSyncWizard()
+                            } else {
+                                onToggleSyncLessonsToCalendar(false)
                             }
                         }
+                    )
+                }
+                if (enabledLessonCalendarSync) {
+                    item("label_lesson_calendar_sync_period", contentPadding = PaddingValues(20.dp)) {
                         Column(
-                            modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 16.dp)
+                            modifier = if (useExpressiveDesign) Modifier else Modifier.then(if (useExpressiveDesign) Modifier else Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp)),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            OutlinedButton(
-                                onClick = {
-                                    clearLessonCalendarEvents = true
-                                    clearDeadlineCalendarEvents = true
-                                    clearReminderCalendarEvents = true
-                                    showClearAppCalendarEventsDialog = true
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(stringResource(R.string.label_clear_app_calendar_events))
-                            }
+                            Text(
+                                text = stringResource(R.string.label_lesson_calendar_sync_period),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            LessonCalendarSyncDateRow(
+                                label = stringResource(R.string.label_lesson_calendar_sync_start),
+                                date = lessonCalendarSyncStart,
+                                onClick = { lessonCalendarDatePickerTarget = "start" }
+                            )
+                            LessonCalendarSyncDateRow(
+                                label = stringResource(R.string.label_lesson_calendar_sync_end),
+                                date = lessonCalendarSyncEnd,
+                                onClick = { lessonCalendarDatePickerTarget = "end" }
+                            )
                         }
                     }
                 }
-            }
-
-            // ── ナビゲーション設定 ──────────────────────────────────────────
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = stringResource(R.string.section_navigation_settings),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column {
-                        SettingsSwitchRow(
-                            title = stringResource(R.string.label_unify_task_plan_view),
-                            description = stringResource(R.string.desc_unify_task_plan_view),
-                            checked = enabledUnifyTaskPlanView,
-                            onCheckedChange = onToggleUnifyTaskPlanView
-                        )
-                    }
-                }
-            }
-
-            // ── 実験的機能 ──────────────────────────────────────────
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = stringResource(R.string.section_experimental),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column {
-                        SettingsSwitchRow(
-                            title = stringResource(R.string.label_use_hamburger_navigation),
-                            description = stringResource(R.string.desc_use_hamburger_navigation),
-                            checked = enabledDrawerNavigation,
-                            onCheckedChange = onToggleDrawerNavigation
-                        )
-                        SettingsSwitchRow(
-                            title = stringResource(R.string.label_advanced_time_settings_ui),
-                            description = stringResource(R.string.desc_advanced_time_settings_ui),
-                            checked = enabledAdvancedTimeSettingsUi,
-                            onCheckedChange = onToggleAdvancedTimeSettingsUi
-                        )
-                        SettingsSwitchRow(
-                            title = stringResource(R.string.label_local_ai_import),
-                            description = stringResource(R.string.desc_local_ai_import),
-                            checked = enabledLocalAi,
-                            onCheckedChange = { checked ->
-                                if (checked) {
-                                    showLocalAiWarningDialog = true
-                                } else {
-                                    onToggleLocalAi(false)
-                                }
-                            }
-                        )
-                        if (InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD) {
-                            SettingsSwitchRow(
-                                title = stringResource(R.string.label_natural_language_task_add),
-                                description = stringResource(R.string.desc_natural_language_task_add),
-                                checked = enabledNaturalLanguageTaskAdd,
-                                onCheckedChange = onToggleNaturalLanguageTaskAdd
-                            )
-                        }
-
-                        if (isIntDev) {
-                            SettingsSwitchRow(
-                                title = stringResource(R.string.label_disable_tutorial_first_time_check_for_testing),
-                                description = stringResource(R.string.desc_disable_tutorial_first_time_check_for_testing),
-                                checked = tutorialFirstTimeCheckDisabledForTesting,
-                                onCheckedChange = onToggleTutorialFirstTimeCheckDisabledForTesting
-                            )
-                            SettingsSwitchRow(
-                                title = stringResource(R.string.label_update_show_latest_for_testing),
-                                description = stringResource(R.string.desc_update_show_latest_for_testing),
-                                checked = showLatestReleaseForTesting,
-                                onCheckedChange = { enabled ->
-                                    showLatestReleaseForTesting = enabled
-                                    setShowLatestReleaseForTestingEnabled(context, currentVersionName, enabled)
-                                }
-                            )
-                            OutlinedTextField(
-                                value = updateCurrentVersionOverrideForTesting,
-                                onValueChange = { value ->
-                                    updateCurrentVersionOverrideForTesting = value
-                                    setUpdateCurrentVersionOverrideForTesting(
-                                        context,
-                                        currentVersionName,
-                                        value
-                                    )
-                                },
-                                label = { Text(stringResource(R.string.label_update_current_version_override_for_testing)) },
-                                supportingText = {
-                                    Text(
-                                        stringResource(
-                                            R.string.desc_update_current_version_override_for_testing,
-                                            currentVersionName
-                                        )
-                                    )
-                                },
-                                singleLine = true,
-                                placeholder = { Text(currentVersionName) },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
-                            )
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
-                                horizontalArrangement = Arrangement.End
-                            ) {
-                                OutlinedButton(
-                                    onClick = {
-                                        clearDismissedUpdateNotification(context)
-                                        Toast.makeText(
-                                            context,
-                                            resources.getString(R.string.msg_update_dismiss_reset),
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
-                                ) {
-                                    Text(stringResource(R.string.btn_reset_update_dismiss))
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ── 設定データの移行 ───────────────────────────────────────
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = stringResource(R.string.section_data_transfer),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-                Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                item("label_clear_app_calendar_events", contentPadding = PaddingValues(20.dp)) {
                     Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        modifier = if (useExpressiveDesign) Modifier else Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 16.dp)
                     ) {
-                        Text(
-                            stringResource(R.string.desc_data_transfer),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        OutlinedButton(
+                            onClick = {
+                                clearLessonCalendarEvents = true
+                                clearDeadlineCalendarEvents = true
+                                clearReminderCalendarEvents = true
+                                showClearAppCalendarEventsDialog = true
+                            },
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Button(
-                                onClick = {
-                                    scope.launch {
-                                        runCatching {
-                                            val stamp = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
-                                                .format(LocalDateTime.now())
-                                            val filename = "nittcsc_settings_${stamp}.json"
-                                            val json = onExportAllAsJson()
-                                            val exportFile = withContext(Dispatchers.IO) {
-                                                File(context.cacheDir, filename).apply {
-                                                    writeText(json)
-                                                }
-                                            }
-                                            val uri = FileProvider.getUriForFile(
-                                                context,
-                                                "${context.packageName}.provider",
-                                                exportFile
-                                            )
-                                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                                type = "application/json"
-                                                putExtra(Intent.EXTRA_STREAM, uri)
-                                                putExtra(Intent.EXTRA_SUBJECT, filename)
-                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                            }
-                                            context.startActivity(
-                                                Intent.createChooser(
-                                                    shareIntent,
-                                                    resources.getString(R.string.btn_export_json)
-                                                )
-                                            )
-                                        }.onSuccess {
-                                            Toast.makeText(context, resources.getString(R.string.msg_export_success), Toast.LENGTH_SHORT).show()
-                                        }.onFailure {
-                                            Toast.makeText(context, resources.getString(R.string.msg_export_failed), Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text(stringResource(R.string.btn_export_json))
+                            Text(stringResource(R.string.label_clear_app_calendar_events))
+                        }
+                    }
+                }
+
+            }
+        }
+
+        // ── ナビゲーション設定 ──────────────────────────────────────────
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            AppSettingsCategory(title = stringResource(R.string.section_navigation_settings))
+
+            AppSettingsGroup {
+                item("label_unify_task_plan_view") {
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.label_unify_task_plan_view),
+                        description = stringResource(R.string.desc_unify_task_plan_view),
+                        checked = enabledUnifyTaskPlanView,
+                        onCheckedChange = onToggleUnifyTaskPlanView
+                    )
+                }
+
+            }
+        }
+
+        // ── 実験的機能 ──────────────────────────────────────────
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            AppSettingsCategory(title = stringResource(R.string.section_experimental))
+
+            AppSettingsGroup {
+                item("label_use_hamburger_navigation") {
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.label_use_hamburger_navigation),
+                        description = stringResource(R.string.desc_use_hamburger_navigation),
+                        checked = enabledDrawerNavigation,
+                        onCheckedChange = onToggleDrawerNavigation
+                    )
+                }
+                item("label_advanced_time_settings_ui") {
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.label_advanced_time_settings_ui),
+                        description = stringResource(R.string.desc_advanced_time_settings_ui),
+                        checked = enabledAdvancedTimeSettingsUi,
+                        onCheckedChange = onToggleAdvancedTimeSettingsUi
+                    )
+                }
+                item("label_local_ai_import") {
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.label_local_ai_import),
+                        description = stringResource(R.string.desc_local_ai_import),
+                        checked = enabledLocalAi,
+                        onCheckedChange = { checked ->
+                            if (checked) {
+                                showLocalAiWarningDialog = true
+                            } else {
+                                onToggleLocalAi(false)
                             }
+                        }
+                    )
+                }
+                if (InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD) {
+                    item("label_natural_language_task_add") {
+                        SettingsSwitchRow(
+                            title = stringResource(R.string.label_natural_language_task_add),
+                            description = stringResource(R.string.desc_natural_language_task_add),
+                            checked = enabledNaturalLanguageTaskAdd,
+                            onCheckedChange = onToggleNaturalLanguageTaskAdd
+                        )
+                    }
+                }
+
+                if (isIntDev) {
+                    item("label_disable_tutorial_first_time_check_for_testing") {
+                        SettingsSwitchRow(
+                            title = stringResource(R.string.label_disable_tutorial_first_time_check_for_testing),
+                            description = stringResource(R.string.desc_disable_tutorial_first_time_check_for_testing),
+                            checked = tutorialFirstTimeCheckDisabledForTesting,
+                            onCheckedChange = onToggleTutorialFirstTimeCheckDisabledForTesting
+                        )
+                    }
+                    item("label_update_show_latest_for_testing") {
+                        SettingsSwitchRow(
+                            title = stringResource(R.string.label_update_show_latest_for_testing),
+                            description = stringResource(R.string.desc_update_show_latest_for_testing),
+                            checked = showLatestReleaseForTesting,
+                            onCheckedChange = { enabled ->
+                                showLatestReleaseForTesting = enabled
+                                setShowLatestReleaseForTestingEnabled(context, currentVersionName, enabled)
+                            }
+                        )
+                    }
+                    item("label_update_current_version_override_for_testing", contentPadding = PaddingValues(20.dp)) {
+                        OutlinedTextField(
+                            value = updateCurrentVersionOverrideForTesting,
+                            onValueChange = { value ->
+                                updateCurrentVersionOverrideForTesting = value
+                                setUpdateCurrentVersionOverrideForTesting(
+                                    context,
+                                    currentVersionName,
+                                    value
+                                )
+                            },
+                            label = { Text(stringResource(R.string.label_update_current_version_override_for_testing)) },
+                            supportingText = {
+                                Text(
+                                    stringResource(
+                                        R.string.desc_update_current_version_override_for_testing,
+                                        currentVersionName
+                                    )
+                                )
+                            },
+                            singleLine = true,
+                            placeholder = { Text(currentVersionName) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(if (useExpressiveDesign) Modifier else Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp))
+                        )
+                    }
+                    item("msg_update_dismiss_reset", contentPadding = PaddingValues(20.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(if (useExpressiveDesign) Modifier else Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp)),
+                            horizontalArrangement = Arrangement.End
+                        ) {
                             OutlinedButton(
                                 onClick = {
-                                    importJsonLauncher.launch(arrayOf("application/json", "text/plain"))
-                                },
-                                modifier = Modifier.weight(1f)
+                                    clearDismissedUpdateNotification(context)
+                                    Toast.makeText(
+                                        context,
+                                        resources.getString(R.string.msg_update_dismiss_reset),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
                             ) {
-                                Text(stringResource(R.string.btn_import_json))
+                                Text(stringResource(R.string.btn_reset_update_dismiss))
                             }
                         }
                     }
                 }
-            }
 
-            // ── このアプリについて ──────────────────────────────────────
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = stringResource(R.string.about_section_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-                SettingsNavigationCard(
-                    title = stringResource(R.string.about_section_title),
-                    description = stringResource(R.string.about_section_help),
-                    onClick = onAbout
-                )
             }
+        }
+
+        // ── 設定データの移行 ───────────────────────────────────────
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            AppSettingsCategory(title = stringResource(R.string.section_data_transfer))
+            AppSettingsGroup(standardContentPadding = PaddingValues(16.dp), standardSpacing = 12.dp) {
+                item("desc_data_transfer", contentPadding = PaddingValues(20.dp)) {
+                    Text(
+                        stringResource(R.string.desc_data_transfer),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                item("btn_export_json", contentPadding = PaddingValues(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    runCatching {
+                                        val stamp = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
+                                            .format(LocalDateTime.now())
+                                        val filename = "nittcsc_settings_${stamp}.json"
+                                        val json = onExportAllAsJson()
+                                        val exportFile = withContext(Dispatchers.IO) {
+                                            File(context.cacheDir, filename).apply {
+                                                writeText(json)
+                                            }
+                                        }
+                                        val uri = FileProvider.getUriForFile(
+                                            context,
+                                            "${context.packageName}.provider",
+                                            exportFile
+                                        )
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "application/json"
+                                            putExtra(Intent.EXTRA_STREAM, uri)
+                                            putExtra(Intent.EXTRA_SUBJECT, filename)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        context.startActivity(
+                                            Intent.createChooser(
+                                                shareIntent,
+                                                resources.getString(R.string.btn_export_json)
+                                            )
+                                        )
+                                    }.onSuccess {
+                                        Toast.makeText(context, resources.getString(R.string.msg_export_success), Toast.LENGTH_SHORT).show()
+                                    }.onFailure {
+                                        Toast.makeText(context, resources.getString(R.string.msg_export_failed), Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(stringResource(R.string.btn_export_json))
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                importJsonLauncher.launch(arrayOf("application/json", "text/plain"))
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(stringResource(R.string.btn_import_json))
+                        }
+                    }
+                }
+
             }
+        }
+
+        // ── このアプリについて ──────────────────────────────────────
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            AppSettingsCategory(title = stringResource(R.string.about_section_title))
+            SettingsNavigationCard(
+                title = stringResource(R.string.about_section_title),
+                description = stringResource(R.string.about_section_help),
+                onClick = onAbout
+            )
         }
     }
 
@@ -2294,509 +2301,6 @@ private fun TimePartField(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun LessonStartNotificationSettingsContent(
-    enabled: Boolean,
-    notificationsEnabled: Boolean,
-    promotedNotificationsEnabled: Boolean,
-    liveUpdatesEnabled: Boolean,
-    liveUpdatesSupported: Boolean,
-    progressCountsDown: Boolean,
-    liveUpdateEarlyMinutes: Int,
-    chipMode: LessonStartNotificationChipMode,
-    minutesBefore: String,
-    exclusions: List<LessonNotificationExclusionEntity>,
-    subjectSuggestions: List<String>,
-    subjectTeacherCandidates: Map<String, List<String>>,
-    onToggleEnabled: (Boolean) -> Unit,
-    onOpenNotificationSettings: () -> Unit,
-    onOpenPromotedNotificationSettings: () -> Unit,
-    onToggleLiveUpdates: (Boolean) -> Unit,
-    onToggleProgressCountsDown: (Boolean) -> Unit,
-    onUpdateLiveUpdateEarlyMinutes: (Int) -> Unit,
-    onUpdateChipMode: (LessonStartNotificationChipMode) -> Unit,
-    onMinutesBeforeChange: (String) -> Unit,
-    onAddExclusion: (String, String?, Boolean) -> Unit,
-    onDeleteExclusion: (LessonNotificationExclusionEntity) -> Unit
-) {
-    var subject by remember { mutableStateOf("") }
-    var teacher by remember { mutableStateOf("") }
-    var matchTeacher by remember { mutableStateOf(false) }
-    var showSubjectSuggestions by remember { mutableStateOf(false) }
-    var showLiveUpdateEarlyMinutesMenu by remember { mutableStateOf(false) }
-    var showLiveUpdateDisplayDetails by rememberSaveable { mutableStateOf(false) }
-
-    val filteredSubjectSuggestions = remember(subject, subjectSuggestions) {
-        val query = subject.trim()
-        subjectSuggestions
-            .asSequence()
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .filter { query.isBlank() || it.contains(query, ignoreCase = true) }
-            .distinct()
-            .sorted()
-            .take(8)
-            .toList()
-    }
-    val teacherCandidates = remember(subject, subjectTeacherCandidates) {
-        val key = subject.trim()
-        if (key.isBlank()) emptyList()
-        else subjectTeacherCandidates.entries
-            .firstOrNull { it.key.equals(key, ignoreCase = true) }
-            ?.value.orEmpty()
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .distinct()
-            .sorted()
-    }
-    val canAdd = subject.trim().isNotBlank()
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .animateContentSize()
-    ) {
-        SettingsSwitchRow(
-            title = stringResource(R.string.label_lesson_start_notification),
-            description = stringResource(R.string.desc_lesson_start_notification),
-            checked = enabled,
-            onCheckedChange = onToggleEnabled
-        )
-
-        if (enabled) {
-            Column(
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                NumberSettingRow(
-                    label = stringResource(R.string.label_lesson_start_notification_minutes),
-                    value = minutesBefore,
-                    unit = stringResource(R.string.unit_minutes_before),
-                    onValueChange = { onMinutesBeforeChange(it.filter { c -> c.isDigit() }.take(3)) }
-                )
-
-                if (!notificationsEnabled) {
-                    Surface(
-                        shape = MaterialTheme.shapes.medium,
-                        color = MaterialTheme.colorScheme.errorContainer,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.WarningAmber,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onErrorContainer
-                                )
-                                Text(
-                                    text = stringResource(R.string.warning_notifications_disabled),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                            OutlinedButton(onClick = onOpenNotificationSettings) {
-                                Text(stringResource(R.string.btn_open_notification_settings))
-                            }
-                        }
-                    }
-                }
-
-                if (liveUpdatesEnabled && liveUpdatesSupported && !promotedNotificationsEnabled) {
-                    Surface(
-                        shape = MaterialTheme.shapes.medium,
-                        color = MaterialTheme.colorScheme.errorContainer,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.WarningAmber,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onErrorContainer
-                                )
-                                Text(
-                                    text = stringResource(R.string.warning_promoted_notifications_disabled),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                            OutlinedButton(onClick = onOpenPromotedNotificationSettings) {
-                                Text(stringResource(R.string.btn_open_live_updates_settings))
-                            }
-                        }
-                    }
-                }
-
-                Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.surface,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column {
-                        SettingsSwitchRow(
-                            title = stringResource(R.string.label_lesson_start_live_updates),
-                            description = if (liveUpdatesSupported) {
-                                stringResource(R.string.desc_lesson_start_live_updates)
-                            } else {
-                                stringResource(R.string.desc_lesson_start_live_updates_unavailable)
-                            },
-                            checked = liveUpdatesEnabled,
-                            enabled = liveUpdatesSupported,
-                            onCheckedChange = onToggleLiveUpdates
-                        )
-
-                        if (liveUpdatesEnabled && liveUpdatesSupported) {
-                            Column(
-                                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(
-                                        text = stringResource(R.string.desc_lesson_start_live_update_early_minutes),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    ExposedDropdownMenuBox(
-                                        expanded = showLiveUpdateEarlyMinutesMenu,
-                                        onExpandedChange = {
-                                            showLiveUpdateEarlyMinutesMenu = !showLiveUpdateEarlyMinutesMenu
-                                        },
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        OutlinedTextField(
-                                            value = if (liveUpdateEarlyMinutes == 0) {
-                                                stringResource(R.string.lesson_start_live_update_early_none)
-                                            } else {
-                                                stringResource(
-                                                    R.string.lesson_start_live_update_early_value,
-                                                    liveUpdateEarlyMinutes
-                                                )
-                                            },
-                                            onValueChange = {},
-                                            readOnly = true,
-                                            label = {
-                                                Text(stringResource(R.string.label_lesson_start_live_update_early_minutes))
-                                            },
-                                            trailingIcon = {
-                                                ExposedDropdownMenuDefaults.TrailingIcon(
-                                                    expanded = showLiveUpdateEarlyMinutesMenu
-                                                )
-                                            },
-                                            modifier = Modifier
-                                                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
-                                                .fillMaxWidth()
-                                        )
-                                        ExposedDropdownMenu(
-                                            expanded = showLiveUpdateEarlyMinutesMenu,
-                                            onDismissRequest = { showLiveUpdateEarlyMinutesMenu = false }
-                                        ) {
-                                            listOf(0, 1, 2, 3, 5).forEach { minutes ->
-                                                DropdownMenuItem(
-                                                    text = {
-                                                        Text(
-                                                            if (minutes == 0) {
-                                                                stringResource(R.string.lesson_start_live_update_early_none)
-                                                            } else {
-                                                                stringResource(
-                                                                    R.string.lesson_start_live_update_early_value,
-                                                                    minutes
-                                                                )
-                                                            }
-                                                        )
-                                                    },
-                                                    onClick = {
-                                                        showLiveUpdateEarlyMinutesMenu = false
-                                                        onUpdateLiveUpdateEarlyMinutes(minutes)
-                                                    }
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-
-                                Surface(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            showLiveUpdateDisplayDetails = !showLiveUpdateDisplayDetails
-                                        },
-                                    shape = MaterialTheme.shapes.medium,
-                                    color = MaterialTheme.colorScheme.surfaceContainerLow,
-                                    tonalElevation = 0.dp,
-                                    border = androidx.compose.foundation.BorderStroke(
-                                        1.dp,
-                                        MaterialTheme.colorScheme.outlineVariant
-                                    )
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = stringResource(R.string.label_lesson_start_live_update_display_details),
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                            Text(
-                                                text = stringResource(R.string.desc_lesson_start_live_update_display_details),
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        Icon(
-                                            imageVector = if (showLiveUpdateDisplayDetails) {
-                                                Icons.Filled.ExpandLess
-                                            } else {
-                                                Icons.Filled.ExpandMore
-                                            },
-                                            contentDescription = null
-                                        )
-                                    }
-                                }
-
-                                if (showLiveUpdateDisplayDetails) {
-                                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            Text(
-                                                text = stringResource(R.string.label_lesson_start_progress_direction),
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                            LessonStartRadioOptionRow(
-                                                selected = !progressCountsDown,
-                                                title = stringResource(R.string.label_lesson_start_progress_increasing),
-                                                description = stringResource(R.string.desc_lesson_start_progress_increasing),
-                                                onClick = { onToggleProgressCountsDown(false) }
-                                            )
-                                            LessonStartRadioOptionRow(
-                                                selected = progressCountsDown,
-                                                title = stringResource(R.string.label_lesson_start_progress_decreasing),
-                                                description = stringResource(R.string.desc_lesson_start_progress_decreasing),
-                                                onClick = { onToggleProgressCountsDown(true) }
-                                            )
-                                        }
-
-                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            Text(
-                                                text = stringResource(R.string.label_lesson_start_chip_mode),
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                            LessonStartRadioOptionRow(
-                                                selected = chipMode == LessonStartNotificationChipMode.CHRONOMETER,
-                                                title = stringResource(R.string.label_lesson_start_chip_mode_chronometer),
-                                                description = stringResource(R.string.desc_lesson_start_chip_mode_chronometer),
-                                                onClick = {
-                                                    onUpdateChipMode(LessonStartNotificationChipMode.CHRONOMETER)
-                                                }
-                                            )
-                                            LessonStartRadioOptionRow(
-                                                selected = chipMode == LessonStartNotificationChipMode.MINUTE_TEXT,
-                                                title = stringResource(R.string.label_lesson_start_chip_mode_minute_text),
-                                                description = stringResource(R.string.desc_lesson_start_chip_mode_minute_text),
-                                                onClick = {
-                                                    onUpdateChipMode(LessonStartNotificationChipMode.MINUTE_TEXT)
-                                                }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                HorizontalDivider()
-
-                Text(
-                    text = stringResource(R.string.label_lesson_start_notification_exclusions),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = stringResource(R.string.desc_lesson_start_notification_exclusions),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedTextField(
-                        value = subject,
-                        onValueChange = {
-                            subject = it
-                            showSubjectSuggestions = false
-                        },
-                        label = { Text(stringResource(R.string.label_task_subject)) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        trailingIcon = {
-                            if (filteredSubjectSuggestions.isNotEmpty()) {
-                                IconButton(onClick = { showSubjectSuggestions = true }) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Search,
-                                        contentDescription = stringResource(R.string.label_task_subject)
-                                    )
-                                }
-                            }
-                        }
-                    )
-                    DropdownMenu(
-                        expanded = showSubjectSuggestions && filteredSubjectSuggestions.isNotEmpty(),
-                        onDismissRequest = { showSubjectSuggestions = false },
-                        modifier = Modifier.fillMaxWidth(0.95f)
-                    ) {
-                        filteredSubjectSuggestions.forEach { candidate ->
-                            DropdownMenuItem(
-                                text = { Text(candidate) },
-                                onClick = {
-                                    subject = candidate
-                                    showSubjectSuggestions = false
-                                    val candidates = subjectTeacherCandidates[candidate].orEmpty()
-                                    if (candidates.size == 1) {
-                                        teacher = candidates.first()
-                                    }
-                                }
-                            )
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            matchTeacher = !matchTeacher
-                        },
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(
-                        checked = matchTeacher,
-                        onCheckedChange = { checked -> matchTeacher = checked }
-                    )
-                    Column {
-                        Text(
-                            text = stringResource(R.string.label_lesson_start_notification_match_teacher),
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Text(
-                            text = stringResource(R.string.desc_lesson_start_notification_match_teacher),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                if (matchTeacher) {
-                    OutlinedTextField(
-                        value = teacher,
-                        onValueChange = { teacher = it },
-                        label = { Text(stringResource(R.string.label_task_teacher)) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    if (teacherCandidates.isNotEmpty()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            teacherCandidates.take(4).forEach { candidate ->
-                                Surface(
-                                    shape = MaterialTheme.shapes.small,
-                                    color = MaterialTheme.colorScheme.secondaryContainer,
-                                    modifier = Modifier.clickable { teacher = candidate }
-                                ) {
-                                    Text(
-                                        text = candidate,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Button(
-                    onClick = {
-                        onAddExclusion(
-                            subject.trim(),
-                            teacher.trim().takeIf { it.isNotBlank() },
-                            matchTeacher && teacher.trim().isNotBlank()
-                        )
-                        subject = ""
-                        teacher = ""
-                        matchTeacher = false
-                    },
-                    enabled = canAdd,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(stringResource(R.string.btn_add_lesson_start_notification_exclusion))
-                }
-
-                if (exclusions.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.msg_no_lesson_start_notification_exclusions),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        exclusions.forEach { exclusion ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = exclusion.subject,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    if (exclusion.matchTeacher && !exclusion.teacher.isNullOrBlank()) {
-                                        Text(
-                                            text = stringResource(
-                                                R.string.label_lesson_start_notification_exclusion_teacher,
-                                                exclusion.teacher
-                                            ),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                                TextButton(onClick = { onDeleteExclusion(exclusion) }) {
-                                    Text(stringResource(R.string.btn_delete))
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 private fun defaultLessonCalendarSyncRange(
     today: LocalDate,
     termStart: LocalDate,
@@ -2833,38 +2337,6 @@ private fun defaultLessonCalendarSyncRange(
     }?.first ?: normalizedTermEnd
 
     return minOf(start, end) to maxOf(start, end)
-}
-
-@Composable
-private fun LessonStartRadioOptionRow(
-    selected: Boolean,
-    title: String,
-    description: String,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        RadioButton(
-            selected = selected,
-            onClick = onClick
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
 }
 
 @Composable
@@ -2940,103 +2412,6 @@ private fun UiDesignModeOptionRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-        }
-    }
-}
-
-@Composable
-internal fun SettingsSwitchRow(
-    title: String,
-    description: String,
-    checked: Boolean,
-    enabled: Boolean = true,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        AppSwitch(
-            checked = checked,
-            enabled = enabled,
-            onCheckedChange = onCheckedChange
-        )
-    }
-}
-
-@Composable
-private fun NumberSettingRow(
-    label: String,
-    value: String,
-    unit: String,
-    onValueChange: (String) -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedTextField(
-                value = value,
-                onValueChange = { onValueChange(it.filter { c -> c.isDigit() }.take(3)) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.width(96.dp)
-            )
-            Text(unit, style = MaterialTheme.typography.bodyMedium)
-        }
-    }
-}
-
-@Composable
-private fun TimeSettingRow(
-    label: String,
-    hour: String,
-    minute: String,
-    onHourChange: (String) -> Unit,
-    onMinuteChange: (String) -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            OutlinedTextField(
-                value = hour,
-                onValueChange = { onHourChange(it.filter { c -> c.isDigit() }.take(2)) },
-                label = { Text(stringResource(R.string.label_hour)) },
-                placeholder = { Text(stringResource(R.string.placeholder_time)) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.width(72.dp)
-            )
-            Text(":", style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(
-                value = minute,
-                onValueChange = { onMinuteChange(it.filter { c -> c.isDigit() }.take(2)) },
-                label = { Text(stringResource(R.string.label_minute)) },
-                placeholder = { Text(stringResource(R.string.placeholder_time)) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.width(72.dp)
-            )
         }
     }
 }

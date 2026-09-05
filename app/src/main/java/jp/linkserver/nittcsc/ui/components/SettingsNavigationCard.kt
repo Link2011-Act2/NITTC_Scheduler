@@ -14,6 +14,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import jp.linkserver.nittcsc.data.UiDesignMode
+import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
 
 @Composable
 internal fun SettingsNavigationCard(
@@ -22,6 +24,10 @@ internal fun SettingsNavigationCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+        AppSettingsNavigationItem(title, description, onClick, modifier)
+        return
+    }
     AppCard(modifier = modifier.fillMaxWidth(), onClick = onClick) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
