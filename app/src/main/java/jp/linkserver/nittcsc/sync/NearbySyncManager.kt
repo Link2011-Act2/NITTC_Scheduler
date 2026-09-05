@@ -15,7 +15,11 @@ import com.google.android.gms.nearby.connection.PayloadCallback
 import com.google.android.gms.nearby.connection.PayloadTransferUpdate
 import com.google.android.gms.nearby.connection.Strategy
 import jp.linkserver.nittcsc.R
+import jp.linkserver.nittcsc.data.CURRENT_SYNC_PROTOCOL_VERSION
 import jp.linkserver.nittcsc.data.SchedulerRepository
+import jp.linkserver.nittcsc.data.SYNC_PROTOCOL_VERSION_KEY
+import jp.linkserver.nittcsc.data.requireCompatibleSyncProtocols
+import jp.linkserver.nittcsc.data.requireCurrentSyncProtocol
 import jp.linkserver.nittcsc.sync.SyncChoice
 import jp.linkserver.nittcsc.sync.SyncConflict
 import kotlinx.coroutines.CoroutineScope
@@ -66,6 +70,7 @@ class NearbySyncManager(
     companion object {
         private const val SERVICE_ID = "jp.linkserver.nittcsc.nearby_sync"
         private val STRATEGY = Strategy.P2P_CLUSTER
+        private const val MESSAGE_TYPE_HANDSHAKE = "sync_handshake"
         private const val MESSAGE_TYPE_SYNC = "sync"
         private const val MESSAGE_TYPE_VERIFY = "sync_verify"
         private const val MESSAGE_TYPE_MERGED = "sync_merged"
@@ -297,6 +302,22 @@ class NearbySyncManager(
     private suspend fun performSync(endpointId: String) {
         try {
             val isInitiator = endpointInitiatorMap[endpointId] == true
+            val handshakeOutgoing = JSONObject()
+                .put("type", MESSAGE_TYPE_HANDSHAKE)
+                .put(SYNC_PROTOCOL_VERSION_KEY, CURRENT_SYNC_PROTOCOL_VERSION)
+            connectionsClient.sendPayload(
+                endpointId,
+                Payload.fromBytes(handshakeOutgoing.toString().toByteArray(Charsets.UTF_8))
+            )
+
+            val handshakeIncoming = withTimeoutOrNull(20_000L) {
+                receivedPayloadChannel.receive()
+            } ?: throw Exception("タイムアウト: 相手の同期バージョンを確認できませんでした。")
+            requireCurrentSyncProtocol(handshakeIncoming)
+            if (handshakeIncoming.optString("type") != MESSAGE_TYPE_HANDSHAKE) {
+                throw Exception("不正な同期開始データを受信しました。")
+            }
+
             val localPayload = withContext(Dispatchers.IO) { repository.exportSyncPayload() }
             val outgoing = JSONObject()
                 .put("type", MESSAGE_TYPE_SYNC)
@@ -468,6 +489,7 @@ class NearbySyncManager(
     )
 
     private fun detectNearbyConflicts(local: JSONObject, remote: JSONObject): List<SyncConflict> {
+        requireCompatibleSyncProtocols(local, remote)
         val localDeviceName = local.getJSONObject("device").optString("deviceName", "この端末")
         val remoteDeviceName = remote.getJSONObject("device").optString("deviceName", "相手端末")
         val localMeta = local.getJSONObject("metadata")
@@ -511,6 +533,7 @@ class NearbySyncManager(
         remote: JSONObject,
         resolutions: Map<String, SyncChoice> = emptyMap()
     ): JSONObject {
+        requireCompatibleSyncProtocols(local, remote)
         val merged = JSONObject(local.toString())
         val localMeta = local.getJSONObject("metadata")
         val remoteMeta = remote.getJSONObject("metadata")

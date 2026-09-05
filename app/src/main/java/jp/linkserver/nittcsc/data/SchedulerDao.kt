@@ -160,14 +160,25 @@ interface SchedulerDao {
     @Delete
     suspend fun deleteLongBreak(longBreak: LongBreakEntity)
 
-    @Query("SELECT * FROM lessons ORDER BY dayOfWeek, slotIndex")
+    @Query("SELECT * FROM lessons ORDER BY academicYear, timetableTerm, dayOfWeek, slotIndex")
     fun observeLessons(): Flow<List<LessonEntity>>
 
-    @Query("SELECT * FROM lessons ORDER BY dayOfWeek, slotIndex")
+    @Query("SELECT * FROM lessons ORDER BY academicYear, timetableTerm, dayOfWeek, slotIndex")
     suspend fun getLessonsOnce(): List<LessonEntity>
 
-    @Query("SELECT * FROM lessons WHERE dayOfWeek = :dayOfWeek AND slotIndex = :slotIndex LIMIT 1")
-    suspend fun getLesson(dayOfWeek: Int, slotIndex: Int): LessonEntity?
+    @Query("SELECT * FROM lessons WHERE academicYear = :academicYear AND timetableTerm = :timetableTerm AND dayOfWeek = :dayOfWeek AND slotIndex = :slotIndex LIMIT 1")
+    suspend fun getLesson(
+        academicYear: Int,
+        timetableTerm: jp.linkserver.nittcsc.logic.TimetableTerm,
+        dayOfWeek: Int,
+        slotIndex: Int
+    ): LessonEntity?
+
+    @Query("SELECT COUNT(*) FROM lessons WHERE academicYear = :academicYear AND timetableTerm = :timetableTerm")
+    suspend fun countLessons(
+        academicYear: Int,
+        timetableTerm: jp.linkserver.nittcsc.logic.TimetableTerm
+    ): Int
 
     @Upsert
     suspend fun upsertLesson(lesson: LessonEntity)

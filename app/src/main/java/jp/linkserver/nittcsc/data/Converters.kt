@@ -2,6 +2,7 @@ package jp.linkserver.nittcsc.data
 
 import androidx.room.TypeConverter
 import jp.linkserver.nittcsc.logic.PeriodLabelStyle
+import jp.linkserver.nittcsc.logic.TimetableTerm
 import java.time.LocalDate
 
 class Converters {
@@ -28,6 +29,13 @@ class Converters {
 
     @TypeConverter
     fun toLessonMode(value: String): LessonMode = LessonMode.valueOf(value)
+
+    @TypeConverter
+    fun fromTimetableTerm(value: TimetableTerm): String = value.name
+
+    @TypeConverter
+    fun toTimetableTerm(value: String): TimetableTerm =
+        runCatching { TimetableTerm.valueOf(value) }.getOrDefault(TimetableTerm.FIRST)
 
     @TypeConverter
     fun fromLessonStartNotificationChipMode(value: LessonStartNotificationChipMode): String = value.name

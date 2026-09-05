@@ -1,5 +1,6 @@
 package jp.linkserver.nittcsc.sync
 
+import android.annotation.SuppressLint
 import android.net.wifi.WifiManager
 import android.content.Context
 import android.net.nsd.NsdManager
@@ -8,10 +9,13 @@ import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import jp.linkserver.nittcsc.data.AppDatabase
+import jp.linkserver.nittcsc.data.CURRENT_SYNC_PROTOCOL_VERSION
 import jp.linkserver.nittcsc.data.SchedulerRepository
+import jp.linkserver.nittcsc.data.SYNC_PROTOCOL_VERSION_KEY
 import jp.linkserver.nittcsc.data.SyncProfileEntity
 import jp.linkserver.nittcsc.data.SyncRegisteredDeviceEntity
 import jp.linkserver.nittcsc.data.SyncTrustedPeerEntity
+import jp.linkserver.nittcsc.data.requireCurrentSyncProtocol
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -645,7 +649,14 @@ class LocalSyncManager(
     ): SyncResult = withContext(Dispatchers.IO) {
         val localPayload = repository.exportSyncPayload()
         val remotePayload = JSONObject(session.remotePayload)
-        val merged = buildMergedPayload(localPayload, remotePayload, session.target, resolutions)
+        val merged = runCatching {
+            buildMergedPayload(localPayload, remotePayload, session.target, resolutions)
+        }.getOrElse { error ->
+            return@withContext SyncResult(
+                false,
+                error.message ?: "同期データの互換性を確認できませんでした。"
+            )
+        }
         repository.applySyncPayload(merged)
         val storedDevice = dao.getSyncRegisteredDevice(session.target.deviceId)
         val expectedFingerprint = storedDevice
@@ -654,6 +665,7 @@ class LocalSyncManager(
         var targetPort = session.target.port
         val applyPayload = JSONObject().also {
             it.put("type", "apply")
+            it.put(SYNC_PROTOCOL_VERSION_KEY, CURRENT_SYNC_PROTOCOL_VERSION)
             putAuth(it, session.authMode, session.authValue)
             it.put("payload", merged)
         }
@@ -719,6 +731,7 @@ class LocalSyncManager(
         var targetPort = device.port
         val snapshotPayload = JSONObject().also {
             it.put("type", "snapshot")
+            it.put(SYNC_PROTOCOL_VERSION_KEY, CURRENT_SYNC_PROTOCOL_VERSION)
             putAuth(it, authMode, authValue)
         }
         val (remoteResponse, certFingerprint) = runCatching {
@@ -779,7 +792,14 @@ class LocalSyncManager(
         val localPayload = repository.exportSyncPayload()
         val conflictAutoNewerFirst = dao.getSyncProfile()?.conflictAutoNewerFirst ?: false
         val forceConflictOnDifference = interactive && !conflictAutoNewerFirst
-        val conflicts = detectConflicts(localPayload, remotePayload, device.deviceId, forceConflictOnDifference)
+        val conflicts = runCatching {
+            detectConflicts(localPayload, remotePayload, device.deviceId, forceConflictOnDifference)
+        }.getOrElse { error ->
+            return SyncResult(
+                false,
+                error.message ?: "同期データの互換性を確認できませんでした。"
+            )
+        }
         val session = PreparedSyncSession(
             target = device,
             authMode = authMode,
@@ -1004,33 +1024,43 @@ class LocalSyncManager(
                     .put("requestId", request.optString("requestId"))
             }
             "snapshot" -> {
-                val auth = validateAuth(request, remoteAddress)
-                if (auth.authValue == null) {
-                    JSONObject().put("ok", false).put("message", auth.failureMessage ?: authFailureMessage(request))
+                val protocolError = runCatching { requireCurrentSyncProtocol(request) }.exceptionOrNull()
+                if (protocolError != null) {
+                    JSONObject().put("ok", false).put("message", protocolError.message)
                 } else {
-                    val profile = ensureProfile()
-                    JSONObject()
-                        .put("ok", true)
-                        .put("deviceId", profile.deviceId)
-                        .put("userNickname", profile.userNickname)
-                        .put("deviceName", profile.deviceName)
-                        .put("payload", repository.exportSyncPayload())
+                    val auth = validateAuth(request, remoteAddress)
+                    if (auth.authValue == null) {
+                        JSONObject().put("ok", false).put("message", auth.failureMessage ?: authFailureMessage(request))
+                    } else {
+                        val profile = ensureProfile()
+                        JSONObject()
+                            .put("ok", true)
+                            .put("deviceId", profile.deviceId)
+                            .put("userNickname", profile.userNickname)
+                            .put("deviceName", profile.deviceName)
+                            .put("payload", repository.exportSyncPayload())
+                    }
                 }
             }
 
             "apply" -> {
-                val auth = validateAuth(request, remoteAddress)
-                if (auth.authValue == null) {
-                    JSONObject().put("ok", false).put("message", auth.failureMessage ?: authFailureMessage(request))
+                val protocolError = runCatching { requireCurrentSyncProtocol(request) }.exceptionOrNull()
+                if (protocolError != null) {
+                    JSONObject().put("ok", false).put("message", protocolError.message)
                 } else {
-                    repository.applySyncPayload(request.getJSONObject("payload"))
-                    val peerName = if (request.optString("authMode") == "trust") {
-                        val peer = dao.getSyncTrustedPeerByToken(request.optString("authValue"))
-                        peer?.peerDeviceName?.takeIf { it.isNotBlank() }
-                            ?: peer?.peerUserNickname?.takeIf { it.isNotBlank() }
-                    } else null
-                    _incomingSyncEvents.tryEmit(peerName ?: "")
-                    JSONObject().put("ok", true)
+                    val auth = validateAuth(request, remoteAddress)
+                    if (auth.authValue == null) {
+                        JSONObject().put("ok", false).put("message", auth.failureMessage ?: authFailureMessage(request))
+                    } else {
+                        repository.applySyncPayload(request.getJSONObject("payload"))
+                        val peerName = if (request.optString("authMode") == "trust") {
+                            val peer = dao.getSyncTrustedPeerByToken(request.optString("authValue"))
+                            peer?.peerDeviceName?.takeIf { it.isNotBlank() }
+                                ?: peer?.peerUserNickname?.takeIf { it.isNotBlank() }
+                        } else null
+                        _incomingSyncEvents.tryEmit(peerName ?: "")
+                        JSONObject().put("ok", true)
+                    }
                 }
             }
 
@@ -1218,6 +1248,8 @@ class LocalSyncManager(
         }
     }
 
+    // Lint loses the StringDef information when the valid constants are grouped into fallback arrays.
+    @SuppressLint("WrongConstant")
     private fun buildKeystoreSslContext(): SSLContext {
         val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         if (!keyStore.containsAlias(TLS_KEY_ALIAS)) {

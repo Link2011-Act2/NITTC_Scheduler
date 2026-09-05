@@ -37,12 +37,13 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -54,6 +55,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,6 +68,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -78,8 +81,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.animateContentSize
 import jp.linkserver.nittcsc.data.TaskEntity
+import jp.linkserver.nittcsc.data.UiDesignMode
+import jp.linkserver.nittcsc.ui.components.AppFabMenu
+import jp.linkserver.nittcsc.ui.components.AppFabMenuAction
+import jp.linkserver.nittcsc.ui.components.AppFloatingActionButton
+import jp.linkserver.nittcsc.ui.theme.ExpressiveTaskHeroShape
+import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
 
@@ -100,12 +111,18 @@ fun TaskScreen(
     onMarkIncomplete: (TaskEntity) -> Unit,
     showNaturalLanguageTaskAdd: Boolean = false,
     onOpenNaturalLanguageTaskAdd: () -> Unit = {},
+    onCreateAlternateType: (() -> Unit)? = null,
+    showCreateAction: Boolean = true,
     isPlan: Boolean = false
 ) {
     var deletingTask by remember { mutableStateOf<TaskEntity?>(null) }
     var expandCompleted by remember { mutableStateOf(false) }
+    var fabMenuExpanded by rememberSaveable(isPlan) { mutableStateOf(false) }
     val listState = rememberLazyListState()
-    val today = remember { LocalDate.now() }
+    val useExpressiveDesign = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
+    val initialToday = remember { LocalDate.now() }
+    val currentDateTime = rememberCurrentDateTime(useExpressiveDesign)
+    val today = currentDateTime?.toLocalDate() ?: initialToday
 
     val overdueTasks = remember(tasks, today) { tasks.filter { it.dueDate.isBefore(today) } }
     val todayTasks = remember(tasks, today) { tasks.filter { it.dueDate == today } }
@@ -117,6 +134,17 @@ fun TaskScreen(
                 .thenBy { it.dueHour }
                 .thenBy { it.dueMinute }
         )
+    }
+    val expressiveDeadlineTask = remember(tasks, currentDateTime) {
+        val now = currentDateTime ?: return@remember null
+        val overdue = tasks
+            .asSequence()
+            .filter { it.dueDateTime().isBefore(now) }
+            .maxByOrNull { it.dueDateTime() }
+        overdue ?: tasks
+            .asSequence()
+            .filter { !it.dueDateTime().isBefore(now) }
+            .minByOrNull { it.dueDateTime() }
     }
 
     LaunchedEffect(focusTaskId, tasks, completedTasksSorted, expandCompleted) {
@@ -182,12 +210,28 @@ fun TaskScreen(
             // Incomplete Tasks Section
             if (tasks.isNotEmpty()) {
                 item {
-                    Text(
-                        text = stringResource(if (isPlan) R.string.label_incomplete_plans else R.string.label_incomplete_tasks),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        if (
+                            useExpressiveDesign &&
+                            !isPlan &&
+                            expressiveDeadlineTask != null &&
+                            currentDateTime != null
+                        ) {
+                            ExpressiveTaskDeadlineHero(
+                                task = expressiveDeadlineTask,
+                                now = currentDateTime,
+                                showWeekdayOnDates = showWeekdayOnDates,
+                                onOpen = { onOpenTaskEditor(expressiveDeadlineTask) },
+                                onComplete = { onMarkComplete(expressiveDeadlineTask) }
+                            )
+                        }
+                        Text(
+                            text = stringResource(if (isPlan) R.string.label_incomplete_plans else R.string.label_incomplete_tasks),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
                 }
 
                 if (overdueTasks.isNotEmpty()) {
@@ -284,24 +328,65 @@ fun TaskScreen(
             }
         }
 
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(16.dp),
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            if (showNaturalLanguageTaskAdd && !isPlan) {
-                Button(onClick = onOpenNaturalLanguageTaskAdd) {
-                    Icon(Icons.Filled.AutoFixHigh, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(stringResource(R.string.btn_add_task_from_natural_language))
-                }
-            }
-            FloatingActionButton(
-                onClick = { onOpenTaskEditor(null) }
+        if (showCreateAction && useExpressiveDesign && onCreateAlternateType != null) {
+            val currentCreateLabel = stringResource(if (isPlan) R.string.cd_add_plan else R.string.cd_add_task)
+            val alternateCreateLabel = stringResource(if (isPlan) R.string.cd_add_task else R.string.cd_add_plan)
+            val naturalLanguageLabel = stringResource(R.string.btn_add_task_from_natural_language)
+            AppFabMenu(
+                actions = buildList {
+                    add(
+                        AppFabMenuAction(
+                            label = currentCreateLabel,
+                            icon = Icons.Filled.Add,
+                            onClick = { onOpenTaskEditor(null) }
+                        )
+                    )
+                    add(
+                        AppFabMenuAction(
+                            label = alternateCreateLabel,
+                            icon = Icons.Filled.Edit,
+                            onClick = onCreateAlternateType
+                        )
+                    )
+                    if (showNaturalLanguageTaskAdd && !isPlan) {
+                        add(
+                            AppFabMenuAction(
+                                label = naturalLanguageLabel,
+                                icon = Icons.Filled.AutoFixHigh,
+                                onClick = onOpenNaturalLanguageTaskAdd
+                            )
+                        )
+                    }
+                },
+                expanded = fabMenuExpanded,
+                onExpandedChange = { fabMenuExpanded = it },
+                expandContentDescription = stringResource(R.string.cd_expand_create_menu),
+                collapseContentDescription = stringResource(R.string.cd_collapse_create_menu),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp)
+            )
+        } else if (showCreateAction) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Icon(Icons.Filled.Add, contentDescription = stringResource(if (isPlan) R.string.cd_add_plan else R.string.cd_add_task))
+                if (showNaturalLanguageTaskAdd && !isPlan) {
+                    Button(onClick = onOpenNaturalLanguageTaskAdd) {
+                        Icon(Icons.Filled.AutoFixHigh, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(stringResource(R.string.btn_add_task_from_natural_language))
+                    }
+                }
+                AppFloatingActionButton(onClick = { onOpenTaskEditor(null) }) {
+                    Icon(
+                        Icons.Filled.Add,
+                        contentDescription = stringResource(if (isPlan) R.string.cd_add_plan else R.string.cd_add_task)
+                    )
+                }
             }
         }
     }
@@ -332,6 +417,152 @@ fun TaskScreen(
                 }
             }
         )
+    }
+}
+
+private fun TaskEntity.dueDateTime(): LocalDateTime =
+    dueDate.atTime(dueHour.coerceIn(0, 23), dueMinute.coerceIn(0, 59))
+
+@Composable
+private fun ExpressiveTaskDeadlineHero(
+    task: TaskEntity,
+    now: LocalDateTime,
+    showWeekdayOnDates: Boolean,
+    onOpen: () -> Unit,
+    onComplete: () -> Unit
+) {
+    val isOverdue = task.dueDateTime().isBefore(now)
+    val containerColor = MaterialTheme.colorScheme.tertiaryContainer
+    val contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+    val statusContainerColor = if (isOverdue) {
+        MaterialTheme.colorScheme.errorContainer
+    } else {
+        contentColor.copy(alpha = 0.12f)
+    }
+    val statusContentColor = if (isOverdue) {
+        MaterialTheme.colorScheme.onErrorContainer
+    } else {
+        contentColor
+    }
+    val openLabel = stringResource(R.string.m3e_task_open_description)
+    var completionPending by remember(task.id) { mutableStateOf(false) }
+    LaunchedEffect(task.id, completionPending) {
+        if (completionPending) {
+            delay(1_000L)
+            completionPending = false
+        }
+    }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec())
+            .clickable(
+                onClickLabel = openLabel,
+                role = Role.Button,
+                onClick = onOpen
+            ),
+        shape = ExpressiveTaskHeroShape,
+        color = containerColor,
+        contentColor = contentColor,
+        tonalElevation = 3.dp,
+        shadowElevation = 2.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    color = statusContainerColor,
+                    contentColor = statusContentColor
+                ) {
+                    Text(
+                        text = stringResource(
+                            if (isOverdue) R.string.m3e_task_overdue_deadline else R.string.m3e_task_next_deadline
+                        ),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                FilledIconButton(
+                    onClick = {
+                        if (!completionPending) {
+                            completionPending = true
+                            onComplete()
+                        }
+                    },
+                    shapes = IconButtonDefaults.shapes(
+                        shape = RoundedCornerShape(
+                            topStart = 18.dp,
+                            topEnd = 18.dp,
+                            bottomEnd = 6.dp,
+                            bottomStart = 18.dp
+                        ),
+                        pressedShape = RoundedCornerShape(999.dp)
+                    ),
+                    modifier = Modifier.size(48.dp),
+                    enabled = !completionPending,
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = contentColor,
+                        contentColor = containerColor
+                    ),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Check,
+                        contentDescription = stringResource(R.string.m3e_task_complete_description),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+
+            Text(
+                text = task.title,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = formatDateTimeForDisplay(
+                    task.dueDate,
+                    task.dueHour,
+                    task.dueMinute,
+                    showWeekdayOnDates
+                ),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            if (task.subject.isNotBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    color = contentColor.copy(alpha = 0.1f),
+                    contentColor = contentColor
+                ) {
+                    Text(
+                        text = task.subject,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelLarge,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            if (isOverdue) {
+                Text(
+                    text = stringResource(R.string.m3e_task_overdue_supporting),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        }
     }
 }
 

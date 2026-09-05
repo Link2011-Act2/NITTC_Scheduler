@@ -23,9 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -51,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.PlanEntity
 import jp.linkserver.nittcsc.data.TaskEntity
+import jp.linkserver.nittcsc.ui.components.AppButtonGroup
 import jp.linkserver.nittcsc.update.AppUpdateInfo
 import jp.linkserver.nittcsc.viewmodel.SchedulerUiState
 import kotlinx.coroutines.CancellationException
@@ -438,7 +437,8 @@ internal fun UnifiedTaskPlanScreen(
     onCreatePlan: () -> Unit,
     onDeletePlan: (PlanEntity) -> Unit,
     onMarkPlanComplete: (PlanEntity) -> Unit,
-    onMarkPlanIncomplete: (PlanEntity) -> Unit
+    onMarkPlanIncomplete: (PlanEntity) -> Unit,
+    showCreateAction: Boolean = true
 ) {
     val tabs = listOf(
         stringResource(R.string.tab_tasks) to 0,
@@ -446,15 +446,12 @@ internal fun UnifiedTaskPlanScreen(
     )
 
     Column(modifier = modifier.fillMaxSize()) {
-        PrimaryTabRow(selectedTabIndex = selectedTabIndex) {
-            tabs.forEach { (label, index) ->
-                Tab(
-                    selected = selectedTabIndex == index,
-                    onClick = { onSelectedTabIndexChange(index) },
-                    text = { Text(label) }
-                )
-            }
-        }
+        AppButtonGroup(
+            options = tabs.map { it.first },
+            selectedIndex = selectedTabIndex,
+            onSelectedIndexChange = onSelectedTabIndexChange,
+            modifier = Modifier.fillMaxWidth()
+        )
 
         when (selectedTabIndex) {
             0 -> TaskScreen(
@@ -471,7 +468,9 @@ internal fun UnifiedTaskPlanScreen(
                 onMarkComplete = onMarkTaskComplete,
                 onMarkIncomplete = onMarkTaskIncomplete,
                 showNaturalLanguageTaskAdd = showNaturalLanguageTaskAdd,
-                onOpenNaturalLanguageTaskAdd = onOpenNaturalLanguageTaskAdd
+                onOpenNaturalLanguageTaskAdd = onOpenNaturalLanguageTaskAdd,
+                onCreateAlternateType = onCreatePlan,
+                showCreateAction = showCreateAction
             )
             1 -> TaskScreen(
                 modifier = Modifier.fillMaxSize(),
@@ -497,9 +496,10 @@ internal fun UnifiedTaskPlanScreen(
                 onMarkIncomplete = { task ->
                     uiState.plans.firstOrNull { it.id == task.id }?.let { onMarkPlanIncomplete(it) }
                 },
+                onCreateAlternateType = onCreateTask,
+                showCreateAction = showCreateAction,
                 isPlan = true
             )
         }
     }
 }
-

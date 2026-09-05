@@ -7,6 +7,8 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -58,10 +60,10 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -82,8 +84,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.content.FileProvider
@@ -93,6 +97,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import jp.linkserver.nittcsc.data.LessonNotificationExclusionEntity
 import jp.linkserver.nittcsc.data.LessonStartNotificationChipMode
 import jp.linkserver.nittcsc.data.LongBreakEntity
+import jp.linkserver.nittcsc.data.UiDesignMode
 import jp.linkserver.nittcsc.logic.AdvancedTimeValidation
 import jp.linkserver.nittcsc.logic.AdvancedTimeValidationError
 import jp.linkserver.nittcsc.logic.PeriodLabelStyle
@@ -110,6 +115,14 @@ import jp.linkserver.nittcsc.update.isShowLatestReleaseForTestingEnabled
 import jp.linkserver.nittcsc.update.setShowLatestReleaseForTestingEnabled
 import jp.linkserver.nittcsc.update.setUpdateCurrentVersionOverrideForTesting
 import jp.linkserver.nittcsc.viewmodel.SchedulerUiState
+import jp.linkserver.nittcsc.ui.components.AppCard
+import jp.linkserver.nittcsc.ui.components.AppDialog
+import jp.linkserver.nittcsc.ui.components.AppFlexibleTopAppBar
+import jp.linkserver.nittcsc.ui.components.AppIconButton
+import jp.linkserver.nittcsc.ui.components.AppListItem
+import jp.linkserver.nittcsc.ui.components.AppPrimaryButton
+import jp.linkserver.nittcsc.ui.components.AppSwitch
+import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -130,6 +143,9 @@ fun SettingsScreen(
     onToggleLocalAi: (Boolean) -> Unit,
     onToggleNaturalLanguageTaskAdd: (Boolean) -> Unit = {},
     onToggleDrawerNavigation: (Boolean) -> Unit,
+    onToggleSemesterTimetables: (Boolean) -> Unit = {},
+    onUpdateUiDesignMode: (UiDesignMode) -> Unit = {},
+    onAcknowledgeExpressiveWarning: () -> Unit = {},
     onToggleAddTasksToCalendar: (Boolean) -> Unit,
     onToggleSyncLessonsToCalendar: (Boolean) -> Unit = {},
     onEnableSyncLessonsToCalendar: (LocalDate, LocalDate) -> Unit = { _, _ -> },
@@ -161,6 +177,7 @@ fun SettingsScreen(
         InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD &&
             (state.settings?.enableNaturalLanguageTaskAdd ?: false)
     val enabledDrawerNavigation = state.settings?.useDrawerNavigation ?: false
+    val enabledSemesterTimetables = state.settings?.enableSemesterTimetables ?: true
     val enabledTaskCalendarSync = state.settings?.addTasksToCalendar ?: false
     val enabledLessonCalendarSync = state.settings?.syncLessonsToCalendar ?: false
     val enabledCurrentTimeMarker = state.settings?.showCurrentTimeMarker ?: false
@@ -180,6 +197,8 @@ fun SettingsScreen(
     var expandTimetableSettings by rememberSaveable { mutableStateOf(true) }
     var expandExamTimetableSettings by rememberSaveable { mutableStateOf(false) }
     var showLocalAiWarningDialog by remember { mutableStateOf(false) }
+    var showUiDesignModeDialog by rememberSaveable { mutableStateOf(false) }
+    var showExpressiveWarningDialog by rememberSaveable { mutableStateOf(false) }
     val s = state.settings
     val lessonCalendarSyncStart = s?.lessonCalendarSyncStart ?: s?.termStart ?: LocalDate.now()
     val lessonCalendarSyncEnd = s?.lessonCalendarSyncEnd ?: s?.termEnd ?: lessonCalendarSyncStart
@@ -772,15 +791,90 @@ fun SettingsScreen(
         )
     }
 
+    if (InternalFeatureFlags.MATERIAL_3_EXPRESSIVE && showUiDesignModeDialog) {
+        AppDialog(
+            onDismissRequest = { showUiDesignModeDialog = false },
+            title = { Text(stringResource(R.string.dialog_ui_design_title)) },
+            text = {
+                Column(modifier = Modifier.selectableGroup()) {
+                    UiDesignModeOptionRow(
+                        title = stringResource(R.string.ui_design_material_3),
+                        supportingText = null,
+                        selected = state.uiDesignMode == UiDesignMode.MATERIAL_3,
+                        onSelect = {
+                            onUpdateUiDesignMode(UiDesignMode.MATERIAL_3)
+                            showUiDesignModeDialog = false
+                        }
+                    )
+                    UiDesignModeOptionRow(
+                        title = stringResource(R.string.ui_design_material_3_expressive),
+                        supportingText = stringResource(R.string.ui_design_experimental_label),
+                        selected = state.uiDesignMode == UiDesignMode.MATERIAL_3_EXPRESSIVE,
+                        onSelect = {
+                            showUiDesignModeDialog = false
+                            if (state.expressiveWarningAcknowledged) {
+                                onUpdateUiDesignMode(UiDesignMode.MATERIAL_3_EXPRESSIVE)
+                            } else {
+                                showExpressiveWarningDialog = true
+                            }
+                        }
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showUiDesignModeDialog = false }) {
+                    Text(stringResource(R.string.btn_close))
+                }
+            }
+        )
+    }
+
+    if (InternalFeatureFlags.MATERIAL_3_EXPRESSIVE && showExpressiveWarningDialog) {
+        AppDialog(
+            onDismissRequest = { showExpressiveWarningDialog = false },
+            title = { Text(stringResource(R.string.dialog_expressive_warning_title)) },
+            text = { Text(stringResource(R.string.dialog_expressive_warning_body)) },
+            confirmButton = {
+                AppPrimaryButton(
+                    onClick = {
+                        onAcknowledgeExpressiveWarning()
+                        onUpdateUiDesignMode(UiDesignMode.MATERIAL_3_EXPRESSIVE)
+                        showExpressiveWarningDialog = false
+                    }
+                ) {
+                    Text(stringResource(R.string.btn_use_expressive_design))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExpressiveWarningDialog = false }) {
+                    Text(stringResource(R.string.btn_cancel))
+                }
+            }
+        )
+    }
+
+    val useExpressiveDesign = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
+    val topAppBarScrollBehavior = if (useExpressiveDesign) {
+        TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    } else {
+        null
+    }
+
     Scaffold(
+        modifier = if (topAppBarScrollBehavior != null) {
+            Modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection)
+        } else {
+            Modifier
+        },
         topBar = {
-            TopAppBar(
+            AppFlexibleTopAppBar(
                 title = { Text(stringResource(R.string.settings_title)) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    AppIconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_back))
                     }
-                }
+                },
+                scrollBehavior = topAppBarScrollBehavior
             )
         }
     ) { padding ->
@@ -831,6 +925,13 @@ fun SettingsScreen(
                         modifier = Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        SettingsSwitchRow(
+                            title = stringResource(R.string.label_semester_timetables),
+                            description = stringResource(R.string.desc_semester_timetables),
+                            checked = enabledSemesterTimetables,
+                            onCheckedChange = onToggleSemesterTimetables
+                        )
+                        HorizontalDivider()
                         ExposedDropdownMenuBox(
                             expanded = showPeriodLabelStyleMenu,
                             onExpandedChange = {
@@ -1244,12 +1345,33 @@ fun SettingsScreen(
                     fontWeight = FontWeight.Bold
                 )
 
-                Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.surfaceContainer,
+                AppCard(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column {
+                        if (InternalFeatureFlags.MATERIAL_3_EXPRESSIVE) {
+                            AppListItem(
+                                headlineContent = {
+                                    Text(
+                                        text = stringResource(R.string.label_ui_design),
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                },
+                                supportingContent = {
+                                    Text(
+                                        text = when (state.uiDesignMode) {
+                                            UiDesignMode.MATERIAL_3 ->
+                                                stringResource(R.string.ui_design_material_3)
+                                            UiDesignMode.MATERIAL_3_EXPRESSIVE ->
+                                                stringResource(R.string.ui_design_material_3_expressive_current)
+                                        }
+                                    )
+                                },
+                                onClick = { showUiDesignModeDialog = true }
+                            )
+                            HorizontalDivider()
+                        }
                         SettingsSwitchRow(
                             title = stringResource(R.string.label_show_current_time_marker),
                             description = stringResource(R.string.desc_show_current_time_marker),
@@ -2820,6 +2942,38 @@ private fun CalendarDeleteCategoryRow(
 }
 
 @Composable
+private fun UiDesignModeOptionRow(
+    title: String,
+    supportingText: String?,
+    selected: Boolean,
+    onSelect: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectable(
+                selected = selected,
+                onClick = onSelect,
+                role = Role.RadioButton
+            )
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Column(modifier = Modifier.padding(start = 12.dp)) {
+            Text(text = title, style = MaterialTheme.typography.bodyLarge)
+            if (supportingText != null) {
+                Text(
+                    text = supportingText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun SettingsSwitchRow(
     title: String,
     description: String,
@@ -2846,7 +3000,7 @@ private fun SettingsSwitchRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        Switch(
+        AppSwitch(
             checked = checked,
             enabled = enabled,
             onCheckedChange = onCheckedChange

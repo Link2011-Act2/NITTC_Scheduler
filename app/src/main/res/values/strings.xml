@@ -97,6 +97,8 @@
     <string name="btn_cancel">キャンセル</string>
     <string name="btn_discard_changes">破棄して戻る</string>
     <string name="btn_continue_editing">編集を続ける</string>
+    <string name="btn_close">閉じる</string>
+    <string name="btn_use_expressive_design">このデザインを使用</string>
     <string name="label_none">なし</string>
     <string name="btn_add">追加</string>
     <string name="btn_delete">削除</string>
@@ -107,7 +109,8 @@
     <string name="btn_open_token_page">トークン取得ページを開く</string>
     <string name="btn_delete_token">トークンを削除</string>
     <string name="btn_apply_to_period">この期間で反映</string>
-    <string name="btn_back_to_original">今年度に戻す</string>
+    <string name="btn_prepare_next_academic_year">次年度の準備を開始</string>
+    <string name="btn_start_preparation">準備を開始</string>
     <string name="btn_export_this_week">今週のみ追加</string>
     <string name="btn_export_custom">期間を指定して追加</string>
     <string name="btn_clear_override">日程振替を解除</string>
@@ -164,6 +167,11 @@
     <string name="label_in_charge">担当: </string>
     <string name="label_period">期間</string>
     <string name="label_period_settings">期間設定</string>
+    <string name="dialog_prepare_next_academic_year_title">%d年度前期を準備しますか？</string>
+    <string name="dialog_prepare_next_academic_year_message">次年度前期用の空のA/B表と時間割を作成します。現在年度のA/B表と時間割は変更されません。</string>
+    <string name="label_academic_year">%d年度</string>
+    <string name="label_next_academic_year_first_term">%d年度 前期</string>
+    <string name="label_next_academic_year_preparing">次年度・準備中</string>
     <string name="label_calendar_export">端末カレンダーへ出力</string>
     <string name="label_loading">読み込み中...</string>
     <string name="dialog_unsaved_task_changes_title">未保存の変更があります</string>
@@ -299,6 +307,11 @@
     <string name="section_task_overdue_count">期限超過 (%d)</string>
     <string name="section_task_today_count">今日が期限 (%d)</string>
     <string name="section_task_upcoming_count">今後の期限 (%d)</string>
+    <string name="m3e_task_next_deadline">次の締切</string>
+    <string name="m3e_task_overdue_deadline">対応が必要</string>
+    <string name="m3e_task_overdue_supporting">期限を過ぎています</string>
+    <string name="m3e_task_complete_description">この課題を完了にする</string>
+    <string name="m3e_task_open_description">課題を編集</string>
     <string name="label_task_due_overdue_days">%d日遅れ</string>
     <string name="label_task_due_overdue_hours">%d時間遅れ</string>
     <string name="label_task_due_today">今日まで</string>
@@ -349,6 +362,7 @@
 
     <!-- Tab Labels (actual app tabs) -->
     <string name="tab_timetable">時間割編集</string>
+    <string name="tab_timetable_m3e">編集</string>
     <string name="tab_ab_table">A/B表</string>
     <string name="tab_output">時間割</string>
 
@@ -414,6 +428,10 @@
 
     <!-- Settings: Timetable Settings Section -->
     <string name="section_timetable_settings">時間割設定</string>
+    <string name="label_semester_timetables">前期・後期で時間割を分ける</string>
+    <string name="desc_semester_timetables">オンにすると4〜9月は前期、10〜3月は後期の時間割を使用します</string>
+    <string name="label_first_term">前期</string>
+    <string name="label_second_term">後期</string>
     <string name="label_koshi_notation">校時表記の種類</string>
     <string name="period_label_pair_koshi">1/2校時</string>
     <string name="period_label_single_koshi">1校時</string>
@@ -449,6 +467,14 @@
     <string name="btn_save_timetable_settings">時間割設定を保存</string>
     <string name="section_navigation_settings">ナビゲーション設定</string>
     <string name="section_display_settings">表示設定</string>
+    <string name="label_ui_design">デザイン</string>
+    <string name="ui_design_material_3">Material 3</string>
+    <string name="ui_design_material_3_expressive">Material 3 Expressive</string>
+    <string name="ui_design_material_3_expressive_current">Material 3 Expressive（試験運用）</string>
+    <string name="ui_design_experimental_label">試験運用（Experimental）</string>
+    <string name="dialog_ui_design_title">デザインを選択</string>
+    <string name="dialog_expressive_warning_title">Material 3 Expressiveについて</string>
+    <string name="dialog_expressive_warning_body">Material 3 Expressiveは試験運用中です。一部の画面やアニメーションが変更され、将来の更新でデザインが変わる場合があります。</string>
     <string name="section_task_plan_settings">カレンダー連携</string>
     <string name="section_notification_settings">通知設定</string>
     <string name="label_lesson_start_notification">授業前に通知</string>
@@ -479,6 +505,18 @@
     <string name="label_lesson_start_notification_exclusion_teacher">担当が%1$sのときだけ除外</string>
     <string name="label_lesson_start_notification_exclusion_subject_only">教科名だけで除外</string>
     <string name="lesson_start_live_update_title">次の授業: %1$s</string>
+    <string name="m3e_lesson_ongoing">授業中</string>
+    <string name="m3e_lesson_next">次の授業</string>
+    <string name="m3e_lesson_today">今日</string>
+    <string name="m3e_lesson_date">%1$d/%2$d（%3$s）</string>
+    <string name="m3e_lesson_date_time">%1$s・%2$s  %3$s–%4$s</string>
+    <string name="m3e_lesson_starts_in">開始まで %1$s</string>
+    <string name="m3e_lesson_ends_in">終了まで %1$s</string>
+    <string name="m3e_duration_minutes">%1$d分</string>
+    <string name="m3e_duration_hours">%1$d時間</string>
+    <string name="m3e_duration_hours_minutes">%1$d時間%2$d分</string>
+    <string name="m3e_duration_days">%1$d日</string>
+    <string name="m3e_duration_days_hours">%1$d日%2$d時間</string>
     <string name="lesson_start_live_update_body">次は「%1$s」です。</string>
     <string name="label_lesson_start_live_update_early_minutes">授業開始時間を早める</string>
     <string name="desc_lesson_start_live_update_early_minutes">カウントダウン終了時刻を何分か早めます\n実際は1分前くらいにチャイムが鳴ると思うので、デフォルトは1分です</string>
@@ -612,6 +650,8 @@
     <!-- Missing strings -->
     <string name="settings_title">設定</string>
     <string name="cd_add_task">課題を追加</string>
+    <string name="cd_expand_create_menu">追加メニューを開く</string>
+    <string name="cd_collapse_create_menu">追加メニューを閉じる</string>
     <string name="btn_add_task_from_natural_language">自然文で追加</string>
     <string name="dialog_natural_language_task_add_title">自然文で課題を追加</string>
     <string name="dialog_natural_language_task_add_description">選択したローカルAIモデルで文章を解析します。\n例: 英Iレポート、明後日17時まで\n解析後に課題編集画面を開くので、内容を確認してから保存してください。</string>
@@ -628,6 +668,7 @@
     <string name="msg_natural_language_task_parse_failed">文章を解析できませんでした。もう少し具体的に入力してください。</string>
     <string name="cd_add_plan">予定を追加</string>
     <string name="cd_open_navigation_menu">ナビゲーションメニューを開く</string>
+    <string name="cd_more_actions">その他の操作</string>
     <string name="label_no_model_selected">選択なし</string>
     <string name="cd_settings">設定</string>
     <string name="legend_ab_toggle">タップで切替: A → B → 休日</string>

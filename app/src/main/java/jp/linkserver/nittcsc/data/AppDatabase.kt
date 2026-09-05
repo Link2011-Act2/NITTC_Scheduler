@@ -25,7 +25,7 @@ import androidx.room.TypeConverters
         SyncRegisteredDeviceEntity::class,
         SyncTrustedPeerEntity::class
     ],
-    version = 46,
+    version = 48,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -576,6 +576,124 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_46_47 = object : androidx.room.migration.Migration(46, 47) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE settings ADD COLUMN enableSemesterTimetables INTEGER NOT NULL DEFAULT 1"
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS lessons_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        timetableTerm TEXT NOT NULL,
+                        dayOfWeek INTEGER NOT NULL,
+                        slotIndex INTEGER NOT NULL,
+                        mode TEXT NOT NULL,
+                        weeklySubject TEXT NOT NULL,
+                        weeklyTeacher TEXT NOT NULL,
+                        weeklyLocation TEXT,
+                        aSubject TEXT NOT NULL,
+                        aTeacher TEXT NOT NULL,
+                        aLocation TEXT,
+                        bSubject TEXT NOT NULL,
+                        bTeacher TEXT NOT NULL,
+                        bLocation TEXT
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO lessons_new (
+                        id, timetableTerm, dayOfWeek, slotIndex, mode,
+                        weeklySubject, weeklyTeacher, weeklyLocation,
+                        aSubject, aTeacher, aLocation,
+                        bSubject, bTeacher, bLocation
+                    )
+                    SELECT
+                        id, 'FIRST', dayOfWeek, slotIndex, mode,
+                        weeklySubject, weeklyTeacher, weeklyLocation,
+                        aSubject, aTeacher, aLocation,
+                        bSubject, bTeacher, bLocation
+                    FROM lessons
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE lessons")
+                db.execSQL("ALTER TABLE lessons_new RENAME TO lessons")
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_lessons_timetableTerm_dayOfWeek_slotIndex ON lessons(timetableTerm, dayOfWeek, slotIndex)"
+                )
+            }
+        }
+
+        val MIGRATION_47_48 = object : androidx.room.migration.Migration(47, 48) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE settings ADD COLUMN activeAcademicYear INTEGER NOT NULL DEFAULT 0"
+                )
+                db.execSQL(
+                    """
+                    UPDATE settings
+                    SET activeAcademicYear = CASE
+                        WHEN CAST(substr(termStart, 6, 2) AS INTEGER) >= 4
+                            THEN CAST(substr(termStart, 1, 4) AS INTEGER)
+                        ELSE CAST(substr(termStart, 1, 4) AS INTEGER) - 1
+                    END
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS lessons_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        academicYear INTEGER NOT NULL,
+                        timetableTerm TEXT NOT NULL,
+                        dayOfWeek INTEGER NOT NULL,
+                        slotIndex INTEGER NOT NULL,
+                        mode TEXT NOT NULL,
+                        weeklySubject TEXT NOT NULL,
+                        weeklyTeacher TEXT NOT NULL,
+                        weeklyLocation TEXT,
+                        aSubject TEXT NOT NULL,
+                        aTeacher TEXT NOT NULL,
+                        aLocation TEXT,
+                        bSubject TEXT NOT NULL,
+                        bTeacher TEXT NOT NULL,
+                        bLocation TEXT
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO lessons_new (
+                        id, academicYear, timetableTerm, dayOfWeek, slotIndex, mode,
+                        weeklySubject, weeklyTeacher, weeklyLocation,
+                        aSubject, aTeacher, aLocation,
+                        bSubject, bTeacher, bLocation
+                    )
+                    SELECT
+                        id,
+                        COALESCE(
+                            (SELECT NULLIF(activeAcademicYear, 0) FROM settings WHERE id = 1),
+                            CASE
+                                WHEN CAST(strftime('%m', 'now', 'localtime') AS INTEGER) >= 4
+                                    THEN CAST(strftime('%Y', 'now', 'localtime') AS INTEGER)
+                                ELSE CAST(strftime('%Y', 'now', 'localtime') AS INTEGER) - 1
+                            END
+                        ),
+                        timetableTerm, dayOfWeek, slotIndex, mode,
+                        weeklySubject, weeklyTeacher, weeklyLocation,
+                        aSubject, aTeacher, aLocation,
+                        bSubject, bTeacher, bLocation
+                    FROM lessons
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE lessons")
+                db.execSQL("ALTER TABLE lessons_new RENAME TO lessons")
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_lessons_academicYear_timetableTerm_dayOfWeek_slotIndex ON lessons(academicYear, timetableTerm, dayOfWeek, slotIndex)"
+                )
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -583,7 +701,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "nittc_scheduler.db"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47, MIGRATION_47_48)
                  .build().also { INSTANCE = it }
             }
         }

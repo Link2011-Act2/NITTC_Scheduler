@@ -905,27 +905,6 @@ private fun WifiSearchingContent(
                     val isRegistered = registeredIds.contains(device.deviceId)
                     val isSelected = selectedDeviceId == device.deviceId
                     ListItem(
-                        headlineContent = {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(device.deviceName, fontWeight = FontWeight.SemiBold)
-                                if (isRegistered) {
-                                    Surface(
-                                        shape = MaterialTheme.shapes.small,
-                                        color = MaterialTheme.colorScheme.primaryContainer
-                                    ) {
-                                        Text(
-                                            stringResource(R.string.sync_label_registered),
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                                        )
-                                    }
-                                }
-                            }
-                        },
                         supportingContent = {
                             val meta = buildList {
                                 if (device.userNickname.isNotBlank()) add(device.userNickname)
@@ -956,7 +935,27 @@ private fun WifiSearchingContent(
                             .fillMaxWidth()
                             .clickable { onSelectDevice(device.deviceId) }
                             .padding(horizontal = 4.dp)
-                    )
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(device.deviceName, fontWeight = FontWeight.SemiBold)
+                            if (isRegistered) {
+                                Surface(
+                                    shape = MaterialTheme.shapes.small,
+                                    color = MaterialTheme.colorScheme.primaryContainer
+                                ) {
+                                    Text(
+                                        stringResource(R.string.sync_label_registered),
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
+                            }
+                        }
+                    }
                     HorizontalDivider()
                 }
             }

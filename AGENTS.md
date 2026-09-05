@@ -83,6 +83,7 @@ $env:PATH="$env:JAVA_HOME\bin;$env:PATH"
 - カレンダーイベントIDなど端末固有IDは、他端末へそのまま移行しない。
 - 同期対象を追加したら、`SchedulerRepository.SYNC_DATASET_KEYS`、`SchedulerDataTransfer` の入出力、`touchSyncDatasetMeta`、`SyncPayloadCoordinator`、`LocalSyncManager`、`NearbySyncManager` をすべて確認する。
 - 同期ペイロード、同期対象、競合・マージ判定、ローカル同期またはNearby同期の通信手順を変更したら、`data/SyncProtocolVersion.kt` の `CURRENT_SYNC_PROTOCOL_VERSION` を必ず1増やし、旧バージョンとの互換性確認とテストを追加する。バージョン情報を持たない従来版は `LEGACY_SYNC_PROTOCOL_VERSION = 0` として扱う。
+- 端末間同期プロトコルの仮称は `SKTTP`。表記が必要になったら `SKTTP/<version>` を使用する。名称の展開は未確定で、内輪案は `Shit school, Kosen Timetable Transfer Protocol`、公開向け候補は `Scheduler Kosen Timetable Transfer Protocol` とする。
 - 同期競合を黙って上書きしない。既存の競合確認・自動承認UIの方針を維持する。
 - インポート形式を変更したらエクスポートバージョンを更新し、可能なら旧バージョンの読み込みテストを追加する。
 
@@ -112,6 +113,7 @@ $env:PATH="$env:JAVA_HOME\bin;$env:PATH"
 
 ## 変更時の注意
 
+- `targetSdk` を37以上へ上げる際は、Nearby Connections向けに `ACCESS_LOCAL_NETWORK` をManifestへ追加し、Android 17以上で実行時権限の確認・要求・拒否時の案内を実装する。
 - 作業開始時に `git status --short` を確認し、既存の未コミット変更を上書き・削除・整形しない。
 - 無関係なファイルの一括フォーマットや改行コード変更を避け、差分をタスクに限定する。
 - 手動編集は小さな差分にし、既存の日本語コメント・命名・UI表現との一貫性を保つ。

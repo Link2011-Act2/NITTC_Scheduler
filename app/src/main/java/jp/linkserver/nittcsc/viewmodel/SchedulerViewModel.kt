@@ -13,6 +13,7 @@ import jp.linkserver.nittcsc.data.LessonNotificationExclusionEntity
 import jp.linkserver.nittcsc.data.LessonDraft
 import jp.linkserver.nittcsc.data.LessonEntity
 import jp.linkserver.nittcsc.data.LessonMode
+import jp.linkserver.nittcsc.data.lessonKey
 import jp.linkserver.nittcsc.data.LessonNoteEntity
 import jp.linkserver.nittcsc.data.LessonStartNotificationChipMode
 import jp.linkserver.nittcsc.data.LongBreakEntity
@@ -23,10 +24,15 @@ import jp.linkserver.nittcsc.data.PlanEntity
 import jp.linkserver.nittcsc.data.SyncProfileEntity
 import jp.linkserver.nittcsc.data.SyncRegisteredDeviceEntity
 import jp.linkserver.nittcsc.data.TaskEntity
+import jp.linkserver.nittcsc.data.UiDesignMode
 import jp.linkserver.nittcsc.logic.ExportRange
 import jp.linkserver.nittcsc.logic.GeneratedLesson
 import jp.linkserver.nittcsc.logic.JapaneseHolidayCalculator
+import jp.linkserver.nittcsc.logic.LessonKey
 import jp.linkserver.nittcsc.logic.PeriodLabelStyle
+import jp.linkserver.nittcsc.logic.TimetableTerm
+import jp.linkserver.nittcsc.logic.academicYearForDate
+import jp.linkserver.nittcsc.logic.timetableTermForDate
 import jp.linkserver.nittcsc.logic.applyChangedLesson
 import jp.linkserver.nittcsc.sync.DirectConnectResult
 import jp.linkserver.nittcsc.sync.DiscoveredSyncDevice
@@ -57,7 +63,7 @@ private data class CoreDataState(
     val longBreaks: List<LongBreakEntity>,
     val changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity>,
     val lessonNotificationExclusions: List<LessonNotificationExclusionEntity>,
-    val lessons: Map<Pair<Int, Int>, LessonEntity>,
+    val lessons: Map<LessonKey, LessonEntity>,
     val tasks: List<TaskEntity>,
     val incompleteTasks: List<TaskEntity>,
     val plans: List<PlanEntity>,
@@ -80,6 +86,12 @@ private data class ExamDataBundle(
     val lessons: List<ExamLessonEntity>
 )
 
+private data class SyncAndDesignState(
+    val syncDiagnostics: SyncDiagnostics,
+    val uiDesignMode: UiDesignMode,
+    val expressiveWarningAcknowledged: Boolean
+)
+
 data class SchedulerUiState(
     val settings: SettingsEntity? = null,
     val dayTypeEntities: Map<LocalDate, DayTypeEntity> = emptyMap(),
@@ -87,7 +99,7 @@ data class SchedulerUiState(
     val longBreaks: List<LongBreakEntity> = emptyList(),
     val changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity> = emptyMap(),
     val lessonNotificationExclusions: List<LessonNotificationExclusionEntity> = emptyList(),
-    val lessons: Map<Pair<Int, Int>, LessonEntity> = emptyMap(),
+    val lessons: Map<LessonKey, LessonEntity> = emptyMap(),
     val tasks: List<TaskEntity> = emptyList(),
     val incompleteTasks: List<TaskEntity> = emptyList(),
     val plans: List<PlanEntity> = emptyList(),
@@ -101,7 +113,9 @@ data class SchedulerUiState(
     val syncProfile: SyncProfileEntity? = null,
     val registeredDevices: List<SyncRegisteredDeviceEntity> = emptyList(),
     val cancelledLessons: Set<Pair<LocalDate, Int>> = emptySet(),
-    val syncDiagnostics: SyncDiagnostics = SyncDiagnostics()
+    val syncDiagnostics: SyncDiagnostics = SyncDiagnostics(),
+    val uiDesignMode: UiDesignMode = UiDesignMode.MATERIAL_3,
+    val expressiveWarningAcknowledged: Boolean = false
 )
 
 class SchedulerViewModel(
@@ -115,6 +129,24 @@ class SchedulerViewModel(
     private val initialized = MutableStateFlow(false)
     private val _snackbarMessages = MutableSharedFlow<String>()
     private val syncDiagnosticsFlow = syncManager?.diagnostics ?: kotlinx.coroutines.flow.MutableStateFlow(SyncDiagnostics())
+
+    val uiDesignMode: StateFlow<UiDesignMode> = repository.uiDesignModeFlow.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = UiDesignMode.MATERIAL_3
+    )
+
+    private val syncAndDesignFlow = combine(
+        syncDiagnosticsFlow,
+        uiDesignMode,
+        repository.expressiveWarningAcknowledgedFlow
+    ) { syncDiagnostics, designMode, warningAcknowledged ->
+        SyncAndDesignState(
+            syncDiagnostics = syncDiagnostics,
+            uiDesignMode = designMode,
+            expressiveWarningAcknowledged = warningAcknowledged
+        )
+    }
 
     val snackbarMessages = _snackbarMessages.asSharedFlow()
 
@@ -166,7 +198,7 @@ class SchedulerViewModel(
             longBreaks = baseData.longBreaks,
             changedLessons = baseData.changedLessons.associateBy { it.date to it.slotIndex },
             lessonNotificationExclusions = baseData.lessonNotificationExclusions,
-            lessons = lessons.associateBy { it.dayOfWeek to it.slotIndex },
+            lessons = lessons.associateBy { it.lessonKey() },
             tasks = tasks,
             incompleteTasks = incompleteTasks,
             plans = plans,
@@ -207,13 +239,15 @@ class SchedulerViewModel(
         repository.syncProfileFlow,
         repository.syncRegisteredDevicesFlow,
         repository.cancelledLessonsFlow,
-        syncDiagnosticsFlow
-    ) { base, syncProfile, registeredDevices, cancelledLessons, syncDiagnostics ->
+        syncAndDesignFlow
+    ) { base, syncProfile, registeredDevices, cancelledLessons, syncAndDesign ->
         base.copy(
             syncProfile = syncProfile,
             registeredDevices = registeredDevices,
             cancelledLessons = cancelledLessons.map { it.date to it.slotIndex }.toSet(),
-            syncDiagnostics = syncDiagnostics
+            syncDiagnostics = syncAndDesign.syncDiagnostics,
+            uiDesignMode = syncAndDesign.uiDesignMode,
+            expressiveWarningAcknowledged = syncAndDesign.expressiveWarningAcknowledged
         )
     }.stateIn(
         scope = viewModelScope,
@@ -451,17 +485,26 @@ class SchedulerViewModel(
         }
     }
 
-    fun resetFiscalYear() {
+    fun prepareNextAcademicYear() {
         viewModelScope.launch {
-            repository.resetToCurrentFiscalYear()
-            _snackbarMessages.emit("期間を今年度にリセットしました。")
+            val created = repository.prepareNextAcademicYear()
+            if (created) {
+                _snackbarMessages.emit("次年度前期の準備を開始しました。")
+            }
         }
+    }
+
+    suspend fun refreshAcademicYear() {
+        repository.refreshAcademicYear()
     }
 
     fun updateTerm(startDate: LocalDate, endDate: LocalDate) {
         viewModelScope.launch {
-            repository.updateTerm(startDate, endDate)
-            _snackbarMessages.emit("期間を更新しました。")
+            if (repository.updateTerm(startDate, endDate)) {
+                _snackbarMessages.emit("期間を更新しました。")
+            } else {
+                _snackbarMessages.emit("期間は現在の年度内で指定してください。")
+            }
         }
     }
 
@@ -534,6 +577,18 @@ class SchedulerViewModel(
 
     fun toggleDrawerNavigation(enabled: Boolean) {
         launchRepositoryUpdate { repository.toggleDrawerNavigation(enabled) }
+    }
+
+    fun toggleSemesterTimetables(enabled: Boolean) {
+        launchRepositoryUpdate { repository.toggleSemesterTimetables(enabled) }
+    }
+
+    fun updateUiDesignMode(mode: UiDesignMode) {
+        launchRepositoryUpdate { repository.updateUiDesignMode(mode) }
+    }
+
+    fun acknowledgeExpressiveWarning() {
+        launchRepositoryUpdate { repository.acknowledgeExpressiveWarning() }
     }
 
     fun toggleAddTasksToCalendar(enabled: Boolean) {
@@ -682,16 +737,28 @@ class SchedulerViewModel(
         }
     }
 
-    fun saveLesson(dayOfWeek: Int, slotIndex: Int, draft: LessonDraft) {
+    fun saveLesson(
+        academicYear: Int,
+        timetableTerm: TimetableTerm,
+        dayOfWeek: Int,
+        slotIndex: Int,
+        draft: LessonDraft
+    ) {
         viewModelScope.launch {
-            repository.upsertLesson(dayOfWeek, slotIndex, draft)
+            repository.upsertLesson(academicYear, timetableTerm, dayOfWeek, slotIndex, draft)
             _snackbarMessages.emit("${dayLabel(dayOfWeek)} ${slotIndex + 1}枠目を保存しました。")
         }
     }
 
-    fun saveLessonWithoutNotification(dayOfWeek: Int, slotIndex: Int, draft: LessonDraft) {
+    fun saveLessonWithoutNotification(
+        academicYear: Int,
+        timetableTerm: TimetableTerm,
+        dayOfWeek: Int,
+        slotIndex: Int,
+        draft: LessonDraft
+    ) {
         viewModelScope.launch {
-            repository.upsertLesson(dayOfWeek, slotIndex, draft)
+            repository.upsertLesson(academicYear, timetableTerm, dayOfWeek, slotIndex, draft)
         }
     }
 
@@ -702,17 +769,25 @@ class SchedulerViewModel(
     fun resolveLessonForDate(
         date: LocalDate,
         slotIndex: Int,
-        lessons: Map<Pair<Int, Int>, LessonEntity>,
+        lessons: Map<LessonKey, LessonEntity>,
         dayTypeMap: Map<LocalDate, DayType>,
         dayTypeEntities: Map<LocalDate, DayTypeEntity> = emptyMap(),
-        changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity> = emptyMap()
+        changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity> = emptyMap(),
+        semesterTimetablesEnabled: Boolean = false
     ): ResolvedLesson? {
         if (date.dayOfWeek.value !in 1..5) return null
         val dayTypeEntity = dayTypeEntities[date]
         val dayType = dayTypeEntity?.dayType ?: dayTypeMap[date] ?: defaultDayType(date)
         if (dayType == DayType.HOLIDAY) return null
         return applyChangedLesson(
-            baseLesson = resolveBaseLessonForDate(date, slotIndex, lessons, dayTypeMap, dayTypeEntities),
+            baseLesson = resolveBaseLessonForDate(
+                date,
+                slotIndex,
+                lessons,
+                dayTypeMap,
+                dayTypeEntities,
+                semesterTimetablesEnabled
+            ),
             changedLesson = changedLessons[date to slotIndex]
         )
     }
@@ -720,9 +795,10 @@ class SchedulerViewModel(
     fun resolveBaseLessonForDate(
         date: LocalDate,
         slotIndex: Int,
-        lessons: Map<Pair<Int, Int>, LessonEntity>,
+        lessons: Map<LessonKey, LessonEntity>,
         dayTypeMap: Map<LocalDate, DayType>,
-        dayTypeEntities: Map<LocalDate, DayTypeEntity> = emptyMap()
+        dayTypeEntities: Map<LocalDate, DayTypeEntity> = emptyMap(),
+        semesterTimetablesEnabled: Boolean = false
     ): ResolvedLesson? {
         if (date.dayOfWeek.value !in 1..5) return null
 
@@ -732,7 +808,10 @@ class SchedulerViewModel(
 
         val lessonDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek ?: date.dayOfWeek.value
         val lessonDayType = dayTypeEntity?.overrideLessonDayType ?: dayType
-        val lesson = lessons[lessonDayOfWeek to slotIndex] ?: return null
+        val timetableTerm = timetableTermForDate(date, semesterTimetablesEnabled)
+        val lesson = lessons[
+            LessonKey(academicYearForDate(date), timetableTerm, lessonDayOfWeek, slotIndex)
+        ] ?: return null
 
         return when (lesson.mode) {
             LessonMode.WEEKLY -> {

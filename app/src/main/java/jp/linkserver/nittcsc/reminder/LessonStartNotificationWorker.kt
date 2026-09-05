@@ -32,16 +32,20 @@ import jp.linkserver.nittcsc.data.hasEnteredContent
 import jp.linkserver.nittcsc.data.HolidaySpecialLabel
 import jp.linkserver.nittcsc.data.LessonEntity
 import jp.linkserver.nittcsc.data.LessonMode
+import jp.linkserver.nittcsc.data.lessonKey
 import jp.linkserver.nittcsc.data.LessonStartNotificationChipMode
 import jp.linkserver.nittcsc.data.LessonNotificationExclusionEntity
 import jp.linkserver.nittcsc.data.ResolvedLesson
 import jp.linkserver.nittcsc.data.SettingsEntity
 import jp.linkserver.nittcsc.logic.ClassSlot
 import jp.linkserver.nittcsc.logic.JapaneseHolidayCalculator
+import jp.linkserver.nittcsc.logic.LessonKey
 import jp.linkserver.nittcsc.logic.PeriodLabelStyle
+import jp.linkserver.nittcsc.logic.academicYearForDate
 import jp.linkserver.nittcsc.logic.applyChangedLesson
 import jp.linkserver.nittcsc.logic.formatExamPeriodLabel
 import jp.linkserver.nittcsc.logic.generateClassSlots
+import jp.linkserver.nittcsc.logic.timetableTermForDate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -95,8 +99,9 @@ class LessonStartNotificationWorker(
                 date = date,
                 slotIndex = slotIndex,
                 dayTypeEntities = dao.getDayTypesOnce().associateBy { it.date },
-                lessons = dao.getLessonsOnce().associateBy { it.dayOfWeek to it.slotIndex },
-                changedLessons = dao.getChangedLessonsOnce().associateBy { it.date to it.slotIndex }
+                lessons = dao.getLessonsOnce().associateBy { it.lessonKey() },
+                changedLessons = dao.getChangedLessonsOnce().associateBy { it.date to it.slotIndex },
+                semesterTimetablesEnabled = settings.enableSemesterTimetables
             )
         } ?: return Result.success()
         if (lesson.subject.isBlank()) return Result.success()
@@ -487,8 +492,9 @@ class LessonStartNotificationWorker(
         date: LocalDate,
         slotIndex: Int,
         dayTypeEntities: Map<LocalDate, DayTypeEntity>,
-        lessons: Map<Pair<Int, Int>, LessonEntity>,
-        changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity>
+        lessons: Map<LessonKey, LessonEntity>,
+        changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity>,
+        semesterTimetablesEnabled: Boolean
     ): ResolvedLesson? {
         if (date.dayOfWeek.value !in 1..5) return null
         val dayTypeEntity = dayTypeEntities[date]
@@ -497,7 +503,16 @@ class LessonStartNotificationWorker(
 
         val lessonDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek ?: date.dayOfWeek.value
         val lessonDayType = dayTypeEntity?.overrideLessonDayType ?: dayType
-        val base = lessons[lessonDayOfWeek to slotIndex]?.let { resolveLesson(lessonDayType, it) }
+        val timetableTerm = timetableTermForDate(date, semesterTimetablesEnabled)
+        val base = lessons[
+            LessonKey(
+                academicYear = academicYearForDate(date),
+                timetableTerm = timetableTerm,
+                dayOfWeek = lessonDayOfWeek,
+                slotIndex = slotIndex
+            )
+        ]
+            ?.let { resolveLesson(lessonDayType, it) }
         return applyChangedLesson(base, changedLessons[date to slotIndex])
     }
 
@@ -589,7 +604,7 @@ class LessonStartNotificationWorker(
 
             val slots = settings.classSlots()
             val dayTypeEntities = dao.getDayTypesOnce().associateBy { it.date }
-            val lessons = dao.getLessonsOnce().associateBy { it.dayOfWeek to it.slotIndex }
+            val lessons = dao.getLessonsOnce().associateBy { it.lessonKey() }
             val changedLessons = dao.getChangedLessonsOnce().associateBy { it.date to it.slotIndex }
             val cancelledLessons = dao.getCancelledLessonsOnce().map { it.date to it.slotIndex }.toSet()
             val examLessonsByDate = dao.getExamLessonsOnce().groupBy { it.date }
@@ -644,7 +659,8 @@ class LessonStartNotificationWorker(
                             slotIndex = slot.index,
                             dayTypeEntities = dayTypeEntities,
                             lessons = lessons,
-                            changedLessons = changedLessons
+                            changedLessons = changedLessons,
+                            semesterTimetablesEnabled = settings.enableSemesterTimetables
                         )
                     } ?: continue
                     if (lesson.subject.isBlank() || isExcluded(lesson, exclusions)) continue
@@ -779,8 +795,9 @@ class LessonStartNotificationWorker(
             date: LocalDate,
             slotIndex: Int,
             dayTypeEntities: Map<LocalDate, DayTypeEntity>,
-            lessons: Map<Pair<Int, Int>, LessonEntity>,
-            changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity>
+            lessons: Map<LessonKey, LessonEntity>,
+            changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity>,
+            semesterTimetablesEnabled: Boolean
         ): ResolvedLesson? {
             if (date.dayOfWeek.value !in 1..5) return null
             val dayTypeEntity = dayTypeEntities[date]
@@ -789,7 +806,16 @@ class LessonStartNotificationWorker(
 
             val lessonDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek ?: date.dayOfWeek.value
             val lessonDayType = dayTypeEntity?.overrideLessonDayType ?: dayType
-            val base = lessons[lessonDayOfWeek to slotIndex]?.let { resolveLessonForSchedule(lessonDayType, it) }
+            val timetableTerm = timetableTermForDate(date, semesterTimetablesEnabled)
+            val base = lessons[
+                LessonKey(
+                    academicYear = academicYearForDate(date),
+                    timetableTerm = timetableTerm,
+                    dayOfWeek = lessonDayOfWeek,
+                    slotIndex = slotIndex
+                )
+            ]
+                ?.let { resolveLessonForSchedule(lessonDayType, it) }
             return applyChangedLesson(base, changedLessons[date to slotIndex])
         }
 

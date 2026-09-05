@@ -57,7 +57,8 @@ internal fun AbTableScreen(
     onSaveLessonOverride: (LocalDate, Int, DayType) -> Unit,
     onClearLessonOverride: (LocalDate) -> Unit,
     onUpdateHolidaySpecialLabel: (LocalDate, HolidaySpecialLabel?) -> Unit,
-    onResetFiscalYear: () -> Unit,
+    preparedNextAcademicYear: Int?,
+    onPrepareNextAcademicYear: () -> Unit,
     onUpdateTerm: (LocalDate, LocalDate) -> Unit,
     onSaveBreak: (Long?, String, LocalDate, LocalDate) -> Unit,
     onDeleteBreak: (LongBreakEntity) -> Unit,
@@ -76,15 +77,42 @@ internal fun AbTableScreen(
     var termStart by remember(settings.termStart) { mutableStateOf(settings.termStart) }
     var termEnd by remember(settings.termEnd) { mutableStateOf(settings.termEnd) }
     var showBreakDialog by remember { mutableStateOf(false) }
+    var showPrepareNextAcademicYearDialog by rememberSaveable { mutableStateOf(false) }
 
-    val today = LocalDate.now()
-    val weeks = remember(settings.termStart, settings.termEnd) {
-        buildWeekRows(settings.termStart, settings.termEnd)
+    val today = checkNotNull(rememberCurrentDateTime(enabled = true)).toLocalDate()
+    val nextAcademicYearStart = remember(preparedNextAcademicYear) {
+        preparedNextAcademicYear?.let { LocalDate.of(it, 4, 1) }
     }
-    val currentWeeks = remember(weeks) { weeks.filter { !it.weekEnd.isBefore(today) } }
-    val pastWeeks = remember(weeks) { weeks.filter { it.weekEnd.isBefore(today) } }
-    val displayedWeeks = remember(currentWeeks, pastWeeks) {
-        currentWeeks.map { DisplayWeekRow(it, false) } + pastWeeks.map { DisplayWeekRow(it, true) }
+    val nextAcademicYearEnd = remember(preparedNextAcademicYear) {
+        preparedNextAcademicYear?.let { LocalDate.of(it, 9, 30) }
+    }
+    val currentPeriodEnd = remember(settings.termEnd, nextAcademicYearStart) {
+        nextAcademicYearStart?.let { minOf(settings.termEnd, it.minusDays(1)) } ?: settings.termEnd
+    }
+    val weeks = remember(settings.termStart, currentPeriodEnd) {
+        if (settings.termStart <= currentPeriodEnd) {
+            buildWeekRows(settings.termStart, currentPeriodEnd)
+        } else {
+            emptyList()
+        }
+    }
+    val currentWeeks = remember(weeks, today) { weeks.filter { !it.weekEnd.isBefore(today) } }
+    val pastWeeks = remember(weeks, today) { weeks.filter { it.weekEnd.isBefore(today) } }
+    val currentDisplayedWeeks = remember(currentWeeks, pastWeeks) {
+        currentWeeks.map { DisplayWeekRow(it, false, AbTableSection.CURRENT) } +
+            pastWeeks.map { DisplayWeekRow(it, true, AbTableSection.CURRENT) }
+    }
+    val nextAcademicYearDisplayedWeeks = remember(nextAcademicYearStart, nextAcademicYearEnd) {
+        if (nextAcademicYearStart != null && nextAcademicYearEnd != null) {
+            buildWeekRows(nextAcademicYearStart, nextAcademicYearEnd).map {
+                DisplayWeekRow(it, false, AbTableSection.NEXT_ACADEMIC_YEAR)
+            }
+        } else {
+            emptyList()
+        }
+    }
+    val displayedWeeks = remember(currentDisplayedWeeks, nextAcademicYearDisplayedWeeks) {
+        currentDisplayedWeeks + nextAcademicYearDisplayedWeeks
     }
 
     // ドラッグ状態（AbTableGrid から AbTableScreen に移動）
@@ -95,8 +123,28 @@ internal fun AbTableScreen(
     var dragTargetDayType by remember(displayedWeeks) { mutableStateOf<DayType?>(null) }
     var overrideEditingDate by remember(displayedWeeks) { mutableStateOf<LocalDate?>(null) }
 
-    val displayDates = remember(displayedWeeks, settings.termStart, settings.termEnd) {
-        displayedWeeks.flatMap { it.row.days }.filter { it in settings.termStart..settings.termEnd }
+    val displayDates = remember(
+        displayedWeeks,
+        settings.termStart,
+        currentPeriodEnd,
+        nextAcademicYearStart,
+        nextAcademicYearEnd
+    ) {
+        displayedWeeks.flatMap { displayWeek ->
+            val rangeStart = when (displayWeek.section) {
+                AbTableSection.CURRENT -> settings.termStart
+                AbTableSection.NEXT_ACADEMIC_YEAR -> nextAcademicYearStart
+            }
+            val rangeEnd = when (displayWeek.section) {
+                AbTableSection.CURRENT -> currentPeriodEnd
+                AbTableSection.NEXT_ACADEMIC_YEAR -> nextAcademicYearEnd
+            }
+            if (rangeStart == null || rangeEnd == null) {
+                emptyList()
+            } else {
+                displayWeek.row.days.filter { it in rangeStart..rangeEnd }
+            }
+        }
     }
     val previewDates = remember(displayDates, dragStartDate, dragCurrentDate) {
         val s = dragStartDate
@@ -185,44 +233,72 @@ internal fun AbTableScreen(
 
         item {
             DayTypeLegend(
-                onOpenExamTimetables = onOpenExamTimetables
+                onOpenExamTimetables = onOpenExamTimetables,
+                onPrepareNextAcademicYear = if (preparedNextAcademicYear == null) {
+                    { showPrepareNextAcademicYearDialog = true }
+                } else {
+                    null
+                }
             )
         }
         item { WeekHeader() }
-        items(displayedWeeks, key = { it.row.weekStart }) { displayWeek ->
-            WeekRow(
-                row = displayWeek.row,
-                settingsStart = settings.termStart,
-                settingsEnd = settings.termEnd,
-                dayTypeForDate = dayTypeForDate,
-                dayTypeEntityForDate = dayTypeEntityForDate,
-                onSaveDayTypes = onSaveDayTypes,
-                onOpenLessonOverride = { date ->
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    overrideEditingDate = date
-                },
-                isPast = displayWeek.isPast,
-                previewDates = previewDates,
-                previewDayType = dragTargetDayType,
-                onUpdateDayBounds = { date, rect -> dateBounds[date] = rect },
-                onDragStartRoot = { rootOffset ->
-                    val startDate = dateAtRoot(rootOffset) ?: return@WeekRow
-                    dragStartDate = startDate
-                    dragCurrentDate = startDate
-                    dragTargetDayType = nextDayType(dayTypeForDate(startDate))
-                },
-                onDragRoot = { rootOffset ->
-                    if (dragStartDate == null) return@WeekRow
-                    dateAtRoot(rootOffset)?.let { date ->
-                        if (date != dragCurrentDate) {
-                            dragCurrentDate = date
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        }
+        items(
+            displayedWeeks,
+            key = { "${it.section.name}-${it.row.weekStart}" }
+        ) { displayWeek ->
+            val isFirstNextAcademicYearWeek =
+                displayWeek.section == AbTableSection.NEXT_ACADEMIC_YEAR &&
+                    displayWeek == nextAcademicYearDisplayedWeeks.firstOrNull()
+            val rowRangeStart = when (displayWeek.section) {
+                AbTableSection.CURRENT -> settings.termStart
+                AbTableSection.NEXT_ACADEMIC_YEAR -> nextAcademicYearStart
+            }
+            val rowRangeEnd = when (displayWeek.section) {
+                AbTableSection.CURRENT -> currentPeriodEnd
+                AbTableSection.NEXT_ACADEMIC_YEAR -> nextAcademicYearEnd
+            }
+
+            if (rowRangeStart != null && rowRangeEnd != null) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (isFirstNextAcademicYearWeek) {
+                        NextAcademicYearHeader(checkNotNull(preparedNextAcademicYear))
+                        WeekHeader()
                     }
-                },
-                onDragEnd = { commitDragRange() },
-                onDragCancel = { resetDragState() }
-            )
+                    WeekRow(
+                        row = displayWeek.row,
+                        settingsStart = rowRangeStart,
+                        settingsEnd = rowRangeEnd,
+                        dayTypeForDate = dayTypeForDate,
+                        dayTypeEntityForDate = dayTypeEntityForDate,
+                        onSaveDayTypes = onSaveDayTypes,
+                        onOpenLessonOverride = { date ->
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            overrideEditingDate = date
+                        },
+                        isPast = displayWeek.isPast,
+                        previewDates = previewDates,
+                        previewDayType = dragTargetDayType,
+                        onUpdateDayBounds = { date, rect -> dateBounds[date] = rect },
+                        onDragStartRoot = { rootOffset ->
+                            val startDate = dateAtRoot(rootOffset) ?: return@WeekRow
+                            dragStartDate = startDate
+                            dragCurrentDate = startDate
+                            dragTargetDayType = nextDayType(dayTypeForDate(startDate))
+                        },
+                        onDragRoot = { rootOffset ->
+                            if (dragStartDate == null) return@WeekRow
+                            dateAtRoot(rootOffset)?.let { date ->
+                                if (date != dragCurrentDate) {
+                                    dragCurrentDate = date
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                }
+                            }
+                        },
+                        onDragEnd = { commitDragRange() },
+                        onDragCancel = { resetDragState() }
+                    )
+                }
+            }
         }
 
         item {
@@ -248,17 +324,10 @@ internal fun AbTableScreen(
                         onDateChange = { termEnd = it }
                     )
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { onUpdateTerm(termStart, termEnd) }) {
-                            Icon(Icons.Filled.Event, contentDescription = null)
-                            Spacer(Modifier.width(6.dp))
-                            Text(stringResource(R.string.btn_apply_to_period))
-                        }
-                        OutlinedButton(onClick = onResetFiscalYear) {
-                            Icon(Icons.Filled.Autorenew, contentDescription = null)
-                            Spacer(Modifier.width(6.dp))
-                            Text(stringResource(R.string.btn_back_to_original))
-                        }
+                    Button(onClick = { onUpdateTerm(termStart, termEnd) }) {
+                        Icon(Icons.Filled.Event, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text(stringResource(R.string.btn_apply_to_period))
                     }
                 }
             }
@@ -274,6 +343,40 @@ internal fun AbTableScreen(
                 onSaveBreak(null, name, start, end)
                 if (name.isNotBlank()) {
                     showBreakDialog = false
+                }
+            }
+        )
+    }
+
+    if (showPrepareNextAcademicYearDialog) {
+        val nextAcademicYear = settings.activeAcademicYear
+            .takeIf { it > 0 }
+            ?.plus(1)
+            ?: settings.termStart.year + 1
+        AlertDialog(
+            onDismissRequest = { showPrepareNextAcademicYearDialog = false },
+            title = {
+                Text(
+                    stringResource(
+                        R.string.dialog_prepare_next_academic_year_title,
+                        nextAcademicYear
+                    )
+                )
+            },
+            text = { Text(stringResource(R.string.dialog_prepare_next_academic_year_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showPrepareNextAcademicYearDialog = false
+                        onPrepareNextAcademicYear()
+                    }
+                ) {
+                    Text(stringResource(R.string.btn_start_preparation))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPrepareNextAcademicYearDialog = false }) {
+                    Text(stringResource(R.string.btn_cancel))
                 }
             }
         )
@@ -343,7 +446,8 @@ private fun DatePickRow(
 
 @Composable
 private fun DayTypeLegend(
-    onOpenExamTimetables: () -> Unit
+    onOpenExamTimetables: () -> Unit,
+    onPrepareNextAcademicYear: (() -> Unit)?
 ) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -372,6 +476,16 @@ private fun DayTypeLegend(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(stringResource(R.string.btn_create_exam_timetable))
+            }
+            onPrepareNextAcademicYear?.let { onPrepare ->
+                OutlinedButton(
+                    onClick = onPrepare,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.Autorenew, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.btn_prepare_next_academic_year))
+                }
             }
         }
     }
@@ -422,6 +536,47 @@ private fun WeekHeader() {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.labelLarge,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NextAcademicYearHeader(academicYear: Int) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(
+                    R.string.label_next_academic_year_first_term,
+                    academicYear
+                ),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(Modifier.width(12.dp))
+            Surface(
+                color = MaterialTheme.colorScheme.secondary,
+                contentColor = MaterialTheme.colorScheme.onSecondary,
+                shape = RoundedCornerShape(50)
+            ) {
+                Text(
+                    text = stringResource(R.string.label_next_academic_year_preparing),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                 )
             }
         }
@@ -607,9 +762,15 @@ private data class WeekRow(
     val days: List<LocalDate>
 )
 
+private enum class AbTableSection {
+    CURRENT,
+    NEXT_ACADEMIC_YEAR
+}
+
 private data class DisplayWeekRow(
     val row: WeekRow,
-    val isPast: Boolean
+    val isPast: Boolean,
+    val section: AbTableSection
 )
 
 private fun buildWeekRows(startDate: LocalDate, endDate: LocalDate): List<WeekRow> {

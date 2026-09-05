@@ -16,7 +16,6 @@ import javax.xml.parsers.DocumentBuilderFactory
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp") version "2.3.6"
 }
@@ -33,7 +32,7 @@ val buildNumberFiles = (
 ).sortedBy { it.relativeTo(rootProject.projectDir).invariantSeparatorsPath }
 
 val appCodeName = "Xion" // トリッカルから取ります
-val appVersionName = "1.0.0-Release"
+val appVersionName = "1.1.0-IntDev"
 val buildContentHash = MessageDigest.getInstance("SHA-256").run {
     buildNumberFiles.forEach { file ->
         update(file.relativeTo(rootProject.projectDir).invariantSeparatorsPath.toByteArray())
@@ -285,7 +284,7 @@ tasks.named("preBuild").configure {
 
 android {
     namespace = "jp.linkserver.nittcsc"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "jp.linkserver.nittcsc"
@@ -344,7 +343,7 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material3:material3:1.5.0-alpha25")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.navigation:navigation-compose:2.7.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.2")
@@ -352,6 +351,8 @@ dependencies {
     implementation("androidx.room:room-runtime:2.8.4")
     implementation("androidx.room:room-ktx:2.8.4")
     ksp("androidx.room:room-compiler:2.8.4")
+
+    implementation("androidx.datastore:datastore-preferences:1.2.1")
 
     // Glance (Compose-based App Widgets)
     implementation("androidx.glance:glance-appwidget:1.1.0")

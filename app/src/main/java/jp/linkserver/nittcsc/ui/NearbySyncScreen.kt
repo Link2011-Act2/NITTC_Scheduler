@@ -660,7 +660,6 @@ private fun SearchingContent(
                 items(endpoints, key = { it.endpointId }) { endpoint ->
                     val isConnecting = endpoint.endpointId == connectingEndpointId
                     ListItem(
-                        headlineContent = { Text(endpoint.name, fontWeight = FontWeight.SemiBold) },
                         supportingContent = {
                             Text(
                                 stringResource(
@@ -683,7 +682,9 @@ private fun SearchingContent(
                             .fillMaxWidth()
                             .clickable(enabled = !hasPendingConnection) { onConnect(endpoint) }
                             .padding(horizontal = 4.dp)
-                    )
+                    ) {
+                        Text(endpoint.name, fontWeight = FontWeight.SemiBold)
+                    }
                     HorizontalDivider()
                 }
             }

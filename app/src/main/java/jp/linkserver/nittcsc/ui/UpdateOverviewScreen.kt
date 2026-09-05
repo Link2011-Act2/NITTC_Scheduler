@@ -58,6 +58,7 @@ import androidx.core.content.FileProvider
 import io.noties.markwon.Markwon
 import io.noties.markwon.ext.tables.TablePlugin
 import jp.linkserver.nittcsc.R
+import jp.linkserver.nittcsc.ui.components.AppLoadingIndicator
 import jp.linkserver.nittcsc.update.AppReleaseNoteInfo
 import jp.linkserver.nittcsc.update.AppUpdateInfo
 import kotlinx.coroutines.CancellationException
@@ -166,11 +167,11 @@ fun UpdateOverviewScreen(
                             (updateInfo.apkDownloadUrl != null || updateInfo.releaseUrl.isNotBlank())
                     ) {
                         if (downloadState is ApkDownloadState.Downloading) {
-                            CircularProgressIndicator(
+                            AppLoadingIndicator(
                                 modifier = Modifier
                                     .padding(end = 8.dp)
                                     .size(16.dp),
-                                strokeWidth = 2.dp
+                                compact = true
                             )
                         } else {
                             Icon(

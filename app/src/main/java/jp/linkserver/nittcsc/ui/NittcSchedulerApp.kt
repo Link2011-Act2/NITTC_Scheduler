@@ -61,18 +61,21 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.outlined.Assignment
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Quiz
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.EditCalendar
@@ -108,8 +111,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
-import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -129,6 +130,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -182,18 +184,28 @@ import jp.linkserver.nittcsc.data.PlanEntity
 import jp.linkserver.nittcsc.data.ResolvedLesson
 import jp.linkserver.nittcsc.data.SettingsEntity
 import jp.linkserver.nittcsc.data.TaskEntity
+import jp.linkserver.nittcsc.data.UiDesignMode
 import jp.linkserver.nittcsc.logic.CLASS_SLOTS
 import jp.linkserver.nittcsc.logic.ClassSlot
 import jp.linkserver.nittcsc.logic.ExportRange
 import jp.linkserver.nittcsc.logic.ExportResult
+import jp.linkserver.nittcsc.logic.LessonKey
 import jp.linkserver.nittcsc.logic.NaturalLanguageLessonCandidate
 import jp.linkserver.nittcsc.logic.NaturalLanguageTaskParser
+import jp.linkserver.nittcsc.logic.TimetableTerm
+import jp.linkserver.nittcsc.logic.UpcomingLessonCandidate
+import jp.linkserver.nittcsc.logic.UpcomingLessonPhase
+import jp.linkserver.nittcsc.logic.UpcomingLessonSelection
+import jp.linkserver.nittcsc.logic.academicYearEnd
+import jp.linkserver.nittcsc.logic.academicYearForDate
+import jp.linkserver.nittcsc.logic.academicYearStart
 import jp.linkserver.nittcsc.logic.adaptiveEditorColumnCount
 import jp.linkserver.nittcsc.logic.shouldUseLargeScreenLayout
 import jp.linkserver.nittcsc.logic.shouldUseNavigationRail
 import jp.linkserver.nittcsc.logic.shouldUseTwoPaneLayout
 import jp.linkserver.nittcsc.logic.buildLessonAutocompleteOptions
 import jp.linkserver.nittcsc.logic.findTaskLessonSlotIndex
+import jp.linkserver.nittcsc.logic.findUpcomingLesson
 import jp.linkserver.nittcsc.logic.formatExamPeriodLabel
 import jp.linkserver.nittcsc.logic.forExamTimetable
 import jp.linkserver.nittcsc.logic.generateClassSlots
@@ -202,6 +214,7 @@ import jp.linkserver.nittcsc.logic.matchesTaskPlanSearch
 import jp.linkserver.nittcsc.logic.normalizeSearchText
 import jp.linkserver.nittcsc.logic.planMatchesLesson
 import jp.linkserver.nittcsc.logic.taskMatchesLesson
+import jp.linkserver.nittcsc.logic.timetableTermForDate
 import jp.linkserver.nittcsc.logic.tokenizeSearchQuery
 import jp.linkserver.nittcsc.logic.usesNoLessonAppearance
 import jp.linkserver.nittcsc.ml.ModelDownloadManager
@@ -210,6 +223,18 @@ import jp.linkserver.nittcsc.ml.VlmInferenceService
 import jp.linkserver.nittcsc.reminder.LessonStartNotificationWorker
 import jp.linkserver.nittcsc.reminder.PlanReminderWorker
 import jp.linkserver.nittcsc.reminder.TaskReminderWorker
+import jp.linkserver.nittcsc.ui.components.AppBottomNavigation
+import jp.linkserver.nittcsc.ui.components.AppBottomNavigationItem
+import jp.linkserver.nittcsc.ui.components.AppConnectedButtonGroup
+import jp.linkserver.nittcsc.ui.components.AppFabMenuAction
+import jp.linkserver.nittcsc.ui.components.AppFloatingToolbar
+import jp.linkserver.nittcsc.ui.components.AppIconButton
+import jp.linkserver.nittcsc.ui.components.AppSplitButton
+import jp.linkserver.nittcsc.ui.components.AppTopAppBar
+import jp.linkserver.nittcsc.ui.components.AppVibrantFabMenu
+import jp.linkserver.nittcsc.ui.theme.ExpressiveLessonHeroShape
+import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
+import jp.linkserver.nittcsc.ui.theme.Typography as StandardTypography
 import jp.linkserver.nittcsc.viewmodel.SchedulerUiState
 import jp.linkserver.nittcsc.viewmodel.SchedulerViewModel
 import jp.linkserver.nittcsc.sync.NearbyPhase
@@ -228,6 +253,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.time.Duration
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -358,6 +384,18 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val resources = LocalResources.current
+    LaunchedEffect(uiState.initialized) {
+        if (!uiState.initialized) return@LaunchedEffect
+        while (true) {
+            val now = java.time.ZonedDateTime.now()
+            val nextMidnight = now.toLocalDate().plusDays(1).atStartOfDay(now.zone)
+            val waitMillis = java.time.Duration.between(now, nextMidnight)
+                .toMillis()
+                .coerceAtLeast(1_000L)
+            delay(waitMillis + 1_000L)
+            viewModel.refreshAcademicYear()
+        }
+    }
     val tutorialPreferences = remember(context) {
         context.getSharedPreferences(TUTORIAL_PREFS_NAME, Context.MODE_PRIVATE)
     }
@@ -411,8 +449,85 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     var transientTabOrigin by rememberSaveable { mutableStateOf<AppTab?>(null) }
     var transientTabTarget by rememberSaveable { mutableStateOf<AppTab?>(null) }
     var unifiedTaskPlanSelectedTabIndex by rememberSaveable { mutableStateOf(0) }
+    var attachedFabMenuExpanded by remember { mutableStateOf(false) }
     var lessonChangeEditor by remember { mutableStateOf<LessonChangeEditorState?>(null) }
     var pendingLessonMoveDialog by remember { mutableStateOf<PendingLessonMoveDialogState?>(null) }
+
+    val semesterTimetablesEnabled = uiState.settings?.enableSemesterTimetables == true
+    val activeAcademicYear = uiState.settings?.activeAcademicYear
+        ?.takeIf { it > 0 }
+        ?: academicYearForDate(LocalDate.now())
+    val preparedNextAcademicYear = uiState.preparedNextAcademicYear()
+    var selectedTimetableAcademicYear by rememberSaveable(
+        semesterTimetablesEnabled,
+        activeAcademicYear,
+        preparedNextAcademicYear
+    ) {
+        mutableIntStateOf(activeAcademicYear)
+    }
+    var selectedTimetableTerm by rememberSaveable(
+        semesterTimetablesEnabled,
+        activeAcademicYear,
+        preparedNextAcademicYear
+    ) {
+        mutableStateOf(timetableTermForDate(LocalDate.now(), semesterTimetablesEnabled))
+    }
+    val firstTermLabel = stringResource(R.string.label_first_term)
+    val secondTermLabel = stringResource(R.string.label_second_term)
+    val timetableLabel = stringResource(R.string.btn_timetable)
+    val preparedAcademicYearLabel = preparedNextAcademicYear?.let { academicYear ->
+        if (semesterTimetablesEnabled) {
+            stringResource(R.string.label_next_academic_year_first_term, academicYear)
+        } else {
+            stringResource(R.string.label_academic_year, academicYear)
+        }
+    }
+    val timetableTargets = remember(
+        activeAcademicYear,
+        semesterTimetablesEnabled,
+        preparedNextAcademicYear,
+        firstTermLabel,
+        secondTermLabel,
+        timetableLabel,
+        preparedAcademicYearLabel
+    ) {
+        buildList {
+            add(
+                TimetableEditTarget(
+                    academicYear = activeAcademicYear,
+                    timetableTerm = TimetableTerm.FIRST,
+                    label = if (semesterTimetablesEnabled) firstTermLabel else timetableLabel
+                )
+            )
+            if (semesterTimetablesEnabled) {
+                add(
+                    TimetableEditTarget(
+                        academicYear = activeAcademicYear,
+                        timetableTerm = TimetableTerm.SECOND,
+                        label = secondTermLabel
+                    )
+                )
+            }
+            if (preparedNextAcademicYear != null && preparedAcademicYearLabel != null) {
+                add(
+                    TimetableEditTarget(
+                        academicYear = preparedNextAcademicYear,
+                        timetableTerm = TimetableTerm.FIRST,
+                        label = preparedAcademicYearLabel
+                    )
+                )
+            }
+        }
+    }
+    val selectedTimetableTargetIndex = timetableTargets.indexOfFirst { target ->
+        target.academicYear == selectedTimetableAcademicYear &&
+            target.timetableTerm == selectedTimetableTerm
+    }.takeIf { it >= 0 } ?: 0
+    val selectedTimetableTarget = timetableTargets[selectedTimetableTargetIndex]
+
+    LaunchedEffect(selectedTab, unifiedTaskPlanSelectedTabIndex) {
+        attachedFabMenuExpanded = false
+    }
 
     LaunchedEffect(
         selectedTab,
@@ -673,6 +788,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         uiState.settings?.lessonStartNotificationLiveUpdatesEnabled,
         uiState.settings?.lessonStartNotificationProgressCountsDown,
         uiState.settings?.lessonStartNotificationLiveUpdateEarlyMinutes,
+        uiState.settings?.enableSemesterTimetables,
         uiState.lessonNotificationExclusions,
         uiState.lessons,
         uiState.dayTypeEntities,
@@ -701,6 +817,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         uiState.settings?.firstPeriodStartHour,
         uiState.settings?.firstPeriodStartMinute,
         uiState.settings?.periodLabelStyle,
+        uiState.settings?.enableSemesterTimetables,
         uiState.lessons,
         uiState.dayTypeEntities,
         uiState.changedLessons,
@@ -1260,7 +1377,8 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
             slotIndex = slot,
             lessons = uiState.lessons,
             dayTypeMap = uiState.dayTypeMap,
-            dayTypeEntities = uiState.dayTypeEntities
+            dayTypeEntities = uiState.dayTypeEntities,
+            semesterTimetablesEnabled = uiState.settings?.enableSemesterTimetables == true
         )
     }
 
@@ -1271,7 +1389,8 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
             lessons = uiState.lessons,
             dayTypeMap = uiState.dayTypeMap,
             dayTypeEntities = uiState.dayTypeEntities,
-            changedLessons = uiState.changedLessons
+            changedLessons = uiState.changedLessons,
+            semesterTimetablesEnabled = uiState.settings?.enableSemesterTimetables == true
         )
     }
 
@@ -1451,8 +1570,15 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         }
     }
 
-    val examPeriods = remember(uiState.dayTypeEntities) {
-        buildExamPeriods(uiState.dayTypeEntities.values)
+    val examPeriodAcademicYear = uiState.settings?.activeAcademicYear
+        ?.takeIf { it > 0 }
+        ?: academicYearForDate(LocalDate.now())
+    val examPeriods = remember(uiState.dayTypeEntities, examPeriodAcademicYear) {
+        val activeRange = academicYearStart(examPeriodAcademicYear)..
+            academicYearEnd(examPeriodAcademicYear)
+        buildExamPeriods(
+            uiState.dayTypeEntities.values.filter { dayType -> dayType.date in activeRange }
+        )
     }
     val selectedExamPeriod = selectedExamPeriodStartEpochDay?.let { epochDay ->
         examPeriods.firstOrNull { it.startDate.toEpochDay() == epochDay }
@@ -1742,8 +1868,17 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                     onUpdateHfToken = viewModel::updateHfToken,
                     onBack = { showVlmImport = false },
                     onLessonsGenerated = { lessons ->
+                        val activeAcademicYear = uiState.settings?.activeAcademicYear
+                            ?.takeIf { it > 0 }
+                            ?: academicYearForDate(LocalDate.now())
                         lessons.forEach { lesson ->
-                            viewModel.saveLesson(lesson.dayOfWeek, lesson.slotIndex, lesson.draft)
+                            viewModel.saveLesson(
+                                activeAcademicYear,
+                                TimetableTerm.FIRST,
+                                lesson.dayOfWeek,
+                                lesson.slotIndex,
+                                lesson.draft
+                            )
                         }
                     },
                     onAbTableGenerated = { abMap ->
@@ -1770,6 +1905,9 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                     onToggleLocalAi = viewModel::toggleLocalAi,
                     onToggleNaturalLanguageTaskAdd = viewModel::toggleNaturalLanguageTaskAdd,
                     onToggleDrawerNavigation = viewModel::toggleDrawerNavigation,
+                    onToggleSemesterTimetables = viewModel::toggleSemesterTimetables,
+                    onUpdateUiDesignMode = viewModel::updateUiDesignMode,
+                    onAcknowledgeExpressiveWarning = viewModel::acknowledgeExpressiveWarning,
                     onToggleAddTasksToCalendar = { enabled ->
                         if (enabled && !hasCalendarPermission(context)) {
                             pendingToggleAddTasksToCalendar = true
@@ -2193,6 +2331,10 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                             }
                         )
                     } else {
+                        val useExpressiveAttachedCreateAction =
+                            LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE &&
+                                !useDrawerNavigation &&
+                                !useNavigationRail
                         val tabContent: @Composable (PaddingValues) -> Unit = { padding ->
                             Crossfade(
                                 targetState = selectedTab,
@@ -2313,7 +2455,8 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                                     deletePlanWithIntegrations(plan)
                                                 },
                                                 onMarkPlanComplete = ::markPlanCompleteWithIntegrations,
-                                                onMarkPlanIncomplete = viewModel::markPlanAsIncomplete
+                                                onMarkPlanIncomplete = viewModel::markPlanAsIncomplete,
+                                                showCreateAction = !useExpressiveAttachedCreateAction
                                             )
                                         } else {
                                             // 従来のビュー：課題のみ
@@ -2334,6 +2477,13 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                                     InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD &&
                                                         uiState.settings?.enableNaturalLanguageTaskAdd == true,
                                                 onOpenNaturalLanguageTaskAdd = { showNaturalLanguageTaskAddDialog = true },
+                                                onCreateAlternateType = {
+                                                    editingPlanId = null
+                                                    showPlanEditor = true
+                                                    showTaskEditor = false
+                                                    naturalLanguageTaskDraft = null
+                                                },
+                                                showCreateAction = !useExpressiveAttachedCreateAction,
                                                 onDeleteTask = ::deleteTaskWithIntegrations,
                                                 onMarkComplete = ::markTaskCompleteWithIntegrations,
                                                 onMarkIncomplete = viewModel::markTaskAsIncomplete
@@ -2365,12 +2515,20 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                         onMarkIncomplete = { task ->
                                             uiState.plans.firstOrNull { it.id == task.id }?.let { viewModel.markPlanAsIncomplete(it) }
                                         },
+                                        onCreateAlternateType = {
+                                            editingTaskId = null
+                                            showTaskEditor = true
+                                            showPlanEditor = false
+                                            naturalLanguageTaskDraft = null
+                                        },
+                                        showCreateAction = !useExpressiveAttachedCreateAction,
                                         isPlan = true
                                     )
 
                                     AppTab.Timetable -> TimetableInputScreen(
                                         modifier = Modifier.padding(padding),
                                         state = uiState,
+                                        timetableTarget = selectedTimetableTarget,
                                         useLargeScreenLayout = useLargeScreenLayout,
                                         onSelectDay = viewModel::selectDayOfWeek,
                                         onAutoSaveLesson = viewModel::saveLessonWithoutNotification,
@@ -2415,7 +2573,10 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                             }
                                             viewModel.updateHolidaySpecialLabel(date, label)
                                         },
-                                        onResetFiscalYear = viewModel::resetFiscalYear,
+                                        preparedNextAcademicYear =
+                                            uiState.preparedNextAcademicYear(),
+                                        onPrepareNextAcademicYear =
+                                            viewModel::prepareNextAcademicYear,
                                         onUpdateTerm = viewModel::updateTerm,
                                         onSaveBreak = viewModel::saveLongBreak,
                                         onDeleteBreak = viewModel::deleteLongBreak,
@@ -2447,11 +2608,18 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                             Scaffold(
                                 snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
                                 topBar = {
-                                    TopAppBar(
-                                        title = { Text(topBarTitle) },
+                                    AppTopAppBar(
+                                        title = {
+                                            Text(
+                                                text = topBarTitle,
+                                                style = StandardTypography.titleLarge,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        },
                                         navigationIcon = {
                                             if (useDrawerNavigation) {
-                                                IconButton(
+                                                AppIconButton(
                                                     onClick = {
                                                         drawerScope.launch {
                                                             if (drawerState.isOpen) drawerState.close() else drawerState.open()
@@ -2464,7 +2632,18 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                         },
                                         actions = {
                                             if (selectedTab == AppTab.Timetable) {
-                                                IconButton(onClick = { showExamTimetablePeriods = true }) {
+                                                if (timetableTargets.size > 1) {
+                                                    TimetableTargetDropdown(
+                                                        options = timetableTargets.map { it.label },
+                                                        selectedIndex = selectedTimetableTargetIndex,
+                                                        onSelectedIndexChange = { index ->
+                                                            val target = timetableTargets[index]
+                                                            selectedTimetableAcademicYear = target.academicYear
+                                                            selectedTimetableTerm = target.timetableTerm
+                                                        }
+                                                    )
+                                                }
+                                                AppIconButton(onClick = { showExamTimetablePeriods = true }) {
                                                     Icon(
                                                         Icons.Filled.Quiz,
                                                         contentDescription = stringResource(R.string.btn_create_exam_timetable),
@@ -2473,7 +2652,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                                 }
                                             }
                                             if (showTaskPlanActions) {
-                                                IconButton(
+                                                AppIconButton(
                                                     onClick = { showTaskPlanCalendar = true }
                                                 ) {
                                                     Icon(
@@ -2483,45 +2662,138 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                                     )
                                                 }
                                             }
-                                            if (uiState.settings?.enableLocalAi == true) {
-                                                IconButton(onClick = { showVlmImport = true }) {
-                                                    Icon(Icons.Filled.AutoFixHigh, contentDescription = stringResource(R.string.cd_ai_import))
+                                            if (selectedTab == AppTab.Output) {
+                                                if (uiState.settings?.enableLocalAi == true) {
+                                                    AppIconButton(onClick = { showVlmImport = true }) {
+                                                        Icon(Icons.Filled.AutoFixHigh, contentDescription = stringResource(R.string.cd_ai_import))
+                                                    }
                                                 }
-                                            }
-                                            IconButton(onClick = { showSync = true }) {
-                                                Icon(
-                                                    painter = painterResource(R.drawable.sync_desktop),
-                                                    contentDescription = stringResource(R.string.cd_open_local_sync)
+                                                AppIconButton(onClick = { showSync = true }) {
+                                                    Icon(
+                                                        painter = painterResource(R.drawable.sync_desktop),
+                                                        contentDescription = stringResource(R.string.cd_open_local_sync)
+                                                    )
+                                                }
+                                                AppIconButton(onClick = { showSettings = true }) {
+                                                    Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.cd_settings))
+                                                }
+                                            } else {
+                                                MainActionsOverflowMenu(
+                                                    showAiImport = uiState.settings?.enableLocalAi == true,
+                                                    onOpenAiImport = { showVlmImport = true },
+                                                    onOpenSync = { showSync = true },
+                                                    onOpenSettings = { showSettings = true }
                                                 )
-                                            }
-                                            IconButton(onClick = { showSettings = true }) {
-                                                Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.cd_settings))
                                             }
                                         }
                                     )
                                 },
                                 bottomBar = {
                                     if (!useDrawerNavigation && !useNavigationRail) {
-                                        NavigationBar {
-                                            val unifyTaskPlanView = uiState.settings?.unifyTaskPlanView ?: false
+                                        val attachedFabIsPlan =
+                                            selectedTab == AppTab.Plans ||
+                                                (
+                                                    selectedTab == AppTab.Tasks &&
+                                                        unifyTaskPlanView &&
+                                                        unifiedTaskPlanSelectedTabIndex == 1
+                                                )
+                                        val showAttachedCreateFab =
+                                            useExpressiveAttachedCreateAction && showTaskPlanActions
+                                        val currentCreateLabel = stringResource(
+                                            if (attachedFabIsPlan) R.string.cd_add_plan else R.string.cd_add_task
+                                        )
+                                        val alternateCreateLabel = stringResource(
+                                            if (attachedFabIsPlan) R.string.cd_add_task else R.string.cd_add_plan
+                                        )
+                                        val attachedFabActions = buildList {
+                                            if (showAttachedCreateFab) {
+                                                add(
+                                                    AppFabMenuAction(
+                                                        label = currentCreateLabel,
+                                                        icon = Icons.Filled.Add,
+                                                        onClick = {
+                                                            if (attachedFabIsPlan) {
+                                                                editingPlanId = null
+                                                                showPlanEditor = true
+                                                                showTaskEditor = false
+                                                            } else {
+                                                                editingTaskId = null
+                                                                showTaskEditor = true
+                                                                showPlanEditor = false
+                                                            }
+                                                            naturalLanguageTaskDraft = null
+                                                        }
+                                                    )
+                                                )
+                                                add(
+                                                    AppFabMenuAction(
+                                                        label = alternateCreateLabel,
+                                                        icon = Icons.Filled.Edit,
+                                                        onClick = {
+                                                            if (attachedFabIsPlan) {
+                                                                editingTaskId = null
+                                                                showTaskEditor = true
+                                                                showPlanEditor = false
+                                                            } else {
+                                                                editingPlanId = null
+                                                                showPlanEditor = true
+                                                                showTaskEditor = false
+                                                            }
+                                                            naturalLanguageTaskDraft = null
+                                                        }
+                                                    )
+                                                )
+                                                if (
+                                                    !attachedFabIsPlan &&
+                                                    InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD &&
+                                                    uiState.settings?.enableNaturalLanguageTaskAdd == true
+                                                ) {
+                                                    add(
+                                                        AppFabMenuAction(
+                                                            label = stringResource(R.string.btn_add_task_from_natural_language),
+                                                            icon = Icons.Filled.AutoFixHigh,
+                                                            onClick = { showNaturalLanguageTaskAddDialog = true }
+                                                        )
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        val attachedFabContent: (@Composable () -> Unit)? =
+                                            if (showAttachedCreateFab) {
+                                                {
+                                                    AppVibrantFabMenu(
+                                                        actions = attachedFabActions,
+                                                        expanded = attachedFabMenuExpanded,
+                                                        onExpandedChange = { attachedFabMenuExpanded = it },
+                                                        expandContentDescription = stringResource(R.string.cd_expand_create_menu),
+                                                        collapseContentDescription = stringResource(R.string.cd_collapse_create_menu)
+                                                    )
+                                                }
+                                            } else {
+                                                null
+                                            }
+                                        AppBottomNavigation(
+                                            floatingActionButton = attachedFabContent
+                                        ) {
                                             AppTab.entries.forEach { tab ->
                                                 // 統合ビューが有効な場合、Plans タブを非表示
                                                 if (unifyTaskPlanView && tab == AppTab.Plans) return@forEach
                                                 
                                                 val isSelected = selectedTab == tab
-                                                val tabLabel = if (unifyTaskPlanView && tab == AppTab.Tasks)
-                                                    "ToDo"
-                                                else
-                                                    stringResource(tab.labelRes)
-                                                NavigationBarItem(
+                                                val tabLabel = when {
+                                                    unifyTaskPlanView && tab == AppTab.Tasks -> "ToDo"
+                                                    LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE &&
+                                                        tab == AppTab.Timetable -> stringResource(R.string.tab_timetable_m3e)
+                                                    else -> stringResource(tab.labelRes)
+                                                }
+                                                AppBottomNavigationItem(
                                                     selected = isSelected,
                                                     onClick = {
                                                         clearTransientTabNavigation()
                                                         selectedTab = tab
                                                     },
-                                                    colors = NavigationBarItemDefaults.colors(
-                                                        indicatorColor = selectedTabHighlight
-                                                    ),
+                                                    selectedIndicatorColor = selectedTabHighlight,
+                                                    contentDescription = tabLabel,
                                                     icon = {
                                                         Icon(
                                                             imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
@@ -2533,7 +2805,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                                             }
                                                         )
                                                     },
-                                                    label = { Text(tabLabel) }
+                                                    label = { Text(tabLabel, maxLines = 1) }
                                                 )
                                             }
                                         }
@@ -2797,14 +3069,31 @@ private fun ScreenHeadline(title: String, subtitle: String) {
     }
 }
 
+private fun SchedulerUiState.preparedNextAcademicYear(): Int? {
+    val activeYear = settings?.activeAcademicYear?.takeIf { it > 0 } ?: return null
+    val nextYear = activeYear + 1
+    return nextYear.takeIf { candidate ->
+        lessons.keys.any { key ->
+            key.academicYear == candidate && key.timetableTerm == TimetableTerm.FIRST
+        }
+    }
+}
+
+private data class TimetableEditTarget(
+    val academicYear: Int,
+    val timetableTerm: TimetableTerm,
+    val label: String
+)
+
 @Composable
 private fun TimetableInputScreen(
     modifier: Modifier,
     state: SchedulerUiState,
+    timetableTarget: TimetableEditTarget,
     useLargeScreenLayout: Boolean,
     onSelectDay: (Int) -> Unit,
-    onAutoSaveLesson: (Int, Int, LessonDraft) -> Unit,
-    onSaveLesson: (Int, Int, LessonDraft) -> Unit
+    onAutoSaveLesson: (Int, TimetableTerm, Int, Int, LessonDraft) -> Unit,
+    onSaveLesson: (Int, TimetableTerm, Int, Int, LessonDraft) -> Unit
 ) {
     val dayLabels = listOf(
         DayOfWeek.MONDAY.value to R.string.weekday_monday,
@@ -2813,37 +3102,61 @@ private fun TimetableInputScreen(
         DayOfWeek.THURSDAY.value to R.string.weekday_thursday,
         DayOfWeek.FRIDAY.value to R.string.weekday_friday
     )
+    val dayButtonLabels = listOf(
+        stringResource(R.string.weekday_monday),
+        stringResource(R.string.weekday_tuesday),
+        stringResource(R.string.weekday_wednesday),
+        stringResource(R.string.weekday_thursday),
+        stringResource(R.string.weekday_friday)
+    )
 
     Column(modifier = modifier.fillMaxSize()) {
         // 曜日タブ（スクロールしても常に表示）
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            dayLabels.forEach { (dayValue, labelRes) ->
-                val selected = state.selectedDayOfWeek == dayValue
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable { onSelectDay(dayValue) },
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (selected) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.surfaceContainerHigh
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier.padding(vertical = 10.dp)
+        if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                AppConnectedButtonGroup(
+                    options = dayButtonLabels,
+                    selectedIndex = dayLabels.indexOfFirst {
+                        it.first == state.selectedDayOfWeek
+                    }.coerceAtLeast(0),
+                    onSelectedIndexChange = { index -> onSelectDay(dayLabels[index].first) }
+                )
+            }
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                dayLabels.forEach { (dayValue, labelRes) ->
+                    val selected = state.selectedDayOfWeek == dayValue
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onSelectDay(dayValue) },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.surfaceContainerHigh
                     ) {
-                        Text(
-                            text = stringResource(labelRes),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = if (selected) MaterialTheme.colorScheme.onPrimary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-                        )
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.padding(vertical = 10.dp)
+                        ) {
+                            Text(
+                                text = stringResource(labelRes),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = if (selected) MaterialTheme.colorScheme.onPrimary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
                     }
                 }
             }
@@ -2851,13 +3164,36 @@ private fun TimetableInputScreen(
         HorizontalDivider()
         val classSlots = remember(state.settings) { state.settings.toClassSlots() }
         val lessonEditor: @Composable (ClassSlot, Modifier) -> Unit = { slot, cardModifier ->
-            val lesson = state.lessons[state.selectedDayOfWeek to slot.index]
+            val lesson = state.lessons[
+                LessonKey(
+                    timetableTarget.academicYear,
+                    timetableTarget.timetableTerm,
+                    state.selectedDayOfWeek,
+                    slot.index
+                )
+            ]
             LessonEditorCard(
                 modifier = cardModifier,
                 title = slot.label,
                 lesson = lesson,
-                onAutoSave = { draft -> onAutoSaveLesson(state.selectedDayOfWeek, slot.index, draft) },
-                onSave = { draft -> onSaveLesson(state.selectedDayOfWeek, slot.index, draft) }
+                onAutoSave = { draft ->
+                    onAutoSaveLesson(
+                        timetableTarget.academicYear,
+                        timetableTarget.timetableTerm,
+                        state.selectedDayOfWeek,
+                        slot.index,
+                        draft
+                    )
+                },
+                onSave = { draft ->
+                    onSaveLesson(
+                        timetableTarget.academicYear,
+                        timetableTarget.timetableTerm,
+                        state.selectedDayOfWeek,
+                        slot.index,
+                        draft
+                    )
+                }
             )
         }
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -3128,18 +3464,6 @@ private fun LessonEditorCard(
 }
 
 
-@Composable
-private fun rememberCurrentTime(): LocalTime {
-    val currentTime by produceState(initialValue = LocalTime.now()) {
-        while (true) {
-            value = LocalTime.now()
-            val delayMs = 60000L - (System.currentTimeMillis() % 60000L) + 50L
-            kotlinx.coroutines.delay(delayMs)
-        }
-    }
-    return currentTime
-}
-
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun OutputScreen(
@@ -3267,6 +3591,51 @@ private fun OutputScreen(
             location = lesson.location.takeIf { it.isNotBlank() }
         )
     }
+    val useExpressiveDesign = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
+    val currentDateTime = rememberCurrentDateTime(useExpressiveDesign)
+    val upcomingLesson = if (currentDateTime != null) {
+        val termStart = state.settings?.termStart ?: today
+        val termEnd = state.settings?.termEnd ?: today.plusDays(14)
+        val searchStart = maxOf(today, termStart)
+        val searchEnd = minOf(today.plusDays(14), termEnd)
+        val candidates = if (searchStart <= searchEnd) {
+            buildList {
+                var date = searchStart
+                while (!date.isAfter(searchEnd)) {
+                    val isExamDate = isExamScheduleDate(date)
+                    if (isExamDate || dayTypeForDate(date) != DayType.HOLIDAY) {
+                        val slots = if (isExamDate) examSlotsForDate(date) else classSlots
+                        slots.forEach { slot ->
+                            if (!isExamDate && isLessonCancelled(date, slot.index)) return@forEach
+                            val lesson = if (isExamDate) {
+                                resolveExamLesson(date, slot.index)
+                            } else {
+                                resolveLesson(date, slot.index)
+                            }
+                            if (lesson?.subject?.isNotBlank() == true) {
+                                add(
+                                    UpcomingLessonCandidate(
+                                        date = date,
+                                        slotIndex = slot.index,
+                                        slotLabel = slot.label,
+                                        start = slot.start,
+                                        end = slot.end,
+                                        content = lesson
+                                    )
+                                )
+                            }
+                        }
+                    }
+                    date = date.plusDays(1)
+                }
+            }
+        } else {
+            emptyList()
+        }
+        findUpcomingLesson(candidates, currentDateTime)
+    } else {
+        null
+    }
     val visibleDates = if (displayMode == OutputDisplayMode.DAY) {
         listOf(selectedDate)
     } else {
@@ -3314,6 +3683,28 @@ private fun OutputScreen(
             contentPadding = PaddingValues(vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            if (
+                useExpressiveDesign &&
+                currentDateTime != null &&
+                displayMode == OutputDisplayMode.DAY &&
+                selectedDate == today &&
+                upcomingLesson != null
+            ) {
+                item(key = "expressive-upcoming-lesson") {
+                    ExpressiveUpcomingLessonHero(
+                        selection = upcomingLesson,
+                        now = currentDateTime,
+                        onClick = if (upcomingLesson.candidate.date != today) {
+                            {
+                                displayMode = OutputDisplayMode.DAY
+                                onPickDate(upcomingLesson.candidate.date)
+                            }
+                        } else {
+                            null
+                        }
+                    )
+                }
+            }
             item {
                 if (showResultDatePicker) {
                     val state = rememberDatePickerState(initialSelectedDateMillis = selectedDate.toEpochDay() * 86400000L)
@@ -3330,14 +3721,12 @@ private fun OutputScreen(
                         }
                     ) { DatePicker(state = state) }
                 }
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isCurrentRangeToday) {
-                            MaterialTheme.colorScheme.surfaceContainer
-                        } else {
-                            MaterialTheme.colorScheme.surfaceContainerLow
-                        }
-                    )
+                AppFloatingToolbar(
+                    containerColor = if (isCurrentRangeToday) {
+                        MaterialTheme.colorScheme.surfaceContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerLow
+                    }
                 ) {
                     Row(
                         modifier = Modifier
@@ -3688,6 +4077,213 @@ private fun OutputScreen(
             }
         }
 
+    }
+}
+
+@Composable
+private fun ExpressiveUpcomingLessonHero(
+    selection: UpcomingLessonSelection<ResolvedLesson>,
+    now: LocalDateTime,
+    onClick: (() -> Unit)?
+) {
+    val candidate = selection.candidate
+    val isOngoing = selection.phase == UpcomingLessonPhase.ONGOING
+    val containerColor = if (isOngoing) {
+        MaterialTheme.colorScheme.tertiaryContainer
+    } else {
+        MaterialTheme.colorScheme.primaryContainer
+    }
+    val contentColor = if (isOngoing) {
+        MaterialTheme.colorScheme.onTertiaryContainer
+    } else {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    }
+    val transitionAt = if (isOngoing) candidate.endsAt else candidate.startsAt
+    val remainingMinutes = Duration.between(now, transitionAt).toMinutes().coerceAtLeast(1L)
+    val remainingDays = remainingMinutes / (24L * 60L)
+    val remainingHours = (remainingMinutes % (24L * 60L)) / 60L
+    val trailingMinutes = remainingMinutes % 60L
+    val remainingText = when {
+        remainingDays > 0L && remainingHours > 0L -> stringResource(
+            R.string.m3e_duration_days_hours,
+            remainingDays,
+            remainingHours
+        )
+        remainingDays > 0L -> stringResource(R.string.m3e_duration_days, remainingDays)
+        remainingHours > 0L && trailingMinutes > 0L -> stringResource(
+            R.string.m3e_duration_hours_minutes,
+            remainingHours,
+            trailingMinutes
+        )
+        remainingHours > 0L -> stringResource(R.string.m3e_duration_hours, remainingHours)
+        else -> stringResource(R.string.m3e_duration_minutes, remainingMinutes)
+    }
+    val countdownText = stringResource(
+        if (isOngoing) R.string.m3e_lesson_ends_in else R.string.m3e_lesson_starts_in,
+        remainingText
+    )
+    val dateLabel = if (candidate.date == now.toLocalDate()) {
+        stringResource(R.string.m3e_lesson_today)
+    } else {
+        stringResource(
+            R.string.m3e_lesson_date,
+            candidate.date.monthValue,
+            candidate.date.dayOfMonth,
+            stringResource(dayOfWeekRes(candidate.date.dayOfWeek))
+        )
+    }
+    val timeFormatter = remember { DateTimeFormatter.ofPattern("H:mm") }
+    val scheduleText = stringResource(
+        R.string.m3e_lesson_date_time,
+        dateLabel,
+        candidate.slotLabel,
+        candidate.start.format(timeFormatter),
+        candidate.end.format(timeFormatter)
+    )
+    val supportingText = listOfNotNull(
+        candidate.content.teacher.trim().takeIf { it.isNotBlank() },
+        candidate.content.location?.trim()?.takeIf { it.isNotBlank() }
+    ).joinToString(" ・ ")
+
+    val clickableModifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec())
+            .then(clickableModifier),
+        shape = ExpressiveLessonHeroShape,
+        color = containerColor,
+        contentColor = contentColor,
+        tonalElevation = 4.dp,
+        shadowElevation = 2.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = contentColor.copy(alpha = 0.12f),
+                    contentColor = contentColor
+                ) {
+                    Text(
+                        text = stringResource(
+                            if (isOngoing) R.string.m3e_lesson_ongoing else R.string.m3e_lesson_next
+                        ),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+                Text(
+                    text = countdownText,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                if (onClick != null) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = null
+                    )
+                }
+            }
+
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val compact = maxWidth < 280.dp
+                if (compact) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Surface(
+                            modifier = Modifier.size(48.dp),
+                            shape = RoundedCornerShape(
+                                topStart = 18.dp,
+                                topEnd = 18.dp,
+                                bottomEnd = 6.dp,
+                                bottomStart = 18.dp
+                            ),
+                            color = contentColor,
+                            contentColor = containerColor
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Filled.School,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = candidate.content.subject,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = scheduleText,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Surface(
+                            modifier = Modifier.size(58.dp),
+                            shape = RoundedCornerShape(
+                                topStart = 22.dp,
+                                topEnd = 22.dp,
+                                bottomEnd = 7.dp,
+                                bottomStart = 22.dp
+                            ),
+                            color = contentColor,
+                            contentColor = containerColor
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Filled.School,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(30.dp)
+                                )
+                            }
+                        }
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = candidate.content.subject,
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = scheduleText,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (supportingText.isNotBlank()) {
+                Text(
+                    text = supportingText,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
     }
 }
 
@@ -7342,6 +7938,7 @@ private fun LessonActionDialog(
     val strStatusNormal = stringResource(R.string.label_lesson_status_normal)
     val strNoLesson = stringResource(R.string.label_no_class_short)
     val strSlotInfo = stringResource(R.string.label_lesson_slot_info, date.format(dateFormatter), slotIndex + 1)
+    val useExpressiveDesign = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -7422,17 +8019,26 @@ private fun LessonActionDialog(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (onAddTask != null) {
-                    Button(
-                        onClick = onAddTask,
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text(strAddTask) }
-                }
-                if (onAddPlan != null) {
-                    OutlinedButton(
-                        onClick = onAddPlan,
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text(strAddPlan) }
+                if (useExpressiveDesign && onAddTask != null && onAddPlan != null) {
+                    AppSplitButton(
+                        primaryLabel = { Text(strAddTask) },
+                        onPrimaryClick = onAddTask,
+                        secondaryLabel = { Text(strAddPlan) },
+                        onSecondaryClick = onAddPlan
+                    )
+                } else {
+                    if (onAddTask != null) {
+                        Button(
+                            onClick = onAddTask,
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text(strAddTask) }
+                    }
+                    if (onAddPlan != null) {
+                        OutlinedButton(
+                            onClick = onAddPlan,
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text(strAddPlan) }
+                    }
                 }
                 if (onChangeLesson != null || onToggleCancelled != null) {
                     Row(

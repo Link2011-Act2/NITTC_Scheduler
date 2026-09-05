@@ -38,7 +38,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -62,6 +61,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.TaskEntity
+import jp.linkserver.nittcsc.ui.components.AppSwitch
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -728,7 +728,7 @@ fun AddTaskScreen(
                                     fontWeight = FontWeight.SemiBold
                                 )
                             }
-                            Switch(
+                            AppSwitch(
                                 checked = reminderEnabled,
                                 onCheckedChange = { reminderEnabled = it }
                             )

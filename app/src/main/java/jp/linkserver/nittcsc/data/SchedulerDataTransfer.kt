@@ -3,6 +3,8 @@ package jp.linkserver.nittcsc.data
 import androidx.room.withTransaction
 import jp.linkserver.nittcsc.InternalFeatureFlags
 import jp.linkserver.nittcsc.logic.PeriodLabelStyle
+import jp.linkserver.nittcsc.logic.TimetableTerm
+import jp.linkserver.nittcsc.logic.academicYearForDate
 import java.time.DayOfWeek
 import java.time.LocalDate
 
@@ -13,7 +15,7 @@ internal class SchedulerDataTransfer(
     private val dao: SchedulerDao = db.schedulerDao()
 
     private companion object {
-        const val CURRENT_EXPORT_VERSION = 12
+        const val CURRENT_EXPORT_VERSION = 14
         const val MIN_SUPPORTED_IMPORT_VERSION = 1
         const val DATASET_TASKS = SchedulerRepository.DATASET_TASKS
         const val DATASET_PLANS = SchedulerRepository.DATASET_PLANS
@@ -50,6 +52,7 @@ internal class SchedulerDataTransfer(
             root.put("settings", org.json.JSONObject().also { s ->
                 s.put("termStart", settings.termStart.toString())
                 s.put("termEnd", settings.termEnd.toString())
+                s.put("activeAcademicYear", settings.activeAcademicYear)
                 s.put("enableLocalAi", settings.enableLocalAi)
                 s.put(
                     "enableNaturalLanguageTaskAdd",
@@ -67,6 +70,7 @@ internal class SchedulerDataTransfer(
                 s.put("firstPeriodStartMinute", settings.firstPeriodStartMinute)
                 s.put("useKosenMode", settings.useKosenMode)
                 s.put("periodLabelStyle", settings.periodLabelStyle.name)
+                s.put("enableSemesterTimetables", settings.enableSemesterTimetables)
                 s.put("useDrawerNavigation", settings.useDrawerNavigation)
                 s.put("addTasksToCalendar", settings.addTasksToCalendar)
                 s.put("showCurrentTimeMarker", settings.showCurrentTimeMarker)
@@ -103,6 +107,8 @@ internal class SchedulerDataTransfer(
         root.put("lessons", org.json.JSONArray().also { arr ->
             lessons.forEach { lesson ->
                 arr.put(org.json.JSONObject().also { obj ->
+                    obj.put("academicYear", lesson.academicYear)
+                    obj.put("timetableTerm", lesson.timetableTerm.name)
                     obj.put("dayOfWeek", lesson.dayOfWeek)
                     obj.put("slotIndex", lesson.slotIndex)
                     obj.put("mode", lesson.mode.name)
@@ -288,6 +294,8 @@ internal class SchedulerDataTransfer(
         root.put(DATASET_LESSONS, org.json.JSONArray().also { arr ->
             lessons.forEach { lesson ->
                 arr.put(org.json.JSONObject().also { obj ->
+                    obj.put("academicYear", lesson.academicYear)
+                    obj.put("timetableTerm", lesson.timetableTerm.name)
                     obj.put("dayOfWeek", lesson.dayOfWeek)
                     obj.put("slotIndex", lesson.slotIndex)
                     obj.put("mode", lesson.mode.name)
@@ -430,6 +438,7 @@ internal class SchedulerDataTransfer(
     }
 
     suspend fun applySyncPayload(payload: org.json.JSONObject) {
+        requireCurrentSyncProtocol(payload)
         val touchedDatasets = mutableSetOf<String>()
 
         payload.optJSONArray(DATASET_LESSONS)?.let { arr ->
@@ -437,7 +446,12 @@ internal class SchedulerDataTransfer(
             dao.deleteAllLessons()
             for (i in 0 until arr.length()) {
                 val obj = arr.optJSONObject(i) ?: continue
+                val academicYear = obj.optInt("academicYear").takeIf { it > 0 } ?: continue
                 dao.upsertLesson(LessonEntity(
+                    academicYear = academicYear,
+                    timetableTerm = runCatching {
+                        TimetableTerm.valueOf(obj.optString("timetableTerm", TimetableTerm.FIRST.name))
+                    }.getOrDefault(TimetableTerm.FIRST),
                     dayOfWeek = obj.optInt("dayOfWeek"),
                     slotIndex = obj.optInt("slotIndex"),
                     mode = runCatching { LessonMode.valueOf(obj.optString("mode", "WEEKLY")) }.getOrElse { LessonMode.WEEKLY },
@@ -680,10 +694,13 @@ internal class SchedulerDataTransfer(
         val normalizedRoot = normalizeImportRoot(root, importVersion)
 
         val settingsEntity = normalizedRoot.optJSONObject("settings")?.let { s ->
+            val termStart = LocalDate.parse(s.getString("termStart"))
             SettingsEntity(
                 id = 1,
-                termStart = LocalDate.parse(s.getString("termStart")),
+                termStart = termStart,
                 termEnd = LocalDate.parse(s.getString("termEnd")),
+                activeAcademicYear = s.optInt("activeAcademicYear", 0)
+                    .takeIf { it > 0 } ?: academicYearForDate(termStart),
                 enableLocalAi = s.optBoolean("enableLocalAi", false),
                 enableNaturalLanguageTaskAdd =
                     InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD &&
@@ -707,6 +724,7 @@ internal class SchedulerDataTransfer(
                         PeriodLabelStyle.SINGLE_KOSHI
                     }
                 },
+                enableSemesterTimetables = s.optBoolean("enableSemesterTimetables", true),
                 useDrawerNavigation = s.optBoolean("useDrawerNavigation", false),
                 addTasksToCalendar = s.optBoolean("addTasksToCalendar", false),
                 showCurrentTimeMarker = s.optBoolean("showCurrentTimeMarker", false),
@@ -750,6 +768,8 @@ internal class SchedulerDataTransfer(
             )
         }
 
+        val importedAcademicYear = settingsEntity?.activeAcademicYear
+            ?: academicYearForDate(LocalDate.now())
         val lessonEntities = mutableListOf<LessonEntity>()
         normalizedRoot.optJSONArray("lessons")?.let { arr ->
             for (i in 0 until arr.length()) {
@@ -758,6 +778,13 @@ internal class SchedulerDataTransfer(
                 val slotIndex = obj.getInt("slotIndex")
                 lessonEntities += LessonEntity(
                     id = 0,
+                    academicYear = obj.optInt("academicYear", importedAcademicYear)
+                        .takeIf { it > 0 } ?: importedAcademicYear,
+                    timetableTerm = runCatching {
+                        TimetableTerm.valueOf(
+                            obj.optString("timetableTerm", TimetableTerm.FIRST.name)
+                        )
+                    }.getOrDefault(TimetableTerm.FIRST),
                     dayOfWeek = dayOfWeek,
                     slotIndex = slotIndex,
                     mode = try {
@@ -1030,6 +1057,7 @@ internal class SchedulerDataTransfer(
                 DATASET_EXAM_TIMETABLES
             )
         }
+        repository.refreshAcademicYear()
     }
 
     private fun examLessonToJson(lesson: ExamLessonEntity): org.json.JSONObject {

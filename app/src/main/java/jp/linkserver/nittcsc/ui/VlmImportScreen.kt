@@ -37,7 +37,12 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import jp.linkserver.nittcsc.ml.*
 import jp.linkserver.nittcsc.data.*
+import jp.linkserver.nittcsc.logic.LessonKey
+import jp.linkserver.nittcsc.logic.TimetableTerm
+import jp.linkserver.nittcsc.logic.academicYearForDate
 import jp.linkserver.nittcsc.viewmodel.SchedulerUiState
+import jp.linkserver.nittcsc.ui.components.AppLoadingIndicator
+import jp.linkserver.nittcsc.ui.components.AppProgressIndicator
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.io.File
@@ -279,7 +284,7 @@ fun VlmImportScreen(
     onBack: () -> Unit,
     onLessonsGenerated: (List<LessonDraftWithSlot>) -> Unit,
     onAbTableGenerated: (Map<String, jp.linkserver.nittcsc.data.DayType>) -> Unit = {},
-    existingLessons: Map<Pair<Int, Int>, LessonEntity> = emptyMap(),
+    existingLessons: Map<LessonKey, LessonEntity> = emptyMap(),
     existingDayTypeMap: Map<java.time.LocalDate, jp.linkserver.nittcsc.data.DayType> = emptyMap(),
     state: SchedulerUiState? = null,
     downloadViewModel: VlmDownloadViewModel = viewModel()
@@ -287,6 +292,9 @@ fun VlmImportScreen(
     val context = LocalContext.current
     val downloadManager = remember { ModelDownloadManager(context) }
     val coroutineScope = rememberCoroutineScope()
+    val activeAcademicYear = state?.settings?.activeAcademicYear
+        ?.takeIf { it > 0 }
+        ?: academicYearForDate(LocalDate.now())
 
     var downloadedModelFiles by remember { mutableStateOf(downloadManager.getDownloadedModels()) }
 
@@ -478,7 +486,14 @@ fun VlmImportScreen(
             }
         } else {
             parsedLessons.any { lesson ->
-                val existing = existingLessons[lesson.dayOfWeek to lesson.slotIndex]
+                val existing = existingLessons[
+                    LessonKey(
+                        activeAcademicYear,
+                        TimetableTerm.FIRST,
+                        lesson.dayOfWeek,
+                        lesson.slotIndex
+                    )
+                ]
                 existing != null && (existing.weeklySubject.isNotBlank() || existing.aSubject.isNotBlank() || existing.bSubject.isNotBlank())
             }
         }
@@ -847,8 +862,8 @@ fun VlmImportScreen(
                                 
                                 when (downloadState) {
                                     is DownloadState.Downloading -> {
-                                        LinearProgressIndicator(
-                                            progress = { downloadState.progress },
+                                        AppProgressIndicator(
+                                            progress = downloadState.progress,
                                             modifier = Modifier.fillMaxWidth()
                                         )
                                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -1071,7 +1086,7 @@ fun VlmImportScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        CircularProgressIndicator()
+                        AppLoadingIndicator()
                         Text(parsingStatus, style = MaterialTheme.typography.bodyMedium)
                         
                         if (showCancelButton) {

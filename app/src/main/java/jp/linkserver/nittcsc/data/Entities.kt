@@ -3,7 +3,9 @@ package jp.linkserver.nittcsc.data
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import jp.linkserver.nittcsc.logic.LessonKey
 import jp.linkserver.nittcsc.logic.PeriodLabelStyle
+import jp.linkserver.nittcsc.logic.TimetableTerm
 import java.time.LocalDate
 
 enum class DayType {
@@ -34,6 +36,7 @@ data class SettingsEntity(
     @PrimaryKey val id: Int = 1,
     val termStart: LocalDate,
     val termEnd: LocalDate,
+    val activeAcademicYear: Int = 0,
     val enableLocalAi: Boolean = false,
     val enableNaturalLanguageTaskAdd: Boolean = false,
     val enableLessonNotes: Boolean = true,
@@ -47,6 +50,7 @@ data class SettingsEntity(
     val firstPeriodStartMinute: Int = 40,
     val useKosenMode: Boolean = true,
     val periodLabelStyle: PeriodLabelStyle = PeriodLabelStyle.PAIR_KOSHI,
+    val enableSemesterTimetables: Boolean = true,
     val useDrawerNavigation: Boolean = false,
     val addTasksToCalendar: Boolean = false,
     val showCurrentTimeMarker: Boolean = false,
@@ -177,10 +181,12 @@ data class LongBreakEntity(
 
 @Entity(
     tableName = "lessons",
-    indices = [Index(value = ["dayOfWeek", "slotIndex"], unique = true)]
+    indices = [Index(value = ["academicYear", "timetableTerm", "dayOfWeek", "slotIndex"], unique = true)]
 )
 data class LessonEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val academicYear: Int,
+    val timetableTerm: TimetableTerm = TimetableTerm.FIRST,
     val dayOfWeek: Int,
     val slotIndex: Int,
     val mode: LessonMode,
@@ -194,6 +200,9 @@ data class LessonEntity(
     val bTeacher: String,
     val bLocation: String? = null
 )
+
+fun LessonEntity.lessonKey(): LessonKey =
+    LessonKey(academicYear, timetableTerm, dayOfWeek, slotIndex)
 
 data class LessonDraft(
     val mode: LessonMode = LessonMode.WEEKLY,

@@ -6,25 +6,37 @@ import jp.linkserver.nittcsc.data.HolidaySpecialLabel
 import jp.linkserver.nittcsc.logic.ExportRange
 import jp.linkserver.nittcsc.logic.GeneratedLesson
 import jp.linkserver.nittcsc.logic.JapaneseHolidayCalculator
+import jp.linkserver.nittcsc.logic.LessonKey
 import jp.linkserver.nittcsc.logic.PeriodLabelStyle
+import jp.linkserver.nittcsc.logic.TimetableTerm
+import jp.linkserver.nittcsc.logic.academicYearEnd
+import jp.linkserver.nittcsc.logic.academicYearForDate
+import jp.linkserver.nittcsc.logic.academicYearStart
 import jp.linkserver.nittcsc.logic.applyChangedLesson
+import jp.linkserver.nittcsc.logic.firstSemesterRange
 import jp.linkserver.nittcsc.logic.formatExamPeriodLabel
 import jp.linkserver.nittcsc.logic.generateClassSlots
+import jp.linkserver.nittcsc.logic.shouldAdvanceAcademicYear
+import jp.linkserver.nittcsc.logic.timetableTermForDate
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.Month
 import java.time.temporal.TemporalAdjusters
 
-class SchedulerRepository(private val db: AppDatabase) {
+class SchedulerRepository(
+    private val db: AppDatabase,
+    private val uiDesignPreferences: UiDesignPreferences
+) {
 
     private val dao: SchedulerDao = db.schedulerDao()
     private val dataTransfer = SchedulerDataTransfer(this, db)
 
     companion object {
-        private const val CURRENT_EXPORT_VERSION = 12
+        private const val CURRENT_EXPORT_VERSION = 14
         private const val MIN_SUPPORTED_IMPORT_VERSION = 1
         private const val MAX_FUTURE_META_DRIFT_MS = 5 * 60 * 1000L
         const val DATASET_TASKS = "tasks"
@@ -50,6 +62,11 @@ class SchedulerRepository(private val db: AppDatabase) {
     }
 
     val settingsFlow: Flow<SettingsEntity?> = dao.observeSettings()
+    val uiDesignModeFlow: Flow<UiDesignMode> = uiDesignPreferences.uiDesignMode.map { mode ->
+        mode.effective(InternalFeatureFlags.MATERIAL_3_EXPRESSIVE)
+    }
+    val expressiveWarningAcknowledgedFlow: Flow<Boolean> =
+        uiDesignPreferences.expressiveWarningAcknowledged
     val dayTypesFlow: Flow<List<DayTypeEntity>> = dao.observeDayTypes()
     val cancelledLessonsFlow: Flow<List<CancelledLessonEntity>> = dao.observeCancelledLessons()
     val changedLessonsFlow: Flow<List<ChangedLessonEntity>> = dao.observeChangedLessons()
@@ -67,39 +84,120 @@ class SchedulerRepository(private val db: AppDatabase) {
     val syncRegisteredDevicesFlow: Flow<List<SyncRegisteredDeviceEntity>> = dao.observeSyncRegisteredDevices()
 
     suspend fun initialize(today: LocalDate = LocalDate.now()) {
-        val settings = dao.getSettings()
-        if (settings == null) {
-            dao.upsertSettings(defaultSettings(today))
-        } else if (
-            !InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD &&
-            settings.enableNaturalLanguageTaskAdd
-        ) {
-            dao.upsertSettings(settings.copy(enableNaturalLanguageTaskAdd = false))
-        }
-        ensureLessonRows()
-        syncDayTypes()
-    }
-
-    suspend fun resetToCurrentFiscalYear(today: LocalDate = LocalDate.now()) {
         db.withTransaction {
-            val settings = defaultSettings(today)
+            var settings = dao.getSettings()
+            if (settings == null) {
+                settings = defaultSettings(today)
+                dao.upsertSettings(settings)
+            }
+            val normalizedActiveYear = settings.activeAcademicYear.takeIf { it > 0 }
+                ?: academicYearForDate(settings.termStart)
+            if (normalizedActiveYear != settings.activeAcademicYear) {
+                settings = settings.copy(activeAcademicYear = normalizedActiveYear)
+            }
+            if (shouldAdvanceAcademicYear(settings.activeAcademicYear, today)) {
+                val academicYear = academicYearForDate(today)
+                settings = settings.copy(
+                    activeAcademicYear = academicYear,
+                    termStart = academicYearStart(academicYear),
+                    termEnd = academicYearEnd(academicYear)
+                )
+                touchSyncDatasetMeta(DATASET_LESSONS, DATASET_DAY_TYPES)
+            }
+            if (
+                !InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD &&
+                settings.enableNaturalLanguageTaskAdd
+            ) {
+                settings = settings.copy(enableNaturalLanguageTaskAdd = false)
+            }
             dao.upsertSettings(settings)
+            ensureLessonRows(settings.activeAcademicYear, TimetableTerm.entries.toSet())
             syncDayTypes()
-            touchSyncDatasetMeta(DATASET_DAY_TYPES)
         }
     }
 
-    suspend fun updateTerm(startDate: LocalDate, endDate: LocalDate) {
+    suspend fun refreshAcademicYear(today: LocalDate = LocalDate.now()): Boolean =
         db.withTransaction {
-            val current = dao.getSettings() ?: defaultSettings(LocalDate.now())
+            var settings = dao.getSettings()
+            if (settings == null) {
+                settings = defaultSettings(today)
+                dao.upsertSettings(settings)
+            }
+            val normalizedActiveYear = settings.activeAcademicYear.takeIf { it > 0 }
+                ?: academicYearForDate(settings.termStart)
+            if (normalizedActiveYear != settings.activeAcademicYear) {
+                settings = settings.copy(activeAcademicYear = normalizedActiveYear)
+                dao.upsertSettings(settings)
+            }
+            val advanced = shouldAdvanceAcademicYear(settings.activeAcademicYear, today)
+            if (advanced) {
+                val academicYear = academicYearForDate(today)
+                settings = settings.copy(
+                    activeAcademicYear = academicYear,
+                    termStart = academicYearStart(academicYear),
+                    termEnd = academicYearEnd(academicYear)
+                )
+                dao.upsertSettings(settings)
+            }
+            val rowsChanged = ensureLessonRows(
+                settings.activeAcademicYear,
+                TimetableTerm.entries.toSet()
+            )
+            syncDayTypes()
+            if (advanced || rowsChanged) {
+                touchSyncDatasetMeta(DATASET_LESSONS, DATASET_DAY_TYPES)
+            }
+            advanced
+        }
+
+    suspend fun prepareNextAcademicYear(today: LocalDate = LocalDate.now()): Boolean {
+        refreshAcademicYear(today)
+        return db.withTransaction {
+            var settings = dao.getSettings() ?: return@withTransaction false
+            if (settings.activeAcademicYear <= 0) {
+                settings = settings.copy(
+                    activeAcademicYear = academicYearForDate(settings.termStart)
+                )
+                dao.upsertSettings(settings)
+            }
+            val targetAcademicYear = settings.activeAcademicYear + 1
+            val rowsChanged = ensureLessonRows(
+                targetAcademicYear,
+                setOf(TimetableTerm.FIRST)
+            )
+            syncDayTypes()
+            if (rowsChanged) {
+                touchSyncDatasetMeta(DATASET_LESSONS, DATASET_DAY_TYPES)
+            }
+            rowsChanged
+        }
+    }
+
+    suspend fun updateTerm(startDate: LocalDate, endDate: LocalDate): Boolean {
+        return db.withTransaction {
+            var current = dao.getSettings() ?: defaultSettings(LocalDate.now())
+            val normalizedStart = minOf(startDate, endDate)
+            val normalizedEnd = maxOf(startDate, endDate)
+            val activeAcademicYear = current.activeAcademicYear.takeIf { it > 0 }
+                ?: academicYearForDate(current.termStart)
+            if (
+                normalizedStart.isBefore(academicYearStart(activeAcademicYear)) ||
+                normalizedEnd.isAfter(academicYearEnd(activeAcademicYear))
+            ) {
+                return@withTransaction false
+            }
+            if (current.activeAcademicYear != activeAcademicYear) {
+                current = current.copy(activeAcademicYear = activeAcademicYear)
+            }
             dao.upsertSettings(
                 current.copy(
-                    termStart = minOf(startDate, endDate),
-                    termEnd = maxOf(startDate, endDate)
+                    termStart = normalizedStart,
+                    termEnd = normalizedEnd
                 )
             )
             syncDayTypes()
             touchSyncDatasetMeta(DATASET_DAY_TYPES)
+            true
         }
     }
 
@@ -138,6 +236,14 @@ class SchedulerRepository(private val db: AppDatabase) {
             )
             ensureLessonRows()
             touchSyncDatasetMeta(DATASET_LESSONS)
+        }
+    }
+
+    suspend fun toggleSemesterTimetables(enabled: Boolean) {
+        db.withTransaction {
+            val current = dao.getSettings() ?: return@withTransaction
+            dao.upsertSettings(current.copy(enableSemesterTimetables = enabled))
+            ensureLessonRows()
         }
     }
 
@@ -250,6 +356,16 @@ class SchedulerRepository(private val db: AppDatabase) {
     suspend fun toggleDrawerNavigation(enabled: Boolean) {
         val current = dao.getSettings() ?: return
         dao.upsertSettings(current.copy(useDrawerNavigation = enabled))
+    }
+
+    suspend fun updateUiDesignMode(mode: UiDesignMode) {
+        uiDesignPreferences.setUiDesignMode(
+            mode.effective(InternalFeatureFlags.MATERIAL_3_EXPRESSIVE)
+        )
+    }
+
+    suspend fun acknowledgeExpressiveWarning() {
+        uiDesignPreferences.acknowledgeExpressiveWarning()
     }
 
     suspend fun toggleAddTasksToCalendar(enabled: Boolean) {
@@ -584,9 +700,15 @@ class SchedulerRepository(private val db: AppDatabase) {
         }
     }
 
-    suspend fun upsertLesson(dayOfWeek: Int, slotIndex: Int, draft: LessonDraft) {
+    suspend fun upsertLesson(
+        academicYear: Int,
+        timetableTerm: TimetableTerm,
+        dayOfWeek: Int,
+        slotIndex: Int,
+        draft: LessonDraft
+    ) {
         db.withTransaction {
-            val existing = dao.getLesson(dayOfWeek, slotIndex)
+            val existing = dao.getLesson(academicYear, timetableTerm, dayOfWeek, slotIndex)
             val weeklySubject = draft.weeklySubject.trim()
             val weeklyTeacher = draft.weeklyTeacher.trim()
             val weeklyLocation = draft.weeklyLocation.trim().takeIf { it.isNotEmpty() }
@@ -599,6 +721,8 @@ class SchedulerRepository(private val db: AppDatabase) {
             dao.upsertLesson(
                 LessonEntity(
                     id = existing?.id ?: 0,
+                    academicYear = academicYear,
+                    timetableTerm = timetableTerm,
                     dayOfWeek = dayOfWeek,
                     slotIndex = slotIndex,
                     mode = draft.mode,
@@ -623,8 +747,18 @@ class SchedulerRepository(private val db: AppDatabase) {
         val breakRanges = longBreaks.map { it.startDate..it.endDate }
         val existing = dao.getDayTypesOnce().associateBy { it.date }
 
+        val activeAcademicYear = settings.activeAcademicYear.takeIf { it > 0 }
+            ?: academicYearForDate(settings.termStart)
+        val preparedNextAcademicYear = (activeAcademicYear + 1).takeIf { academicYear ->
+            dao.countLessons(academicYear, TimetableTerm.FIRST) > 0
+        }
+        val ranges = buildList {
+            add(settings.termStart..settings.termEnd)
+            preparedNextAcademicYear?.let { add(firstSemesterRange(it)) }
+        }
+
         val rebuilt = mutableListOf<DayTypeEntity>()
-        for (date in settings.termStart.toDateRange(settings.termEnd)) {
+        for (date in ranges.flatMap { range -> range.start.toDateRange(range.endInclusive) }.distinct()) {
             val autoHoliday = isAutoHoliday(date, breakRanges)
             val manual = existing[date]
             val resolved = when {
@@ -642,7 +776,6 @@ class SchedulerRepository(private val db: AppDatabase) {
         }
 
         dao.upsertDayTypes(rebuilt)
-        dao.deleteDayTypesOutsideRange(settings.termStart, settings.termEnd)
     }
 
     suspend fun generateLessons(range: ExportRange, today: LocalDate = LocalDate.now()): List<GeneratedLesson> {
@@ -650,7 +783,7 @@ class SchedulerRepository(private val db: AppDatabase) {
 
         val settings = dao.getSettings() ?: return emptyList()
         val dayTypeMap = dao.getDayTypesOnce().associateBy { it.date }
-        val lessons = dao.getLessonsOnce().associateBy { it.dayOfWeek to it.slotIndex }
+        val lessons = dao.getLessonsOnce().associateBy { it.lessonKey() }
         val cancelledLessons = dao.getCancelledLessonsOnce()
             .mapTo(mutableSetOf()) { it.date to it.slotIndex }
         val examLessonsByDate = dao.getExamLessonsOnce().groupBy { it.date }
@@ -721,7 +854,10 @@ class SchedulerRepository(private val db: AppDatabase) {
                 )
                 for (slot in slots) {
                     if ((date to slot.index) in cancelledLessons) continue
-                    val lesson = lessons[dayKey to slot.index] ?: continue
+                    val timetableTerm = timetableTermForDate(date, settings.enableSemesterTimetables)
+                    val lesson = lessons[
+                        LessonKey(academicYearForDate(date), timetableTerm, dayKey, slot.index)
+                    ] ?: continue
                     val resolved = dao.getChangedLesson(date, slot.index)?.let {
                         ResolvedLesson(it.subject, it.teacher, it.location)
                     } ?: resolveLesson(lessonDayType, lesson) ?: continue
@@ -741,30 +877,48 @@ class SchedulerRepository(private val db: AppDatabase) {
     }
 
     internal suspend fun ensureLessonRows() {
+        val settings = dao.getSettings() ?: return
+        val activeAcademicYear = settings.activeAcademicYear.takeIf { it > 0 }
+            ?: academicYearForDate(settings.termStart)
+        ensureLessonRows(activeAcademicYear, TimetableTerm.entries.toSet())
+    }
+
+    private suspend fun ensureLessonRows(
+        academicYear: Int,
+        timetableTerms: Set<TimetableTerm>
+    ): Boolean {
         val periodsPerDay = dao.getSettings()?.periodsPerDay ?: 4
-        val existing = dao.getLessonsOnce().associateBy { it.dayOfWeek to it.slotIndex }
-        for (day in 1..5) {
-            for (slot in 0 until periodsPerDay) {
-                if ((day to slot) !in existing) {
-                    dao.upsertLesson(
-                        LessonEntity(
-                            dayOfWeek = day,
-                            slotIndex = slot,
-                            mode = LessonMode.WEEKLY,
-                            weeklySubject = "",
-                            weeklyTeacher = "",
-                            weeklyLocation = null,
-                            aSubject = "",
-                            aTeacher = "",
-                            aLocation = null,
-                            bSubject = "",
-                            bTeacher = "",
-                            bLocation = null
+        val existing = dao.getLessonsOnce().associateBy { it.lessonKey() }
+        var changed = false
+        for (timetableTerm in timetableTerms) {
+            for (day in 1..5) {
+                for (slot in 0 until periodsPerDay) {
+                    val key = LessonKey(academicYear, timetableTerm, day, slot)
+                    if (key !in existing) {
+                        dao.upsertLesson(
+                            LessonEntity(
+                                academicYear = academicYear,
+                                timetableTerm = timetableTerm,
+                                dayOfWeek = day,
+                                slotIndex = slot,
+                                mode = LessonMode.WEEKLY,
+                                weeklySubject = "",
+                                weeklyTeacher = "",
+                                weeklyLocation = null,
+                                aSubject = "",
+                                aTeacher = "",
+                                aLocation = null,
+                                bSubject = "",
+                                bTeacher = "",
+                                bLocation = null
+                            )
                         )
-                    )
+                        changed = true
+                    }
                 }
             }
         }
+        return changed
     }
 
     private fun resolveLesson(dayType: DayType, lesson: LessonEntity): ResolvedLesson? {
@@ -799,7 +953,17 @@ class SchedulerRepository(private val db: AppDatabase) {
         if (dayType == DayType.HOLIDAY) return null
         val lessonDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek ?: date.dayOfWeek.value
         val lessonDayType = dayTypeEntity?.overrideLessonDayType ?: dayType
-        val lesson = dao.getLesson(lessonDayOfWeek, slotIndex) ?: return null
+        val settings = dao.getSettings()
+        val timetableTerm = timetableTermForDate(
+            date,
+            settings?.enableSemesterTimetables == true
+        )
+        val lesson = dao.getLesson(
+            academicYearForDate(date),
+            timetableTerm,
+            lessonDayOfWeek,
+            slotIndex
+        ) ?: return null
         return resolveLesson(lessonDayType, lesson)
     }
 
@@ -819,6 +983,7 @@ class SchedulerRepository(private val db: AppDatabase) {
             id = 1,
             termStart = LocalDate.of(fiscalStartYear, Month.APRIL, 1),
             termEnd = LocalDate.of(fiscalStartYear + 1, Month.MARCH, 31),
+            activeAcademicYear = fiscalStartYear,
             arrivalHour = 8,
             arrivalMinute = 30
         )
@@ -1015,7 +1180,14 @@ class SchedulerRepository(private val db: AppDatabase) {
             }
         }
 
+        val settings = dao.getSettings()
+        val timetableTerm = timetableTermForDate(
+            targetDate,
+            settings?.enableSemesterTimetables == true
+        )
         val lesson = dao.getLesson(
+            academicYearForDate(targetDate),
+            timetableTerm,
             getDayOfWeekForDate(targetDate),
             getSlotIndexForDate(targetDate)
         ) ?: return null

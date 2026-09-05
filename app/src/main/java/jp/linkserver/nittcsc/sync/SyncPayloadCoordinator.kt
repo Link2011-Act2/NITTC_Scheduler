@@ -2,6 +2,7 @@ package jp.linkserver.nittcsc.sync
 
 import jp.linkserver.nittcsc.data.SchedulerRepository
 import jp.linkserver.nittcsc.data.SyncRegisteredDeviceEntity
+import jp.linkserver.nittcsc.data.requireCompatibleSyncProtocols
 import org.json.JSONObject
 
 internal class SyncPayloadCoordinator(
@@ -13,6 +14,7 @@ internal class SyncPayloadCoordinator(
         registeredDevice: SyncRegisteredDeviceEntity?,
         forceConflictOnDifference: Boolean
     ): List<SyncConflict> {
+        requireCompatibleSyncProtocols(localPayload, remotePayload)
         val localDeviceName = localPayload.getJSONObject("device").optString("deviceName", "この端末")
         val remoteDeviceName = remotePayload.getJSONObject("device").optString("deviceName", "相手端末")
         val conflicts = mutableListOf<SyncConflict>()
@@ -50,6 +52,7 @@ internal class SyncPayloadCoordinator(
         remoteDeviceId: String,
         resolutions: Map<String, SyncChoice>
     ): JSONObject {
+        requireCompatibleSyncProtocols(localPayload, remotePayload)
         val merged = JSONObject(localPayload.toString())
         val metadata = JSONObject()
         val now = nowProvider()

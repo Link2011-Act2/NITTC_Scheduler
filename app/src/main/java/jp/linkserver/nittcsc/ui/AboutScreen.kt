@@ -46,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import jp.linkserver.nittcsc.BuildConfig
 import jp.linkserver.nittcsc.R
+import jp.linkserver.nittcsc.ui.components.AppLoadingIndicator
 import jp.linkserver.nittcsc.update.AppUpdateInfo
 import jp.linkserver.nittcsc.update.checkGitHubReleaseUpdate
 import jp.linkserver.nittcsc.update.detectReleaseChannel
@@ -287,11 +288,11 @@ fun AboutScreen(
                     enabled = !checkingUpdates
                 ) {
                     if (checkingUpdates) {
-                        CircularProgressIndicator(
+                        AppLoadingIndicator(
                             modifier = Modifier
                                 .padding(end = 10.dp)
                                 .size(16.dp),
-                            strokeWidth = 2.dp
+                            compact = true
                         )
                     }
                     Text(stringResource(R.string.about_update_check_button))

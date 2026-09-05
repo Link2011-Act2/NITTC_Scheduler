@@ -39,6 +39,7 @@ class LessonAutocompleteTest {
         bSubject: String = "",
         bTeacher: String = ""
     ) = LessonEntity(
+        academicYear = 2026,
         dayOfWeek = 1,
         slotIndex = 0,
         mode = mode,

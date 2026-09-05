@@ -11,6 +11,7 @@ import jp.linkserver.nittcsc.data.hasEnteredContent
 import jp.linkserver.nittcsc.data.HolidaySpecialLabel
 import jp.linkserver.nittcsc.data.LessonEntity
 import jp.linkserver.nittcsc.data.LessonMode
+import jp.linkserver.nittcsc.data.lessonKey
 import jp.linkserver.nittcsc.data.PlanEntity
 import jp.linkserver.nittcsc.data.ResolvedLesson
 import jp.linkserver.nittcsc.data.SettingsEntity
@@ -18,11 +19,14 @@ import jp.linkserver.nittcsc.data.TaskEntity
 import jp.linkserver.nittcsc.logic.CLASS_SLOTS
 import jp.linkserver.nittcsc.logic.ClassSlot
 import jp.linkserver.nittcsc.logic.JapaneseHolidayCalculator
+import jp.linkserver.nittcsc.logic.LessonKey
 import jp.linkserver.nittcsc.logic.PeriodLabelStyle
+import jp.linkserver.nittcsc.logic.academicYearForDate
 import jp.linkserver.nittcsc.logic.applyChangedLesson
 import jp.linkserver.nittcsc.logic.formatExamPeriodLabel
 import jp.linkserver.nittcsc.logic.forExamTimetable
 import jp.linkserver.nittcsc.logic.generateClassSlots
+import jp.linkserver.nittcsc.logic.timetableTermForDate
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
@@ -36,7 +40,7 @@ data class WidgetData(
     val dayTypeMap: Map<LocalDate, DayType>,
     val cancelledLessons: Set<Pair<LocalDate, Int>>,
     val changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity>,
-    val lessons: Map<Pair<Int, Int>, LessonEntity>,
+    val lessons: Map<LessonKey, LessonEntity>,
     val examDaySchedules: Map<LocalDate, ExamDayScheduleEntity>,
     val examLessons: Map<Pair<LocalDate, Int>, ExamLessonEntity>,
     val incompleteTasks: List<TaskEntity>,
@@ -64,7 +68,7 @@ object WidgetDataHelper {
         val dayTypeMap = dayTypes.associate { it.date to it.dayType }
         val cancelledLessons = dao.getCancelledLessonsOnce().map { it.date to it.slotIndex }.toSet()
         val changedLessons = dao.getChangedLessonsOnce().associateBy { it.date to it.slotIndex }
-        val lessons = dao.getLessonsOnce().associate { (it.dayOfWeek to it.slotIndex) to it }
+        val lessons = dao.getLessonsOnce().associateBy { it.lessonKey() }
         val examDaySchedules = dao.getExamDaySchedulesOnce().associateBy { it.date }
         val examLessons = dao.getExamLessonsOnce().associateBy { it.date to it.slotIndex }
         val incompleteTasks = dao.getIncompleteTasksOnce()
@@ -108,10 +112,11 @@ object WidgetDataHelper {
     fun resolveLesson(
         date: LocalDate,
         slotIndex: Int,
-        lessons: Map<Pair<Int, Int>, LessonEntity>,
+        lessons: Map<LessonKey, LessonEntity>,
         dayTypeEntities: Map<LocalDate, DayTypeEntity>,
         dayTypeMap: Map<LocalDate, DayType>,
-        changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity> = emptyMap()
+        changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity> = emptyMap(),
+        semesterTimetablesEnabled: Boolean = false
     ): ResolvedLesson? {
         if (date.dayOfWeek.value !in 1..5) return null
         val dayTypeEntity = dayTypeEntities[date]
@@ -120,7 +125,15 @@ object WidgetDataHelper {
 
         val lessonDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek ?: date.dayOfWeek.value
         val lessonDayType = dayTypeEntity?.overrideLessonDayType ?: dayType
-        val lesson = lessons[lessonDayOfWeek to slotIndex]
+        val timetableTerm = timetableTermForDate(date, semesterTimetablesEnabled)
+        val lesson = lessons[
+            LessonKey(
+                academicYear = academicYearForDate(date),
+                timetableTerm = timetableTerm,
+                dayOfWeek = lessonDayOfWeek,
+                slotIndex = slotIndex
+            )
+        ]
         val baseLesson = when (lesson?.mode) {
             LessonMode.WEEKLY -> if (lesson.weeklySubject.isBlank()) null
             else ResolvedLesson(lesson.weeklySubject, lesson.weeklyTeacher, lesson.weeklyLocation)
@@ -186,7 +199,8 @@ object WidgetDataHelper {
             lessons = data.lessons,
             dayTypeEntities = data.dayTypeEntities,
             dayTypeMap = data.dayTypeMap,
-            changedLessons = data.changedLessons
+            changedLessons = data.changedLessons,
+            semesterTimetablesEnabled = data.settings?.enableSemesterTimetables == true
         )
     }
 
