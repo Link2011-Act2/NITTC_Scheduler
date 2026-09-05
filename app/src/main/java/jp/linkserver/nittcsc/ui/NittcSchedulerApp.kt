@@ -447,6 +447,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
     }
     var selectedTab by rememberSaveable { mutableStateOf(if (startOnTimetable) AppTab.Timetable else AppTab.Output) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
+    var showSpecialTimetableSettings by rememberSaveable { mutableStateOf(false) }
     var showSync by rememberSaveable { mutableStateOf(false) }
     var showSyncDiscovery by rememberSaveable { mutableStateOf(false) }
     var showNearbySync by rememberSaveable { mutableStateOf(false) }
@@ -736,6 +737,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
         showOssLicenses = false
         showAbout = false
         showSettings = false
+        showSpecialTimetableSettings = false
         showUpdateOverview = true
     }
 
@@ -758,7 +760,10 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
         showAbout = false
         showSettings = true
     }
-    BackHandler(enabled = showSettings && !showAbout && !showOssLicenses) { showSettings = false }
+    BackHandler(enabled = showSettings && !showSpecialTimetableSettings && !showAbout && !showOssLicenses) { showSettings = false }
+    BackHandler(enabled = showSpecialTimetableSettings && !showNearbySync && !showUpdateOverview) {
+        showSpecialTimetableSettings = false
+    }
     BackHandler(enabled = showVlmImport) { showVlmImport = false }
     BackHandler(enabled = showLessonSearch) { showLessonSearch = false }
     BackHandler(enabled = showTaskPlanCalendar) { showTaskPlanCalendar = false }
@@ -1614,6 +1619,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
         showSyncDiscovery -> "syncDiscovery"
         showSync -> "sync"
         showVlmImport -> "vlm"
+        showSpecialTimetableSettings -> "specialTimetableSettings"
         showSettings -> "settings"
         lessonChangeEditor != null -> "lessonChange"
         selectedExamPeriod != null -> "examTimetableEditor"
@@ -1911,6 +1917,15 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                     existingDayTypeMap = uiState.dayTypeMap
                 )
             }
+            "specialTimetableSettings" -> {
+                SpecialTimetableSettingsScreen(
+                    settings = uiState.settings,
+                    onBack = { showSpecialTimetableSettings = false },
+                    onToggleSemesterTimetables = viewModel::toggleSemesterTimetables,
+                    onToggleAbTimetable = viewModel::toggleAbTimetable,
+                    onToggleExamTimetable = viewModel::toggleExamTimetable
+                )
+            }
             "settings" -> {
                 val settingsSubjectSuggestions = lessonAutocompleteOptions.subjectSuggestions
                 val settingsTeacherCandidates = lessonAutocompleteOptions.subjectTeacherCandidates
@@ -1924,9 +1939,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                     onToggleLocalAi = viewModel::toggleLocalAi,
                     onToggleNaturalLanguageTaskAdd = viewModel::toggleNaturalLanguageTaskAdd,
                     onToggleDrawerNavigation = viewModel::toggleDrawerNavigation,
-                    onToggleSemesterTimetables = viewModel::toggleSemesterTimetables,
-                    onToggleAbTimetable = viewModel::toggleAbTimetable,
-                    onToggleExamTimetable = viewModel::toggleExamTimetable,
+                    onOpenSpecialTimetableSettings = { showSpecialTimetableSettings = true },
                     onUpdateUiDesignMode = viewModel::updateUiDesignMode,
                     onAcknowledgeExpressiveWarning = viewModel::acknowledgeExpressiveWarning,
                     onToggleAddTasksToCalendar = { enabled ->

@@ -122,6 +122,7 @@ import jp.linkserver.nittcsc.ui.components.AppIconButton
 import jp.linkserver.nittcsc.ui.components.AppListItem
 import jp.linkserver.nittcsc.ui.components.AppPrimaryButton
 import jp.linkserver.nittcsc.ui.components.AppSwitch
+import jp.linkserver.nittcsc.ui.components.SettingsNavigationCard
 import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -143,9 +144,7 @@ fun SettingsScreen(
     onToggleLocalAi: (Boolean) -> Unit,
     onToggleNaturalLanguageTaskAdd: (Boolean) -> Unit = {},
     onToggleDrawerNavigation: (Boolean) -> Unit,
-    onToggleSemesterTimetables: (Boolean) -> Unit = {},
-    onToggleAbTimetable: (Boolean) -> Unit = {},
-    onToggleExamTimetable: (Boolean) -> Unit = {},
+    onOpenSpecialTimetableSettings: () -> Unit = {},
     onUpdateUiDesignMode: (UiDesignMode) -> Unit = {},
     onAcknowledgeExpressiveWarning: () -> Unit = {},
     onToggleAddTasksToCalendar: (Boolean) -> Unit,
@@ -179,7 +178,6 @@ fun SettingsScreen(
         InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD &&
             (state.settings?.enableNaturalLanguageTaskAdd ?: false)
     val enabledDrawerNavigation = state.settings?.useDrawerNavigation ?: false
-    val enabledSemesterTimetables = state.settings?.enableSemesterTimetables ?: true
     val enabledTaskCalendarSync = state.settings?.addTasksToCalendar ?: false
     val enabledLessonCalendarSync = state.settings?.syncLessonsToCalendar ?: false
     val enabledCurrentTimeMarker = state.settings?.showCurrentTimeMarker ?: false
@@ -927,23 +925,10 @@ fun SettingsScreen(
                         modifier = Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        SettingsSwitchRow(
-                            title = stringResource(R.string.label_semester_timetables),
-                            description = stringResource(R.string.desc_semester_timetables),
-                            checked = enabledSemesterTimetables,
-                            onCheckedChange = onToggleSemesterTimetables
-                        )
-                        SettingsSwitchRow(
-                            title = stringResource(R.string.label_enable_ab_timetable),
-                            description = stringResource(R.string.desc_enable_ab_timetable),
-                            checked = s?.enableAbTimetable != false,
-                            onCheckedChange = onToggleAbTimetable
-                        )
-                        SettingsSwitchRow(
-                            title = stringResource(R.string.label_enable_exam_timetable),
-                            description = stringResource(R.string.desc_enable_exam_timetable),
-                            checked = s?.enableExamTimetable != false,
-                            onCheckedChange = onToggleExamTimetable
+                        SettingsNavigationCard(
+                            title = stringResource(R.string.special_timetable_settings_title),
+                            description = stringResource(R.string.special_timetable_settings_description),
+                            onClick = onOpenSpecialTimetableSettings
                         )
                         HorizontalDivider()
                         ExposedDropdownMenuBox(
@@ -1702,39 +1687,11 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold
                 )
-                Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onAbout() }
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
-                            Text(
-                                stringResource(R.string.about_section_title),
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                stringResource(R.string.about_section_help),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Text(
-                            text = stringResource(R.string.about_section_open),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
+                SettingsNavigationCard(
+                    title = stringResource(R.string.about_section_title),
+                    description = stringResource(R.string.about_section_help),
+                    onClick = onAbout
+                )
             }
             }
         }
@@ -2988,7 +2945,7 @@ private fun UiDesignModeOptionRow(
 }
 
 @Composable
-private fun SettingsSwitchRow(
+internal fun SettingsSwitchRow(
     title: String,
     description: String,
     checked: Boolean,

@@ -432,7 +432,7 @@
     <string name="setup_regular_duration">1コマの授業時間（分）</string>
     <string name="setup_exam_duration">1コマの試験時間（分）</string>
     <string name="setup_break_minutes">コマ間の休み時間（分）</string>
-    <string name="daytype_regular_short">授</string>
+    <string name="daytype_regular_short">授業</string>
     <string name="setup_welcome">時間割を設定しましょう</string>
     <string name="setup_welcome_description">授業時間と時間割の使い分けを設定します。すべてあとから設定画面で変更できます。</string>
     <string name="setup_progress">%1$d / %2$d</string>
@@ -483,7 +483,9 @@
     <string name="label_enable_exam_timetable">テスト用の時間割を使う</string>
     <string name="desc_enable_exam_timetable">通常とは別の時刻・教科をテスト日に設定できます。オフにしても登録済みのテスト時間割は保持します。</string>
     <string name="tab_school_days">授業日</string>
-    <string name="daytype_regular">授業日</string>
+    <string name="daytype_regular">授業</string>
+    <string name="special_timetable_settings_title">特殊時間割機能</string>
+    <string name="special_timetable_settings_description">前期・後期、A/B、テスト時間割を設定します</string>
     <string name="legend_school_days_toggle">日付を押すと授業日・休日が切り替わります</string>
     <string name="tutorial_school_days_drag">日付を長押ししたままドラッグすると、授業日・休日をまとめて変更できます。</string>
     <string name="setup_open_ab_table">A/B表を設定する</string>
