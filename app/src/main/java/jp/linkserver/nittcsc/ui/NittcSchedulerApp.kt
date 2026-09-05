@@ -381,6 +381,37 @@ private val LegacyTaskBadgeOnContainer = Color(0xFFFFDAD6)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
+    val state by viewModel.uiState.collectAsState()
+    var startOnTimetable by rememberSaveable { mutableStateOf(false) }
+    if (!state.initialized || state.settings == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            androidx.compose.material3.CircularProgressIndicator()
+        }
+        return
+    }
+    if (state.settings?.initialSetupCompleted == false) {
+        InitialSetupScreen(
+            onComplete = { draft ->
+                startOnTimetable = true
+                viewModel.completeInitialSetup(draft)
+            },
+            onRestore = { json ->
+                startOnTimetable = false
+                viewModel.restoreInitialSetup(json)
+            }
+        )
+        return
+    }
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalAbTimetableEnabled provides (state.settings?.enableAbTimetable != false)
+    ) {
+        NittcSchedulerContent(viewModel, startOnTimetable)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetable: Boolean) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val resources = LocalResources.current
@@ -414,7 +445,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     DisposableEffect(naturalLanguageInferenceEngine) {
         onDispose { naturalLanguageInferenceEngine.cancelInference() }
     }
-    var selectedTab by rememberSaveable { mutableStateOf(AppTab.Output) }
+    var selectedTab by rememberSaveable { mutableStateOf(if (startOnTimetable) AppTab.Timetable else AppTab.Output) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showSync by rememberSaveable { mutableStateOf(false) }
     var showSyncDiscovery by rememberSaveable { mutableStateOf(false) }
@@ -531,7 +562,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
 
     LaunchedEffect(
         selectedTab,
-        uiState.settings != null,
+        uiState.settings,
         pendingExamLabelHint,
         pendingExamLabelHintForTesting,
         lessonDayTutorialEligible,
@@ -578,7 +609,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         if (activeTutorialHint != null) return@LaunchedEffect
 
         when {
-            pendingExamLabelHint && selectedTab != AppTab.AbTable -> {
+            uiState.settings?.enableExamTimetable == true && pendingExamLabelHint && selectedTab != AppTab.AbTable -> {
                 if (!pendingExamLabelHintForTesting) {
                     tutorialPreferences.edit()
                         .putBoolean(KEY_EXAM_LABEL_HINT_PENDING, false)
@@ -626,7 +657,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                 activeTutorialHint = TutorialHintKind.AB_CUSTOM_LONG_PRESS
             }
             selectedTab == AppTab.Timetable &&
-                uiState.settings != null &&
+                uiState.settings?.enableExamTimetable == true &&
                 if (tutorialFirstTimeCheckDisabledForTesting) {
                     !examButtonHintShownForCurrentVisit
                 } else {
@@ -783,12 +814,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
 
     LaunchedEffect(
         uiState.initialized,
-        uiState.settings?.lessonStartNotificationEnabled,
-        uiState.settings?.lessonStartNotificationMinutesBefore,
-        uiState.settings?.lessonStartNotificationLiveUpdatesEnabled,
-        uiState.settings?.lessonStartNotificationProgressCountsDown,
-        uiState.settings?.lessonStartNotificationLiveUpdateEarlyMinutes,
-        uiState.settings?.enableSemesterTimetables,
+        uiState.settings,
         uiState.lessonNotificationExclusions,
         uiState.lessons,
         uiState.dayTypeEntities,
@@ -798,26 +824,15 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         uiState.examLessons
     ) {
         if (uiState.initialized) {
+            delay(300)
             LessonStartNotificationWorker.rescheduleAll(context)
+            jp.linkserver.nittcsc.widget.WidgetUpdater.updateAll(context)
         }
     }
 
     LaunchedEffect(
         uiState.initialized,
-        uiState.settings?.syncLessonsToCalendar,
-        uiState.settings?.lessonCalendarSyncStart,
-        uiState.settings?.lessonCalendarSyncEnd,
-        uiState.settings?.termStart,
-        uiState.settings?.termEnd,
-        uiState.settings?.periodsPerDay,
-        uiState.settings?.periodDurationMin,
-        uiState.settings?.breakBetweenPeriodsMin,
-        uiState.settings?.lunchBreakMin,
-        uiState.settings?.lunchAfterPeriod,
-        uiState.settings?.firstPeriodStartHour,
-        uiState.settings?.firstPeriodStartMinute,
-        uiState.settings?.periodLabelStyle,
-        uiState.settings?.enableSemesterTimetables,
+        uiState.settings,
         uiState.lessons,
         uiState.dayTypeEntities,
         uiState.changedLessons,
@@ -869,8 +884,11 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         }
     }
 
-    // アプリ起動時に通知権限をリクエスト（Android 13以上）
-    LaunchedEffect(Unit) {
+    // 通知を利用する段階で要求し、初回設定直後の入力を遮らない。
+    val needsNotifications = uiState.settings?.lessonStartNotificationEnabled == true ||
+        uiState.tasks.isNotEmpty() || uiState.plans.isNotEmpty()
+    LaunchedEffect(needsNotifications) {
+        if (!needsNotifications) return@LaunchedEffect
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             if (context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED) {
@@ -880,7 +898,8 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     }
 
     // アプリ起動時にNearby Connections権限を確認し、スタンバイ広告を確実に開始する
-    LaunchedEffect(Unit) {
+    LaunchedEffect(uiState.syncProfile != null) {
+        if (uiState.syncProfile == null) return@LaunchedEffect
         val nearbyPerms = buildList {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
                 add(Manifest.permission.BLUETOOTH_SCAN)
@@ -1906,6 +1925,8 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                     onToggleNaturalLanguageTaskAdd = viewModel::toggleNaturalLanguageTaskAdd,
                     onToggleDrawerNavigation = viewModel::toggleDrawerNavigation,
                     onToggleSemesterTimetables = viewModel::toggleSemesterTimetables,
+                    onToggleAbTimetable = viewModel::toggleAbTimetable,
+                    onToggleExamTimetable = viewModel::toggleExamTimetable,
                     onUpdateUiDesignMode = viewModel::updateUiDesignMode,
                     onAcknowledgeExpressiveWarning = viewModel::acknowledgeExpressiveWarning,
                     onToggleAddTasksToCalendar = { enabled ->
@@ -2531,6 +2552,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                         timetableTarget = selectedTimetableTarget,
                                         useLargeScreenLayout = useLargeScreenLayout,
                                         onSelectDay = viewModel::selectDayOfWeek,
+                                        onOpenAbTable = { selectedTab = AppTab.AbTable },
                                         onAutoSaveLesson = viewModel::saveLessonWithoutNotification,
                                         onSaveLesson = viewModel::saveLesson
                                     )
@@ -2550,7 +2572,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                                     entity.holidaySpecialLabel == HolidaySpecialLabel.FINAL
                                             }
                                             if (
-                                                isExamLabel &&
+                                                isExamLabel && uiState.settings?.enableExamTimetable == true &&
                                                 !pendingExamLabelHint &&
                                                 if (tutorialFirstTimeCheckDisabledForTesting) {
                                                     true
@@ -2597,7 +2619,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                 if (unifyTaskPlanView && selectedTab == AppTab.Tasks) {
                                     "ToDo"
                                 } else {
-                                    stringResource(selectedTab.labelRes)
+                                    stringResource(if (selectedTab == AppTab.AbTable && !LocalAbTimetableEnabled.current) R.string.tab_school_days else selectedTab.labelRes)
                                 }
                             } else {
                                 stringResource(R.string.app_name)
@@ -2643,7 +2665,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                                         }
                                                     )
                                                 }
-                                                AppIconButton(onClick = { showExamTimetablePeriods = true }) {
+                                                if (uiState.settings?.enableExamTimetable == true) AppIconButton(onClick = { showExamTimetablePeriods = true }) {
                                                     Icon(
                                                         Icons.Filled.Quiz,
                                                         contentDescription = stringResource(R.string.btn_create_exam_timetable),
@@ -2784,6 +2806,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                                     unifyTaskPlanView && tab == AppTab.Tasks -> "ToDo"
                                                     LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE &&
                                                         tab == AppTab.Timetable -> stringResource(R.string.tab_timetable_m3e)
+                                                    tab == AppTab.AbTable && !LocalAbTimetableEnabled.current -> stringResource(R.string.tab_school_days)
                                                     else -> stringResource(tab.labelRes)
                                                 }
                                                 AppBottomNavigationItem(
@@ -2886,7 +2909,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                                             val tabLabel = if (unifyTaskPlanView && tab == AppTab.Tasks)
                                                 "ToDo"
                                             else
-                                                stringResource(tab.labelRes)
+                                                stringResource(if (tab == AppTab.AbTable && !LocalAbTimetableEnabled.current) R.string.tab_school_days else tab.labelRes)
                                             NavigationDrawerItem(
                                                 label = { Text(tabLabel) },
                                                 selected = isSelected,
@@ -2940,7 +2963,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
                             TutorialHintKind.LESSON_LONG_PRESS ->
                                 R.string.tutorial_lesson_long_press
                             TutorialHintKind.AB_MULTI_DAY_DRAG ->
-                                R.string.tutorial_ab_multi_day_drag
+                                if (LocalAbTimetableEnabled.current) R.string.tutorial_ab_multi_day_drag else R.string.tutorial_school_days_drag
                             TutorialHintKind.AB_CUSTOM_LONG_PRESS ->
                                 R.string.tutorial_ab_custom_long_press
                         }
@@ -3092,6 +3115,7 @@ private fun TimetableInputScreen(
     timetableTarget: TimetableEditTarget,
     useLargeScreenLayout: Boolean,
     onSelectDay: (Int) -> Unit,
+    onOpenAbTable: () -> Unit,
     onAutoSaveLesson: (Int, TimetableTerm, Int, Int, LessonDraft) -> Unit,
     onSaveLesson: (Int, TimetableTerm, Int, Int, LessonDraft) -> Unit
 ) {
@@ -3111,6 +3135,11 @@ private fun TimetableInputScreen(
     )
 
     Column(modifier = modifier.fillMaxSize()) {
+        if (state.settings?.enableAbTimetable == true) {
+            TextButton(onClick = onOpenAbTable, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.setup_open_ab_table))
+            }
+        }
         // 曜日タブ（スクロールしても常に表示）
         if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
             Box(
@@ -3431,7 +3460,7 @@ private fun LessonEditorCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                if (LocalAbTimetableEnabled.current) Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(
                         checked = mode == LessonMode.ALTERNATING,
                         onCheckedChange = { mode = if (it) LessonMode.ALTERNATING else LessonMode.WEEKLY }
@@ -8183,7 +8212,7 @@ internal fun LessonOverrideDialog(
     onDismiss: () -> Unit,
     onApply: (Int?, DayType, HolidaySpecialLabel?) -> Unit
 ) {
-    val effectiveShowDayTypeSelector = showDayTypeSelector
+    val effectiveShowDayTypeSelector = showDayTypeSelector && LocalAbTimetableEnabled.current
     var selectedDayOfWeek by remember(date, currentOverrideDayOfWeek) {
         mutableStateOf(currentOverrideDayOfWeek ?: date.dayOfWeek.value.coerceIn(1, 5))
     }
@@ -8447,6 +8476,8 @@ internal fun dayTypeDisplayText(
 ): String {
     val baseLabel = if (dayType == DayType.HOLIDAY && holidaySpecialLabel != null) {
         stringResource(holidaySpecialLabelShortRes(holidaySpecialLabel))
+    } else if (!LocalAbTimetableEnabled.current && dayType != DayType.HOLIDAY) {
+        stringResource(R.string.daytype_regular)
     } else {
         stringResource(dayTypeRes(dayType))
     }

@@ -233,6 +233,8 @@ internal fun AbTableScreen(
 
         item {
             DayTypeLegend(
+                abEnabled = settings.enableAbTimetable,
+                examEnabled = settings.enableExamTimetable,
                 onOpenExamTimetables = onOpenExamTimetables,
                 onPrepareNextAcademicYear = if (preparedNextAcademicYear == null) {
                     { showPrepareNextAcademicYearDialog = true }
@@ -265,6 +267,7 @@ internal fun AbTableScreen(
                         WeekHeader()
                     }
                     WeekRow(
+                        abEnabled = settings.enableAbTimetable,
                         row = displayWeek.row,
                         settingsStart = rowRangeStart,
                         settingsEnd = rowRangeEnd,
@@ -283,7 +286,7 @@ internal fun AbTableScreen(
                             val startDate = dateAtRoot(rootOffset) ?: return@WeekRow
                             dragStartDate = startDate
                             dragCurrentDate = startDate
-                            dragTargetDayType = nextDayType(dayTypeForDate(startDate))
+                            dragTargetDayType = nextDayType(dayTypeForDate(startDate), settings.enableAbTimetable)
                         },
                         onDragRoot = { rootOffset ->
                             if (dragStartDate == null) return@WeekRow
@@ -446,6 +449,8 @@ private fun DatePickRow(
 
 @Composable
 private fun DayTypeLegend(
+    abEnabled: Boolean,
+    examEnabled: Boolean,
     onOpenExamTimetables: () -> Unit,
     onPrepareNextAcademicYear: (() -> Unit)?
 ) {
@@ -457,7 +462,7 @@ private fun DayTypeLegend(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = stringResource(R.string.legend_ab_toggle),
+                    text = stringResource(if (abEnabled) R.string.legend_ab_toggle else R.string.legend_school_days_toggle),
                     style = MaterialTheme.typography.titleSmall
                 )
                 Text(
@@ -467,11 +472,11 @@ private fun DayTypeLegend(
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                DayChip(stringResource(R.string.daytype_a), dayTypeVisual(DayType.A))
-                DayChip(stringResource(R.string.daytype_b), dayTypeVisual(DayType.B))
+                DayChip(stringResource(if (abEnabled) R.string.daytype_a else R.string.daytype_regular), dayTypeVisual(DayType.A))
+                if (abEnabled) DayChip(stringResource(R.string.daytype_b), dayTypeVisual(DayType.B))
                 DayChip(stringResource(R.string.daytype_holiday), dayTypeVisual(DayType.HOLIDAY))
             }
-            OutlinedButton(
+            if (examEnabled) OutlinedButton(
                 onClick = onOpenExamTimetables,
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -586,6 +591,7 @@ private fun NextAcademicYearHeader(academicYear: Int) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun WeekRow(
+    abEnabled: Boolean,
     row: WeekRow,
     settingsStart: LocalDate,
     settingsEnd: LocalDate,
@@ -621,7 +627,7 @@ private fun WeekRow(
             modifier = Modifier
                 .weight(1f)
                 .onGloballyPositioned { rowBoundsRef[0] = it.boundsInRoot() }
-                .pointerInput(Unit) {
+                .pointerInput(abEnabled) {
                     detectDragGestures(
                         onDragStart = { localOffset ->
                             val rb = rowBoundsRef[0] ?: return@detectDragGestures
@@ -659,14 +665,14 @@ private fun WeekRow(
                         )
                         .background(visual.container, RoundedCornerShape(10.dp))
                         .combinedClickable(
-                            onClick = { onSaveDayTypes(listOf(date), nextDayType(dayTypeForDate(date))) },
+                            onClick = { onSaveDayTypes(listOf(date), nextDayType(dayTypeForDate(date), abEnabled)) },
                             onLongClick = { onOpenLessonOverride(date) }
                         )
                         .padding(vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     val label = if (previewActive) {
-                        stringResource(dayTypeRes(shownDayType))
+                        stringResource(if (!abEnabled && shownDayType != DayType.HOLIDAY) R.string.daytype_regular else dayTypeRes(shownDayType))
                     } else {
                         dayTypeDisplayText(
                             shownDayType,
@@ -682,8 +688,8 @@ private fun WeekRow(
     } // outer Row
 }
 
-private fun nextDayType(current: DayType): DayType = when (current) {
-    DayType.A -> DayType.B
+private fun nextDayType(current: DayType, abEnabled: Boolean): DayType = when (current) {
+    DayType.A -> if (abEnabled) DayType.B else DayType.HOLIDAY
     DayType.B -> DayType.HOLIDAY
     DayType.HOLIDAY -> DayType.A
 }

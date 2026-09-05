@@ -87,7 +87,9 @@ private fun Content(data: WidgetData) {
             val todayEntity = data.dayTypeEntities[data.today]
             val dayTypeText = WidgetDataHelper.dayTypeDisplayText(
                 dayType = data.dayType,
-                overrideLessonDayOfWeek = todayEntity?.overrideLessonDayOfWeek
+                overrideLessonDayOfWeek = todayEntity?.overrideLessonDayOfWeek,
+                regularDayLabel = if (data.settings?.enableAbTimetable == false)
+                    context.getString(jp.linkserver.nittcsc.R.string.daytype_regular) else null
             )
             Text(
                 text = dayTypeText,

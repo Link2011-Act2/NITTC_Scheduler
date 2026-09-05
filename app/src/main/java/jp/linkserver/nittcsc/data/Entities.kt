@@ -51,6 +51,8 @@ data class SettingsEntity(
     val useKosenMode: Boolean = true,
     val periodLabelStyle: PeriodLabelStyle = PeriodLabelStyle.PAIR_KOSHI,
     val enableSemesterTimetables: Boolean = true,
+    val enableAbTimetable: Boolean = true,
+    val initialSetupCompleted: Boolean = true,
     val useDrawerNavigation: Boolean = false,
     val addTasksToCalendar: Boolean = false,
     val showCurrentTimeMarker: Boolean = false,

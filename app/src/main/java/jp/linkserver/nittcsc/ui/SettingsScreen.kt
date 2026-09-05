@@ -144,6 +144,8 @@ fun SettingsScreen(
     onToggleNaturalLanguageTaskAdd: (Boolean) -> Unit = {},
     onToggleDrawerNavigation: (Boolean) -> Unit,
     onToggleSemesterTimetables: (Boolean) -> Unit = {},
+    onToggleAbTimetable: (Boolean) -> Unit = {},
+    onToggleExamTimetable: (Boolean) -> Unit = {},
     onUpdateUiDesignMode: (UiDesignMode) -> Unit = {},
     onAcknowledgeExpressiveWarning: () -> Unit = {},
     onToggleAddTasksToCalendar: (Boolean) -> Unit,
@@ -931,6 +933,18 @@ fun SettingsScreen(
                             checked = enabledSemesterTimetables,
                             onCheckedChange = onToggleSemesterTimetables
                         )
+                        SettingsSwitchRow(
+                            title = stringResource(R.string.label_enable_ab_timetable),
+                            description = stringResource(R.string.desc_enable_ab_timetable),
+                            checked = s?.enableAbTimetable != false,
+                            onCheckedChange = onToggleAbTimetable
+                        )
+                        SettingsSwitchRow(
+                            title = stringResource(R.string.label_enable_exam_timetable),
+                            description = stringResource(R.string.desc_enable_exam_timetable),
+                            checked = s?.enableExamTimetable != false,
+                            onCheckedChange = onToggleExamTimetable
+                        )
                         HorizontalDivider()
                         ExposedDropdownMenuBox(
                             expanded = showPeriodLabelStyleMenu,
@@ -1085,7 +1099,7 @@ fun SettingsScreen(
                 }
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (s?.enableExamTimetable != false) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1109,7 +1123,7 @@ fun SettingsScreen(
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
-                    if (expandExamTimetableSettings) Surface(
+                    if (expandExamTimetableSettings && s?.enableExamTimetable != false) Surface(
                         shape = MaterialTheme.shapes.medium,
                         color = MaterialTheme.colorScheme.surfaceContainer,
                         modifier = Modifier.fillMaxWidth()

@@ -17,6 +17,7 @@ import jp.linkserver.nittcsc.data.ResolvedLesson
 import jp.linkserver.nittcsc.data.SettingsEntity
 import jp.linkserver.nittcsc.data.TaskEntity
 import jp.linkserver.nittcsc.logic.CLASS_SLOTS
+import jp.linkserver.nittcsc.logic.forTimetable
 import jp.linkserver.nittcsc.logic.ClassSlot
 import jp.linkserver.nittcsc.logic.JapaneseHolidayCalculator
 import jp.linkserver.nittcsc.logic.LessonKey
@@ -63,14 +64,14 @@ object WidgetDataHelper {
         val today = LocalDate.now()
 
         val settings = dao.getSettings()
-        val dayTypes = dao.getDayTypesOnce()
+        val dayTypes = dao.getDayTypesOnce().map { it.forTimetable(settings?.enableAbTimetable != false) }
         val dayTypeEntities = dayTypes.associateBy { it.date }
         val dayTypeMap = dayTypes.associate { it.date to it.dayType }
         val cancelledLessons = dao.getCancelledLessonsOnce().map { it.date to it.slotIndex }.toSet()
         val changedLessons = dao.getChangedLessonsOnce().associateBy { it.date to it.slotIndex }
-        val lessons = dao.getLessonsOnce().associateBy { it.lessonKey() }
-        val examDaySchedules = dao.getExamDaySchedulesOnce().associateBy { it.date }
-        val examLessons = dao.getExamLessonsOnce().associateBy { it.date to it.slotIndex }
+        val lessons = dao.getLessonsOnce().map { it.forTimetable(settings?.enableAbTimetable != false) }.associateBy { it.lessonKey() }
+        val examDaySchedules = dao.getExamDaySchedulesOnce().filter { settings?.enableExamTimetable != false }.associateBy { it.date }
+        val examLessons = dao.getExamLessonsOnce().filter { settings?.enableExamTimetable != false }.associateBy { it.date to it.slotIndex }
         val incompleteTasks = dao.getIncompleteTasksOnce()
         val incompletePlans = dao.getIncompletePlansOnce()
 
@@ -206,7 +207,7 @@ object WidgetDataHelper {
 
     fun isExamScheduleDate(data: WidgetData, date: LocalDate): Boolean {
         val label = data.dayTypeEntities[date]?.holidaySpecialLabel
-        return date in data.examDaySchedules &&
+        return data.settings?.enableExamTimetable != false && date in data.examDaySchedules &&
             data.examLessons.values.any { it.date == date && it.hasEnteredContent() } &&
             (label == HolidaySpecialLabel.MIDTERM || label == HolidaySpecialLabel.FINAL)
     }
@@ -346,8 +347,8 @@ object WidgetDataHelper {
         DayType.HOLIDAY -> "休"
     }
 
-    fun dayTypeDisplayText(dayType: DayType, overrideLessonDayOfWeek: Int?): String {
-        val base = dayTypeLabel(dayType)
+    fun dayTypeDisplayText(dayType: DayType, overrideLessonDayOfWeek: Int?, regularDayLabel: String? = null): String {
+        val base = if (dayType != DayType.HOLIDAY && regularDayLabel != null) regularDayLabel else dayTypeLabel(dayType)
         if (overrideLessonDayOfWeek == null || dayType == DayType.HOLIDAY) return base
         val dow = dayLabel(overrideLessonDayOfWeek)
         return if (dow.isBlank()) base else "$base($dow)"

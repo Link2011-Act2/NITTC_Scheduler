@@ -38,6 +38,7 @@ import jp.linkserver.nittcsc.data.LessonNotificationExclusionEntity
 import jp.linkserver.nittcsc.data.ResolvedLesson
 import jp.linkserver.nittcsc.data.SettingsEntity
 import jp.linkserver.nittcsc.logic.ClassSlot
+import jp.linkserver.nittcsc.logic.forTimetable
 import jp.linkserver.nittcsc.logic.JapaneseHolidayCalculator
 import jp.linkserver.nittcsc.logic.LessonKey
 import jp.linkserver.nittcsc.logic.PeriodLabelStyle
@@ -77,7 +78,7 @@ class LessonStartNotificationWorker(
 
         val specialLabel = dao.getDayType(date)?.holidaySpecialLabel
         val examLessonsForDate = dao.getExamLessonsForDate(date)
-        val isExamDate = dao.getExamDaySchedule(date) != null &&
+        val isExamDate = settings.enableExamTimetable && dao.getExamDaySchedule(date) != null &&
             examLessonsForDate.any { it.hasEnteredContent() } &&
             (specialLabel == HolidaySpecialLabel.MIDTERM || specialLabel == HolidaySpecialLabel.FINAL)
         val examLesson = if (isExamDate) {
@@ -99,7 +100,7 @@ class LessonStartNotificationWorker(
                 date = date,
                 slotIndex = slotIndex,
                 dayTypeEntities = dao.getDayTypesOnce().associateBy { it.date },
-                lessons = dao.getLessonsOnce().associateBy { it.lessonKey() },
+                lessons = dao.getLessonsOnce().map { it.forTimetable(settings.enableAbTimetable) }.associateBy { it.lessonKey() },
                 changedLessons = dao.getChangedLessonsOnce().associateBy { it.date to it.slotIndex },
                 semesterTimetablesEnabled = settings.enableSemesterTimetables
             )
@@ -604,14 +605,14 @@ class LessonStartNotificationWorker(
 
             val slots = settings.classSlots()
             val dayTypeEntities = dao.getDayTypesOnce().associateBy { it.date }
-            val lessons = dao.getLessonsOnce().associateBy { it.lessonKey() }
+            val lessons = dao.getLessonsOnce().map { it.forTimetable(settings.enableAbTimetable) }.associateBy { it.lessonKey() }
             val changedLessons = dao.getChangedLessonsOnce().associateBy { it.date to it.slotIndex }
             val cancelledLessons = dao.getCancelledLessonsOnce().map { it.date to it.slotIndex }.toSet()
             val examLessonsByDate = dao.getExamLessonsOnce().groupBy { it.date }
             val examScheduleDates = dao.getExamDaySchedulesOnce()
                 .map { it.date }
                 .filterTo(mutableSetOf()) { date ->
-                    examLessonsByDate[date].orEmpty().any { it.hasEnteredContent() } && when (dayTypeEntities[date]?.holidaySpecialLabel) {
+                    settings.enableExamTimetable && examLessonsByDate[date].orEmpty().any { it.hasEnteredContent() } && when (dayTypeEntities[date]?.holidaySpecialLabel) {
                         HolidaySpecialLabel.MIDTERM, HolidaySpecialLabel.FINAL -> true
                         else -> false
                     }

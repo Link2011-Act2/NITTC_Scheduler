@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import jp.linkserver.nittcsc.InternalFeatureFlags
 import jp.linkserver.nittcsc.logic.PeriodLabelStyle
 import jp.linkserver.nittcsc.logic.TimetableTerm
+import jp.linkserver.nittcsc.logic.importedExamTimetableEnabled
 import jp.linkserver.nittcsc.logic.academicYearForDate
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -15,7 +16,7 @@ internal class SchedulerDataTransfer(
     private val dao: SchedulerDao = db.schedulerDao()
 
     private companion object {
-        const val CURRENT_EXPORT_VERSION = 14
+        const val CURRENT_EXPORT_VERSION = 15
         const val MIN_SUPPORTED_IMPORT_VERSION = 1
         const val DATASET_TASKS = SchedulerRepository.DATASET_TASKS
         const val DATASET_PLANS = SchedulerRepository.DATASET_PLANS
@@ -91,7 +92,8 @@ internal class SchedulerDataTransfer(
                 s.put("syncLessonsToCalendar", settings.syncLessonsToCalendar)
                 if (settings.lessonCalendarSyncStart != null) s.put("lessonCalendarSyncStart", settings.lessonCalendarSyncStart.toString())
                 if (settings.lessonCalendarSyncEnd != null) s.put("lessonCalendarSyncEnd", settings.lessonCalendarSyncEnd.toString())
-                s.put("enableExamTimetable", true)
+                s.put("enableAbTimetable", settings.enableAbTimetable)
+                s.put("enableExamTimetable", settings.enableExamTimetable)
                 s.put("examPeriodsPerDay", settings.examPeriodsPerDay)
                 s.put("examPeriodDurationMin", settings.examPeriodDurationMin)
                 s.put("examBreakBetweenPeriodsMin", settings.examBreakBetweenPeriodsMin)
@@ -676,7 +678,7 @@ internal class SchedulerDataTransfer(
         }
     }
 
-    suspend fun importAllData(json: String) {
+    suspend fun importAllData(json: String, requireSettings: Boolean = false) {
         val root = org.json.JSONObject(json)
 
         val importVersion = if (root.has("version") && !root.isNull("version")) {
@@ -692,6 +694,7 @@ internal class SchedulerDataTransfer(
         }
 
         val normalizedRoot = normalizeImportRoot(root, importVersion)
+        require(!requireSettings || normalizedRoot.optJSONObject("settings") != null)
 
         val settingsEntity = normalizedRoot.optJSONObject("settings")?.let { s ->
             val termStart = LocalDate.parse(s.getString("termStart"))
@@ -752,7 +755,9 @@ internal class SchedulerDataTransfer(
                 syncLessonsToCalendar = s.optBoolean("syncLessonsToCalendar", false),
                 lessonCalendarSyncStart = s.optString("lessonCalendarSyncStart", "").takeIf { it.isNotBlank() }?.let(LocalDate::parse),
                 lessonCalendarSyncEnd = s.optString("lessonCalendarSyncEnd", "").takeIf { it.isNotBlank() }?.let(LocalDate::parse),
-                enableExamTimetable = true,
+                enableAbTimetable = s.optBoolean("enableAbTimetable", true),
+                initialSetupCompleted = true,
+                enableExamTimetable = importedExamTimetableEnabled(importVersion, s.optBoolean("enableExamTimetable", true)),
                 examPeriodsPerDay = s.optInt("examPeriodsPerDay", 4).coerceIn(1, 12),
                 examPeriodDurationMin = s.optInt("examPeriodDurationMin", 50).coerceIn(10, 180),
                 examBreakBetweenPeriodsMin = s.optInt("examBreakBetweenPeriodsMin", 20).coerceIn(0, 120),
@@ -1056,8 +1061,8 @@ internal class SchedulerDataTransfer(
                 DATASET_LESSON_NOTES,
                 DATASET_EXAM_TIMETABLES
             )
+            repository.refreshAcademicYear()
         }
-        repository.refreshAcademicYear()
     }
 
     private fun examLessonToJson(lesson: ExamLessonEntity): org.json.JSONObject {

@@ -26,6 +26,8 @@ import jp.linkserver.nittcsc.data.SyncRegisteredDeviceEntity
 import jp.linkserver.nittcsc.data.TaskEntity
 import jp.linkserver.nittcsc.data.UiDesignMode
 import jp.linkserver.nittcsc.logic.ExportRange
+import jp.linkserver.nittcsc.logic.InitialSetupDraft
+import jp.linkserver.nittcsc.logic.forTimetable
 import jp.linkserver.nittcsc.logic.GeneratedLesson
 import jp.linkserver.nittcsc.logic.JapaneseHolidayCalculator
 import jp.linkserver.nittcsc.logic.LessonKey
@@ -193,19 +195,19 @@ class SchedulerViewModel(
         val (lessons, tasks, incompleteTasks) = taskPart
         CoreDataState(
             settings = baseData.settings,
-            dayTypeEntities = baseData.dayTypes.associateBy { it.date },
-            dayTypeMap = baseData.dayTypes.associate { it.date to it.dayType },
+            dayTypeEntities = baseData.dayTypes.map { it.forTimetable(baseData.settings?.enableAbTimetable != false) }.associateBy { it.date },
+            dayTypeMap = baseData.dayTypes.map { it.forTimetable(baseData.settings?.enableAbTimetable != false) }.associate { it.date to it.dayType },
             longBreaks = baseData.longBreaks,
             changedLessons = baseData.changedLessons.associateBy { it.date to it.slotIndex },
             lessonNotificationExclusions = baseData.lessonNotificationExclusions,
-            lessons = lessons.associateBy { it.lessonKey() },
+            lessons = lessons.map { it.forTimetable(baseData.settings?.enableAbTimetable != false) }.associateBy { it.lessonKey() },
             tasks = tasks,
             incompleteTasks = incompleteTasks,
             plans = plans,
             incompletePlans = incompletePlans,
             lessonNotes = lessonNotes,
-            examDaySchedules = examData.daySchedules.associateBy { it.date },
-            examLessons = examData.lessons.associateBy { it.date to it.slotIndex }
+            examDaySchedules = examData.daySchedules.filter { baseData.settings?.enableExamTimetable != false }.associateBy { it.date },
+            examLessons = examData.lessons.filter { baseData.settings?.enableExamTimetable != false }.associateBy { it.date to it.slotIndex }
         )
     }
 
@@ -900,6 +902,20 @@ class SchedulerViewModel(
     }
 
     suspend fun exportAllData(): String = repository.exportAllData()
+
+    suspend fun completeInitialSetup(draft: InitialSetupDraft) = repository.completeInitialSetup(draft)
+
+    suspend fun restoreInitialSetup(json: String) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        repository.importAllData(json, requireSettings = true)
+    }
+
+    fun toggleAbTimetable(enabled: Boolean) {
+        launchRepositoryUpdate { repository.toggleAbTimetable(enabled) }
+    }
+
+    fun toggleExamTimetable(enabled: Boolean) {
+        launchRepositoryUpdate { repository.toggleExamTimetable(enabled) }
+    }
 
     fun importAllData(json: String) {
         viewModelScope.launch {

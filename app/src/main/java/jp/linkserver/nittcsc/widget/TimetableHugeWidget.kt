@@ -114,7 +114,9 @@ private fun Content(data: WidgetData) {
                         )
                     }
                     Text(
-                        text = WidgetDataHelper.dayTypeDisplayText(dayType, dayTypeEntity?.overrideLessonDayOfWeek),
+                        text = WidgetDataHelper.dayTypeDisplayText(dayType, dayTypeEntity?.overrideLessonDayOfWeek,
+                            if (data.settings?.enableAbTimetable == false)
+                                context.getString(jp.linkserver.nittcsc.R.string.daytype_regular_short) else null),
                         style = TextStyle(
                             color = GlanceTheme.colors.onBackground,
                             fontSize = 8.sp,

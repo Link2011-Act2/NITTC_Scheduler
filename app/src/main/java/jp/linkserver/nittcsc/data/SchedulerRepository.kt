@@ -2,6 +2,8 @@ package jp.linkserver.nittcsc.data
 
 import jp.linkserver.nittcsc.InternalFeatureFlags
 import jp.linkserver.nittcsc.logic.CLASS_SLOTS
+import jp.linkserver.nittcsc.logic.InitialSetupDraft
+import jp.linkserver.nittcsc.logic.forTimetable
 import jp.linkserver.nittcsc.data.HolidaySpecialLabel
 import jp.linkserver.nittcsc.logic.ExportRange
 import jp.linkserver.nittcsc.logic.GeneratedLesson
@@ -36,7 +38,7 @@ class SchedulerRepository(
     private val dataTransfer = SchedulerDataTransfer(this, db)
 
     companion object {
-        private const val CURRENT_EXPORT_VERSION = 14
+        private const val CURRENT_EXPORT_VERSION = 15
         private const val MIN_SUPPORTED_IMPORT_VERSION = 1
         private const val MAX_FUTURE_META_DRIFT_MS = 5 * 60 * 1000L
         const val DATASET_TASKS = "tasks"
@@ -236,6 +238,31 @@ class SchedulerRepository(
             )
             ensureLessonRows()
             touchSyncDatasetMeta(DATASET_LESSONS)
+        }
+    }
+
+    suspend fun completeInitialSetup(draft: InitialSetupDraft) {
+        db.withTransaction {
+            val current = requireNotNull(dao.getSettings())
+            check(!current.initialSetupCompleted)
+            dao.upsertSettings(draft.applyTo(current))
+            ensureLessonRows()
+            syncDayTypes()
+            touchSyncDatasetMeta(DATASET_LESSONS, DATASET_DAY_TYPES)
+        }
+    }
+
+    suspend fun toggleAbTimetable(enabled: Boolean) {
+        db.withTransaction {
+            val current = dao.getSettings() ?: return@withTransaction
+            dao.upsertSettings(current.copy(enableAbTimetable = enabled))
+        }
+    }
+
+    suspend fun toggleExamTimetable(enabled: Boolean) {
+        db.withTransaction {
+            val current = dao.getSettings() ?: return@withTransaction
+            dao.upsertSettings(current.copy(enableExamTimetable = enabled))
         }
     }
 
@@ -709,6 +736,17 @@ class SchedulerRepository(
     ) {
         db.withTransaction {
             val existing = dao.getLesson(academicYear, timetableTerm, dayOfWeek, slotIndex)
+            // A/B無効時の通常入力はA側を編集し、非表示のB側は保持する。
+            if (dao.getSettings()?.enableAbTimetable == false &&
+                existing?.mode == LessonMode.ALTERNATING && draft.mode == LessonMode.WEEKLY
+            ) {
+                dao.upsertLesson(existing.copy(
+                    aSubject = draft.weeklySubject.trim(), aTeacher = draft.weeklyTeacher.trim(),
+                    aLocation = draft.weeklyLocation.trim().takeIf { it.isNotEmpty() }
+                ))
+                touchSyncDatasetMeta(DATASET_LESSONS)
+                return@withTransaction
+            }
             val weeklySubject = draft.weeklySubject.trim()
             val weeklyTeacher = draft.weeklyTeacher.trim()
             val weeklyLocation = draft.weeklyLocation.trim().takeIf { it.isNotEmpty() }
@@ -783,14 +821,15 @@ class SchedulerRepository(
 
         val settings = dao.getSettings() ?: return emptyList()
         val dayTypeMap = dao.getDayTypesOnce().associateBy { it.date }
-        val lessons = dao.getLessonsOnce().associateBy { it.lessonKey() }
+        val lessons = dao.getLessonsOnce().map { it.forTimetable(settings.enableAbTimetable) }
+            .associateBy { it.lessonKey() }
         val cancelledLessons = dao.getCancelledLessonsOnce()
             .mapTo(mutableSetOf()) { it.date to it.slotIndex }
         val examLessonsByDate = dao.getExamLessonsOnce().groupBy { it.date }
         val examScheduleDates = dao.getExamDaySchedulesOnce()
             .map { it.date }
             .filterTo(mutableSetOf()) { date ->
-                examLessonsByDate[date].orEmpty().any { it.hasEnteredContent() } && when (dayTypeMap[date]?.holidaySpecialLabel) {
+                settings.enableExamTimetable && examLessonsByDate[date].orEmpty().any { it.hasEnteredContent() } && when (dayTypeMap[date]?.holidaySpecialLabel) {
                     HolidaySpecialLabel.MIDTERM, HolidaySpecialLabel.FINAL -> true
                     else -> false
                 }
@@ -964,7 +1003,7 @@ class SchedulerRepository(
             lessonDayOfWeek,
             slotIndex
         ) ?: return null
-        return resolveLesson(lessonDayType, lesson)
+        return resolveLesson(lessonDayType, lesson.forTimetable(settings?.enableAbTimetable != false))
     }
 
     private suspend fun resolveEffectiveLessonForDate(date: LocalDate, slotIndex: Int): ResolvedLesson? {
@@ -984,6 +1023,7 @@ class SchedulerRepository(
             termStart = LocalDate.of(fiscalStartYear, Month.APRIL, 1),
             termEnd = LocalDate.of(fiscalStartYear + 1, Month.MARCH, 31),
             activeAcademicYear = fiscalStartYear,
+            initialSetupCompleted = false,
             arrivalHour = 8,
             arrivalMinute = 30
         )
@@ -1194,7 +1234,7 @@ class SchedulerRepository(
 
         // useTeacherMatchingがfalseの場合はSUBJECT_ONLYで学科のみを使う
         val dayType = dao.getDayType(targetDate)?.dayType ?: DayType.A
-        val resolved = resolveLesson(dayType, lesson) ?: return null
+        val resolved = resolveLesson(dayType, lesson.forTimetable(settings?.enableAbTimetable != false)) ?: return null
 
         return if (task.useTeacherMatching) {
             // SUBJECT_AND_TEACHER: 学科と教師の両方を使う
@@ -1470,8 +1510,8 @@ class SchedulerRepository(
         dataTransfer.applySyncPayload(payload)
     }
 
-    suspend fun importAllData(json: String) {
-        dataTransfer.importAllData(json)
+    suspend fun importAllData(json: String, requireSettings: Boolean = false) {
+        dataTransfer.importAllData(json, requireSettings)
     }
 }
 
