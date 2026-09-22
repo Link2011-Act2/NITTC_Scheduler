@@ -9,8 +9,8 @@ import androidx.compose.ui.res.stringResource
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.SettingsEntity
 import jp.linkserver.nittcsc.data.UiDesignMode
+import jp.linkserver.nittcsc.ui.components.AppSettingsGroup
 import jp.linkserver.nittcsc.ui.components.AppSettingsScaffold
-import jp.linkserver.nittcsc.ui.components.PreferenceGroup
 import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -37,25 +37,31 @@ internal fun SpecialTimetableSettingsScreen(
         onBack = onBack,
         scrollState = rememberScrollState()
     ) {
-        PreferenceGroup {
-            SettingsSwitchRow(
-                title = stringResource(R.string.label_semester_timetables),
-                description = stringResource(R.string.desc_semester_timetables),
-                checked = settings?.enableSemesterTimetables != false,
-                onCheckedChange = onToggleSemesterTimetables
-            )
-            SettingsSwitchRow(
-                title = stringResource(R.string.label_enable_ab_timetable),
-                description = stringResource(R.string.desc_enable_ab_timetable),
-                checked = settings?.enableAbTimetable != false,
-                onCheckedChange = onToggleAbTimetable
-            )
-            SettingsSwitchRow(
-                title = stringResource(R.string.label_enable_exam_timetable),
-                description = stringResource(R.string.desc_enable_exam_timetable),
-                checked = settings?.enableExamTimetable != false,
-                onCheckedChange = onToggleExamTimetable
-            )
+        AppSettingsGroup {
+            item("semester-timetables") {
+                SettingsSwitchRow(
+                    title = stringResource(R.string.label_semester_timetables),
+                    description = stringResource(R.string.desc_semester_timetables),
+                    checked = settings?.enableSemesterTimetables != false,
+                    onCheckedChange = onToggleSemesterTimetables
+                )
+            }
+            item("ab-timetable") {
+                SettingsSwitchRow(
+                    title = stringResource(R.string.label_enable_ab_timetable),
+                    description = stringResource(R.string.desc_enable_ab_timetable),
+                    checked = settings?.enableAbTimetable != false,
+                    onCheckedChange = onToggleAbTimetable
+                )
+            }
+            item("exam-timetable") {
+                SettingsSwitchRow(
+                    title = stringResource(R.string.label_enable_exam_timetable),
+                    description = stringResource(R.string.desc_enable_exam_timetable),
+                    checked = settings?.enableExamTimetable != false,
+                    onCheckedChange = onToggleExamTimetable
+                )
+            }
         }
         Text(stringResource(R.string.msg_settings_auto_save),
             style = MaterialTheme.typography.bodySmall,

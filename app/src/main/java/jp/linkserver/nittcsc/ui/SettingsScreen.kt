@@ -1346,31 +1346,27 @@ fun SettingsScreen(
                         }
                     )
                 }
-                if (enabledLessonCalendarSync) {
-                    item("label_lesson_calendar_sync_period") {
-                        Column(
-                            modifier = Modifier,
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = stringResource(R.string.label_lesson_calendar_sync_period),
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            LessonCalendarSyncDateRow(
-                                label = stringResource(R.string.label_lesson_calendar_sync_start),
-                                date = lessonCalendarSyncStart,
-                                onClick = { lessonCalendarDatePickerTarget = "start" }
-                            )
-                            LessonCalendarSyncDateRow(
-                                label = stringResource(R.string.label_lesson_calendar_sync_end),
-                                date = lessonCalendarSyncEnd,
-                                onClick = { lessonCalendarDatePickerTarget = "end" }
-                            )
-                        }
+            }
+            if (enabledLessonCalendarSync) {
+                AppSettingsCategory(title = stringResource(R.string.label_lesson_calendar_sync_period))
+                AppSettingsGroup {
+                    item("label_lesson_calendar_sync_start") {
+                        LessonCalendarSyncDateRow(
+                            label = stringResource(R.string.label_lesson_calendar_sync_start),
+                            date = lessonCalendarSyncStart,
+                            onClick = { lessonCalendarDatePickerTarget = "start" }
+                        )
+                    }
+                    item("label_lesson_calendar_sync_end") {
+                        LessonCalendarSyncDateRow(
+                            label = stringResource(R.string.label_lesson_calendar_sync_end),
+                            date = lessonCalendarSyncEnd,
+                            onClick = { lessonCalendarDatePickerTarget = "end" }
+                        )
                     }
                 }
+            }
+            AppSettingsGroup {
                 item("label_clear_app_calendar_events") {
                     NavigationPreferenceRow(
                         title = stringResource(R.string.label_clear_app_calendar_events),
@@ -1383,7 +1379,6 @@ fun SettingsScreen(
                         }
                     )
                 }
-
             }
         }
 
@@ -1564,11 +1559,13 @@ fun SettingsScreen(
 
         // ── このアプリについて ──────────────────────────────────────
         SettingsSection(title = stringResource(R.string.about_section_title)) {
-            SettingsNavigationCard(
-                title = stringResource(R.string.about_section_title),
-                description = stringResource(R.string.about_section_help),
-                onClick = onAbout
-            )
+            item("about") {
+                SettingsNavigationCard(
+                    title = stringResource(R.string.about_section_title),
+                    description = stringResource(R.string.about_section_help),
+                    onClick = onAbout
+                )
+            }
         }
     }
 

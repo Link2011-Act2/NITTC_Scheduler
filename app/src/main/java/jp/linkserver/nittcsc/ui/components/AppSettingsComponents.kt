@@ -4,6 +4,7 @@ package jp.linkserver.nittcsc.ui.components
 
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -14,37 +15,40 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.IconButton
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.key
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.UiDesignMode
 import jp.linkserver.nittcsc.ui.AdaptiveContentPane
@@ -53,17 +57,52 @@ import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
 
 private val LocalInsideSettingsItem = staticCompositionLocalOf { false }
 
-/** カテゴリ全体で背景と角丸を共有し、行のクリック領域は独立させる。 */
+private enum class SettingsGroupPosition { Single, First, Middle, Last }
+
+private fun settingsRowShape(position: SettingsGroupPosition): Shape = when (position) {
+    SettingsGroupPosition.Single -> RoundedCornerShape(20.dp)
+    SettingsGroupPosition.First -> RoundedCornerShape(
+        topStart = 20.dp, topEnd = 20.dp, bottomEnd = 4.dp, bottomStart = 4.dp
+    )
+    SettingsGroupPosition.Middle -> RoundedCornerShape(4.dp)
+    SettingsGroupPosition.Last -> RoundedCornerShape(
+        topStart = 4.dp, topEnd = 4.dp, bottomEnd = 20.dp, bottomStart = 20.dp
+    )
+}
+
+private fun settingsRowPosition(index: Int, count: Int): SettingsGroupPosition = when {
+    count <= 1 -> SettingsGroupPosition.Single
+    index == 0 -> SettingsGroupPosition.First
+    index == count - 1 -> SettingsGroupPosition.Last
+    else -> SettingsGroupPosition.Middle
+}
+
+@Composable
+private fun SettingsRowSurface(
+    position: SettingsGroupPosition,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth().heightIn(
+            min = if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) 72.dp else 0.dp
+        ),
+        shape = settingsRowShape(position),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
+    ) {
+        Box(Modifier.fillMaxWidth().heightIn(min = 72.dp), contentAlignment = Alignment.CenterStart) {
+            CompositionLocalProvider(LocalInsideSettingsItem provides true, content = content)
+        }
+    }
+}
+
+/** 1項目だけのPreference surface。複数項目にはAppSettingsGroupを使用する。 */
 @Composable
 fun PreferenceGroup(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceBright
-    ) {
-        CompositionLocalProvider(LocalInsideSettingsItem provides true) {
-            Column(content = content)
-        }
+    SettingsRowSurface(SettingsGroupPosition.Single, modifier) {
+        Column(content = content)
     }
 }
 
@@ -76,17 +115,17 @@ fun AppSettingsItem(
     if (LocalInsideSettingsItem.current) {
         Column(modifier.padding(contentPadding)) { content() }
     } else {
-        PreferenceGroup(modifier) {
+        SettingsRowSurface(SettingsGroupPosition.Single, modifier) {
             Column(Modifier.padding(contentPadding)) { content() }
         }
     }
 }
 
 @Composable
-fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+fun SettingsSection(title: String, content: AppSettingsGroupScope.() -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         AppSettingsCategory(title)
-        PreferenceGroup(content = content)
+        AppSettingsGroup(content = content)
     }
 }
 
@@ -95,7 +134,8 @@ class AppSettingsGroupScope internal constructor() {
         val key: String,
         val padding: PaddingValues,
         val content: @Composable () -> Unit,
-        val standardOnly: Boolean = false
+        val standardOnly: Boolean = false,
+        val children: List<Item>? = null
     )
     internal val items = mutableListOf<Item>()
 
@@ -117,11 +157,26 @@ class AppSettingsGroupScope internal constructor() {
             standardContainer {
                 children.forEach { child -> key(child.key) { child.content() } }
             }
-        })
+        }, children = children)
     }
 }
 
-/** Expressiveは連続したカテゴリSurface、通常M3は従来の余白と入れ子構造で表示する。 */
+private fun List<AppSettingsGroupScope.Item>.expressiveItems(): List<AppSettingsGroupScope.Item> =
+    flatMap { entry ->
+        when {
+            entry.standardOnly -> emptyList()
+            entry.children != null -> entry.children.expressiveItems().map { child ->
+                AppSettingsGroupScope.Item(
+                    key = "${entry.key}/${child.key}",
+                    padding = child.padding,
+                    content = child.content
+                )
+            }
+            else -> listOf(entry)
+        }
+    }
+
+/** Expressiveは各行をつないだPreference群、通常M3は従来の入れ子構造で表示する。 */
 @Composable
 fun AppSettingsGroup(
     modifier: Modifier = Modifier,
@@ -132,10 +187,13 @@ fun AppSettingsGroup(
 ) {
     val entries = AppSettingsGroupScope().apply(content).items
     if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
-        PreferenceGroup(modifier) {
-            entries.filterNot { it.standardOnly }.forEach { entry ->
+        val rows = entries.expressiveItems()
+        Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            rows.forEachIndexed { index, entry ->
                 key(entry.key) {
-                    Column(Modifier.fillMaxWidth().padding(entry.padding)) { entry.content() }
+                    SettingsRowSurface(settingsRowPosition(index, rows.size)) {
+                        Column(Modifier.fillMaxWidth().padding(entry.padding)) { entry.content() }
+                    }
                 }
             }
         }
@@ -157,7 +215,8 @@ fun AppSettingsCategory(title: String, modifier: Modifier = Modifier) {
         text = title,
         modifier = modifier.then(if (expressive) Modifier.padding(horizontal = 16.dp) else Modifier)
             .semantics { heading() },
-        style = if (expressive) MaterialTheme.typography.labelLarge else MaterialTheme.typography.titleMedium,
+        style = if (expressive) MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp, lineHeight = 20.sp)
+            else MaterialTheme.typography.titleMedium,
         color = MaterialTheme.colorScheme.primary,
         fontWeight = if (expressive) FontWeight.Medium else FontWeight.Bold
     )
@@ -165,12 +224,28 @@ fun AppSettingsCategory(title: String, modifier: Modifier = Modifier) {
 
 @Composable
 private fun SettingsItemText(title: String, summary: String?, modifier: Modifier = Modifier) {
+    val expressive = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
     Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Normal)
+        Text(
+            text = title,
+            style = if (expressive) {
+                MaterialTheme.typography.titleMedium.copy(
+                    fontFamily = FontFamily.SansSerif,
+                    fontSize = 16.sp,
+                    lineHeight = 24.sp,
+                    fontWeight = FontWeight.Normal
+                )
+            } else MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = if (expressive) 2 else Int.MAX_VALUE,
+            overflow = if (expressive) TextOverflow.Ellipsis else TextOverflow.Clip
+        )
         if (!summary.isNullOrEmpty()) {
             Text(
                 summary,
-                style = MaterialTheme.typography.bodyMedium,
+                style = if (expressive) {
+                    MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 21.sp)
+                } else MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
@@ -186,15 +261,17 @@ fun AppSettingsSwitchItem(
     modifier: Modifier = Modifier,
     enabled: Boolean = true
 ) {
+    val expressive = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
     AppSettingsItem {
         Row(
             modifier = modifier
                 .fillMaxWidth()
-                .heightIn(min = 72.dp)
+                .heightIn(min = if (expressive) 72.dp else 80.dp)
                 .toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onCheckedChange)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = if (expressive) 16.dp else 20.dp,
+                    vertical = if (expressive) 16.dp else 20.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
+            horizontalArrangement = Arrangement.spacedBy(if (expressive) 16.dp else 20.dp)
         ) {
             SettingsItemText(title, summary, Modifier.weight(1f).alpha(if (enabled) 1f else 0.38f))
             // 行全体を1つのSwitchとして読み上げ、thumbも同じクリック領域で操作する。
@@ -247,12 +324,16 @@ private fun AppSettingsActionItem(
     modifier: Modifier,
     trailingContent: @Composable () -> Unit
 ) {
+    val expressive = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
     AppSettingsItem {
         Surface(onClick = onClick, color = Color.Transparent, modifier = modifier.fillMaxWidth()) {
             Row(
-                modifier = Modifier.heightIn(min = 72.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+                modifier = Modifier
+                    .heightIn(min = if (expressive) 72.dp else 80.dp)
+                    .padding(horizontal = if (expressive) 16.dp else 20.dp,
+                        vertical = if (expressive) 16.dp else 20.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                horizontalArrangement = Arrangement.spacedBy(if (expressive) 16.dp else 20.dp)
             ) {
                 SettingsItemText(title, summary, Modifier.weight(1f))
                 trailingContent()
@@ -299,12 +380,12 @@ internal fun AppSettingsScaffold(
 ) {
     val expressive = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
     Scaffold(
-        containerColor = if (expressive) MaterialTheme.colorScheme.surfaceContainer
+        containerColor = if (expressive) MaterialTheme.colorScheme.surface
             else MaterialTheme.colorScheme.background,
         topBar = {
             if (expressive) {
                 TopAppBar(
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
                     title = { Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
