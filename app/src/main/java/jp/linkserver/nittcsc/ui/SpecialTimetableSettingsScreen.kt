@@ -8,8 +8,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.SettingsEntity
+import jp.linkserver.nittcsc.data.UiDesignMode
 import jp.linkserver.nittcsc.ui.components.AppSettingsScaffold
 import jp.linkserver.nittcsc.ui.components.PreferenceGroup
+import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -20,6 +22,16 @@ internal fun SpecialTimetableSettingsScreen(
     onToggleAbTimetable: (Boolean) -> Unit,
     onToggleExamTimetable: (Boolean) -> Unit
 ) {
+    if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3) {
+        LegacySpecialTimetableSettingsScreen(
+            settings = settings,
+            onBack = onBack,
+            onToggleSemesterTimetables = onToggleSemesterTimetables,
+            onToggleAbTimetable = onToggleAbTimetable,
+            onToggleExamTimetable = onToggleExamTimetable
+        )
+        return
+    }
     AppSettingsScaffold(
         title = stringResource(R.string.special_timetable_settings_title),
         onBack = onBack,

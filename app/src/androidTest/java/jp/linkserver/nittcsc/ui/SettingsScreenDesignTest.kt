@@ -99,13 +99,20 @@ class SettingsScreenDesignTest(
         composeRule.onNodeWithContentDescription(label(R.string.cd_back))
             .assertHasClickAction().assertTouchHeightIsEqualTo(48.dp)
         capture("top")
-        composeRule.onNodeWithText(label(R.string.section_timetable_settings)).assertHasNoClickAction()
-        composeRule.onNodeWithText(label(R.string.settings_timetable_time_editor_title))
-            .performScrollTo().performClick()
+        val timeEditorLabel = if (mode == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+            composeRule.onNodeWithText(label(R.string.section_timetable_settings)).assertHasNoClickAction()
+            label(R.string.settings_timetable_time_editor_title)
+        } else {
+            label(R.string.section_timetable_settings)
+        }
+        composeRule.onNodeWithText(timeEditorLabel).performScrollTo().performClick()
         capture("collapsed")
         composeRule.onNodeWithText(label(R.string.label_show_current_time_marker)).performScrollTo()
-            .assertIsOff().performClick().assertIsOn()
-        composeRule.runOnIdle { assertEquals(1, markerChanges) }
+        if (mode == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+            composeRule.onNodeWithText(label(R.string.label_show_current_time_marker))
+                .assertIsOff().performClick().assertIsOn()
+            composeRule.runOnIdle { assertEquals(1, markerChanges) }
+        }
         capture("groups")
         composeRule.onNodeWithText(label(R.string.label_ui_design)).performScrollTo().performClick()
         composeRule.onNodeWithText(label(R.string.dialog_ui_design_title)).assertIsDisplayed()

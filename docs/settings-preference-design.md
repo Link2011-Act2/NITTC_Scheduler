@@ -1,5 +1,7 @@
 # 設定画面のPreference UI
 
+このデザインはMaterial 3 Expressiveモード専用。通常のMaterial 3モードでは、直前の従来型設定画面を`LegacySettingsScreen.kt`と関連ファイルで表示する。
+
 ## 参照元
 
 AOSP `android16-qpr1-release` を参照。内部クラスやSettingsLibへの依存は追加しない。
@@ -14,7 +16,7 @@ AOSP `android16-qpr1-release` を参照。内部クラスやSettingsLibへの依
 
 ## Composeでの適用
 
-`ui/components/AppSettingsComponents.kt` に `SettingsSection`、`PreferenceGroup`、`PreferenceRow`、`SwitchPreferenceRow`、`NavigationPreferenceRow`、`ValuePreferenceRow` を用意。
+`ui/components/AppSettingsComponents.kt` に `SettingsSection`、`PreferenceGroup`、`PreferenceRow`、`SwitchPreferenceRow`、`NavigationPreferenceRow`、`ValuePreferenceRow` を用意。設定画面は`LocalUiDesignMode`で切り替える。
 
 - 依頼に合わせ、展開型の大見出しを使わず、通常サイズの固定TopAppBarを使用。
 - 1カテゴリを1つの角丸20dpのSurfaceにまとめる。AOSPの行ごとの背景描画を、外周だけをクリップする連続コンテナへ置き換える。

@@ -43,10 +43,13 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import jp.linkserver.nittcsc.R
+import jp.linkserver.nittcsc.data.UiDesignMode
 import jp.linkserver.nittcsc.ui.AdaptiveContentPane
 import jp.linkserver.nittcsc.ui.ListContentMaxWidth
+import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
 
 private val LocalInsideSettingsItem = staticCompositionLocalOf { false }
 
@@ -88,22 +91,60 @@ fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) 
 }
 
 class AppSettingsGroupScope internal constructor() {
-    internal class Item(val key: String, val padding: PaddingValues, val content: @Composable () -> Unit)
+    internal class Item(
+        val key: String,
+        val padding: PaddingValues,
+        val content: @Composable () -> Unit,
+        val standardOnly: Boolean = false
+    )
     internal val items = mutableListOf<Item>()
 
     fun item(key: String, contentPadding: PaddingValues = PaddingValues(0.dp), content: @Composable () -> Unit) {
         items += Item(key, contentPadding, content)
     }
+
+    fun standardOnly(key: String, content: @Composable () -> Unit) {
+        items += Item(key, PaddingValues(0.dp), content, standardOnly = true)
+    }
+
+    fun section(
+        sectionKey: String,
+        standardContainer: @Composable (@Composable () -> Unit) -> Unit,
+        content: AppSettingsGroupScope.() -> Unit
+    ) {
+        val children = AppSettingsGroupScope().apply(content).items
+        items += Item(sectionKey, PaddingValues(0.dp), {
+            standardContainer {
+                children.forEach { child -> key(child.key) { child.content() } }
+            }
+        })
+    }
 }
 
-/** 条件付きの行も安定したキーで保持し、カテゴリのSurface内に連続表示する。 */
+/** Expressiveは連続したカテゴリSurface、通常M3は従来の余白と入れ子構造で表示する。 */
 @Composable
-fun AppSettingsGroup(modifier: Modifier = Modifier, content: AppSettingsGroupScope.() -> Unit) {
+fun AppSettingsGroup(
+    modifier: Modifier = Modifier,
+    standardContentPadding: PaddingValues = PaddingValues(0.dp),
+    standardSpacing: Dp = 0.dp,
+    standardContainerColor: Color = MaterialTheme.colorScheme.surfaceContainer,
+    content: AppSettingsGroupScope.() -> Unit
+) {
     val entries = AppSettingsGroupScope().apply(content).items
-    PreferenceGroup(modifier) {
-        entries.forEach { entry ->
-            key(entry.key) {
-                Column(Modifier.fillMaxWidth().padding(entry.padding)) { entry.content() }
+    if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+        PreferenceGroup(modifier) {
+            entries.filterNot { it.standardOnly }.forEach { entry ->
+                key(entry.key) {
+                    Column(Modifier.fillMaxWidth().padding(entry.padding)) { entry.content() }
+                }
+            }
+        }
+    } else {
+        Surface(modifier = modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium,
+            color = standardContainerColor) {
+            Column(Modifier.padding(standardContentPadding),
+                verticalArrangement = Arrangement.spacedBy(standardSpacing)) {
+                entries.forEach { entry -> key(entry.key) { entry.content() } }
             }
         }
     }
@@ -111,12 +152,14 @@ fun AppSettingsGroup(modifier: Modifier = Modifier, content: AppSettingsGroupSco
 
 @Composable
 fun AppSettingsCategory(title: String, modifier: Modifier = Modifier) {
+    val expressive = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
     Text(
         text = title,
-        modifier = modifier.padding(horizontal = 16.dp).semantics { heading() },
-        style = MaterialTheme.typography.labelLarge,
+        modifier = modifier.then(if (expressive) Modifier.padding(horizontal = 16.dp) else Modifier)
+            .semantics { heading() },
+        style = if (expressive) MaterialTheme.typography.labelLarge else MaterialTheme.typography.titleMedium,
         color = MaterialTheme.colorScheme.primary,
-        fontWeight = FontWeight.Medium
+        fontWeight = if (expressive) FontWeight.Medium else FontWeight.Bold
     )
 }
 
@@ -245,7 +288,7 @@ fun SwitchPreferenceRow(
 fun NavigationPreferenceRow(title: String, summary: String?, onClick: () -> Unit) =
     AppSettingsNavigationItem(title, summary, onClick)
 
-/** 通常サイズの固定ツールバー。システムバーのinsetはScaffoldで処理する。 */
+/** Expressiveは固定ツールバー、通常M3は従来の可変ツールバーを使う。 */
 @Composable
 internal fun AppSettingsScaffold(
     title: String,
@@ -254,29 +297,51 @@ internal fun AppSettingsScaffold(
     scrollEnabled: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val expressive = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        containerColor = if (expressive) MaterialTheme.colorScheme.surfaceContainer
+            else MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                title = { Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.cd_back))
+            if (expressive) {
+                TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                    title = { Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.cd_back))
+                        }
                     }
-                }
-            )
+                )
+            } else {
+                AppFlexibleTopAppBar(
+                    title = { Text(title) },
+                    navigationIcon = {
+                        AppIconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.cd_back))
+                        }
+                    }
+                )
+            }
         }
     ) { padding ->
         AdaptiveContentPane(modifier = Modifier.padding(padding), maxWidth = ListContentMaxWidth) {
-            Column(
-                modifier = Modifier.fillMaxSize()
-                    .verticalScroll(scrollState, enabled = scrollEnabled)
-                    .padding(horizontal = 16.dp)
-                    .padding(top = 8.dp, bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
-                content = content
-            )
+            if (expressive) {
+                Column(
+                    modifier = Modifier.fillMaxSize()
+                        .verticalScroll(scrollState, enabled = scrollEnabled)
+                        .padding(horizontal = 16.dp)
+                        .padding(top = 8.dp, bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                    content = content
+                )
+            } else {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(16.dp)
+                        .verticalScroll(scrollState, enabled = scrollEnabled),
+                    verticalArrangement = Arrangement.spacedBy(24.dp),
+                    content = content
+                )
+            }
         }
     }
 }
