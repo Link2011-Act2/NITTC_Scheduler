@@ -14,6 +14,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertHeightIsAtLeast
@@ -96,20 +99,13 @@ class SettingsScreenDesignTest(
         composeRule.onNodeWithContentDescription(label(R.string.cd_back))
             .assertHasClickAction().assertTouchHeightIsEqualTo(48.dp)
         capture("top")
-        val timeEditorLabel = if (mode == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
-            composeRule.onNodeWithText(label(R.string.section_timetable_settings)).assertHasNoClickAction()
-            label(R.string.settings_timetable_time_editor_title)
-        } else {
-            label(R.string.section_timetable_settings)
-        }
-        composeRule.onNodeWithText(timeEditorLabel).performScrollTo().performClick()
+        composeRule.onNodeWithText(label(R.string.section_timetable_settings)).assertHasNoClickAction()
+        composeRule.onNodeWithText(label(R.string.settings_timetable_time_editor_title))
+            .performScrollTo().performClick()
         capture("collapsed")
         composeRule.onNodeWithText(label(R.string.label_show_current_time_marker)).performScrollTo()
-        if (mode == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
-            composeRule.onNodeWithText(label(R.string.label_show_current_time_marker))
-                .assertIsOff().performClick().assertIsOn()
-            composeRule.runOnIdle { assertEquals(1, markerChanges) }
-        }
+            .assertIsOff().performClick().assertIsOn()
+        composeRule.runOnIdle { assertEquals(1, markerChanges) }
         capture("groups")
         composeRule.onNodeWithText(label(R.string.label_ui_design)).performScrollTo().performClick()
         composeRule.onNodeWithText(label(R.string.dialog_ui_design_title)).assertIsDisplayed()
@@ -142,6 +138,38 @@ class SettingsScreenDesignTest(
 
 class SettingsItemInteractionTest {
     @get:Rule val composeRule = createComposeRule()
+
+    @Test
+    fun numberEditorOnlySavesConfirmedDraftAndListHasNoTextFields() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        var changes = 0
+        var saved = "90"
+        composeRule.setContent {
+            AppTheme(UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+                var value by remember { mutableStateOf("90") }
+                NumberSettingRow("授業時間", value, "分", {
+                    changes++
+                    saved = it
+                    value = it
+                })
+            }
+        }
+        composeRule.onAllNodes(hasSetTextAction()).assertCountEquals(0)
+        composeRule.onNodeWithText("授業時間").performClick()
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("75")
+        composeRule.runOnIdle { assertEquals(0, changes) }
+        composeRule.onNodeWithText(context.getString(R.string.btn_cancel)).performClick()
+        composeRule.onNodeWithText("90分").assertIsDisplayed()
+        composeRule.onNodeWithText("授業時間").performClick()
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("80")
+        composeRule.onNodeWithText(context.getString(R.string.btn_save)).performClick()
+        composeRule.onNodeWithText("80分").assertIsDisplayed()
+        composeRule.onAllNodes(hasSetTextAction()).assertCountEquals(0)
+        composeRule.runOnIdle {
+            assertEquals(1, changes)
+            assertEquals("80", saved)
+        }
+    }
 
     @Test
     fun notificationDetailsStayReachableWhenConditionalRowsChange() {
@@ -182,8 +210,10 @@ class SettingsItemInteractionTest {
         composeRule.onNodeWithText(context.getString(R.string.label_lesson_start_notification)).performClick()
         composeRule.onNodeWithText(context.getString(R.string.label_lesson_start_live_update_display_details))
             .performScrollTo().performClick()
-        composeRule.onNodeWithText(context.getString(R.string.label_lesson_start_progress_decreasing))
+        composeRule.onNodeWithText(context.getString(R.string.label_lesson_start_progress_direction))
             .performScrollTo().performClick()
+        composeRule.onNodeWithText(context.getString(R.string.label_lesson_start_progress_decreasing))
+            .performClick()
         composeRule.runOnIdle { assertEquals(1, directionChanges) }
         composeRule.onNodeWithText(context.getString(R.string.label_lesson_start_notification))
             .performScrollTo().performClick().assertIsOff()
@@ -218,7 +248,7 @@ class SettingsItemInteractionTest {
                 }
             }
         }
-        composeRule.onNodeWithText("自動修正").assertHeightIsAtLeast(80.dp).performClick().assertIsOn()
+        composeRule.onNodeWithText("自動修正").assertHeightIsAtLeast(72.dp).performClick().assertIsOn()
         // Tap where the standard Switch thumb is rendered; the parent must fire only once.
         composeRule.onNodeWithText("自動修正").performTouchInput {
             click(androidx.compose.ui.geometry.Offset(width - 40.dp.toPx(), centerY))

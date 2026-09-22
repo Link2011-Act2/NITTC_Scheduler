@@ -956,4 +956,6 @@
     <string name="sync_wifi_copy_logs">ログをコピー</string>
     <string name="sync_wifi_logs_copied">接続ログをクリップボードにコピーしました。</string>
     <string name="sync_wifi_no_logs">まだログはありません。</string>
+    <string name="settings_value_unset">未設定</string>
+    <string name="settings_optional_time_hint">未入力でもそのまま使えます</string>
 </resources>
