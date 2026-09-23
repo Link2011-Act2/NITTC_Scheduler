@@ -77,8 +77,13 @@ class SettingsScreenDesignTest(
                             termEnd = LocalDate.now().plusMonths(3)
                         ))
                     }
+                    var timetableSettingsPage by remember {
+                        mutableStateOf<TimetableSettingsPage?>(null)
+                    }
                     SettingsScreen(
                         state = SchedulerUiState(settings = settings, uiDesignMode = mode),
+                        timetableSettingsPage = timetableSettingsPage,
+                        onTimetableSettingsPageChange = { timetableSettingsPage = it },
                         onBack = { backCount++ },
                         onAbout = {},
                         onToggleLocalAi = {},
@@ -99,14 +104,30 @@ class SettingsScreenDesignTest(
         composeRule.onNodeWithContentDescription(label(R.string.cd_back))
             .assertHasClickAction().assertTouchHeightIsEqualTo(48.dp)
         capture("top")
-        val timeEditorLabel = if (mode == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+        if (mode == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
             composeRule.onNodeWithText(label(R.string.section_timetable_settings)).assertHasNoClickAction()
-            label(R.string.settings_timetable_time_editor_title)
+            val lessonTitle = label(R.string.settings_timetable_time_editor_title)
+            val examTitle = label(R.string.settings_exam_time_editor_title)
+            val specialTitle = label(R.string.special_timetable_settings_title)
+            composeRule.onNodeWithText(lessonTitle).performScrollTo().assertHasClickAction().performClick()
+            composeRule.onNodeWithText(label(R.string.label_koshi_notation)).assertIsDisplayed()
+            capture("lesson")
+            composeRule.onNodeWithContentDescription(label(R.string.cd_back)).performClick()
+
+            composeRule.onNodeWithText(examTitle).performScrollTo().assertHasClickAction().performClick()
+            composeRule.onNodeWithText(label(R.string.label_exam_arrival_time)).assertIsDisplayed()
+            capture("exam")
+            composeRule.onNodeWithContentDescription(label(R.string.cd_back)).performClick()
+
+            composeRule.onNodeWithText(specialTitle).performScrollTo().assertHasClickAction().performClick()
+            composeRule.onNodeWithText(label(R.string.label_semester_timetables)).assertIsDisplayed()
+            capture("special")
+            composeRule.onNodeWithContentDescription(label(R.string.cd_back)).performClick()
         } else {
-            label(R.string.section_timetable_settings)
+            composeRule.onNodeWithText(label(R.string.section_timetable_settings))
+                .performScrollTo().performClick()
+            capture("collapsed")
         }
-        composeRule.onNodeWithText(timeEditorLabel).performScrollTo().performClick()
-        capture("collapsed")
         composeRule.onNodeWithText(label(R.string.label_show_current_time_marker)).performScrollTo()
         if (mode == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
             composeRule.onNodeWithText(label(R.string.label_show_current_time_marker))

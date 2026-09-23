@@ -161,7 +161,8 @@ internal fun LegacySettingsScreen(
     onUpdateScheduleSettings: (periodsPerDay: Int, periodDurationMin: Int, breakBetweenPeriodsMin: Int, lunchBreakMin: Int, lunchAfterPeriod: Int, startHour: Int, startMinute: Int, periodLabelStyle: PeriodLabelStyle, arrivalHour: Int, arrivalMinute: Int, departureHour: Int, departureMinute: Int) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _ -> },
     onUpdateExamTimetableSettings: (periodsPerDay: Int, periodDurationMin: Int, breakBetweenPeriodsMin: Int, lunchBreakMin: Int, lunchAfterPeriod: Int, startHour: Int, startMinute: Int, arrivalHour: Int, arrivalMinute: Int) -> Unit = { _, _, _, _, _, _, _, _, _ -> },
     onExportAllAsJson: suspend () -> String = { "{}" },
-    onImportAllFromJson: (String) -> Unit = {}
+    onImportAllFromJson: (String) -> Unit = {},
+    timetableSettingsPage: TimetableSettingsPage? = null
 ) {
     val enabledLocalAi = state.settings?.enableLocalAi ?: false
     val enabledNaturalLanguageTaskAdd =
@@ -843,42 +844,52 @@ internal fun LegacySettingsScreen(
         )
     }
 
-    val useExpressiveDesign = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
+    val useExpressiveDesign = timetableSettingsPage == null &&
+        LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
     AppSettingsScaffold(
-        title = stringResource(R.string.settings_title),
+        title = stringResource(
+            when (timetableSettingsPage) {
+                TimetableSettingsPage.LESSON -> R.string.settings_timetable_time_editor_title
+                TimetableSettingsPage.EXAM -> R.string.settings_exam_time_editor_title
+                else -> R.string.settings_title
+            }
+        ),
         onBack = onBack,
         scrollState = settingsScrollState,
         scrollEnabled = !isDraggingLunch && !isDraggingExamLunch
     ) {
+        if (timetableSettingsPage == null || timetableSettingsPage == TimetableSettingsPage.LESSON) {
         // ── 時間割設定 ──────────────────────────────────────────
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (useExpressiveDesign) {
-                AppSettingsCategory(title = stringResource(R.string.section_timetable_settings))
-            } else {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { expandTimetableSettings = !expandTimetableSettings },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    AppSettingsCategory(
-                        title = stringResource(R.string.section_timetable_settings),
+            if (timetableSettingsPage == null) {
+                if (useExpressiveDesign) {
+                    AppSettingsCategory(title = stringResource(R.string.section_timetable_settings))
+                } else {
+                    Row(
                         modifier = Modifier
-                    )
-                    Icon(
-                        imageVector = if (expandTimetableSettings) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                        contentDescription = if (expandTimetableSettings) {
-                            stringResource(R.string.desc_close)
-                        } else {
-                            stringResource(R.string.desc_expand)
-                        },
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+                            .fillMaxWidth()
+                            .clickable { expandTimetableSettings = !expandTimetableSettings },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        AppSettingsCategory(
+                            title = stringResource(R.string.section_timetable_settings),
+                            modifier = Modifier
+                        )
+                        Icon(
+                            imageVector = if (expandTimetableSettings) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                            contentDescription = if (expandTimetableSettings) {
+                                stringResource(R.string.desc_close)
+                            } else {
+                                stringResource(R.string.desc_expand)
+                            },
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
 
-            if (useExpressiveDesign || expandTimetableSettings) AppSettingsGroup(
+            if (useExpressiveDesign || timetableSettingsPage == TimetableSettingsPage.LESSON || expandTimetableSettings) AppSettingsGroup(
                 standardContentPadding = PaddingValues(16.dp),
                 standardSpacing = 12.dp
             ) {
@@ -892,7 +903,7 @@ internal fun LegacySettingsScreen(
                         )
                     }
                 }
-                if (expandTimetableSettings) {
+                if (timetableSettingsPage == null && expandTimetableSettings) {
                     item("special_timetable_settings_title") {
                         SettingsNavigationCard(
                             title = stringResource(R.string.special_timetable_settings_title),
@@ -903,6 +914,8 @@ internal fun LegacySettingsScreen(
                     standardOnly("HorizontalDivider_1") {
                         HorizontalDivider()
                     }
+                }
+                if (timetableSettingsPage == TimetableSettingsPage.LESSON || expandTimetableSettings) {
                     item("label_koshi_notation", contentPadding = PaddingValues(20.dp)) {
                         ExposedDropdownMenuBox(
                             expanded = showPeriodLabelStyleMenu,
@@ -1079,8 +1092,21 @@ internal fun LegacySettingsScreen(
                 }
             }
         }
+        }
 
-        if (s?.enableExamTimetable != false) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (timetableSettingsPage == null || timetableSettingsPage == TimetableSettingsPage.EXAM) {
+        if (s?.enableExamTimetable == false && timetableSettingsPage == TimetableSettingsPage.EXAM) {
+            AppSettingsGroup(standardContentPadding = PaddingValues(16.dp)) {
+                item("exam-timetable-disabled", contentPadding = PaddingValues(20.dp)) {
+                    Text(
+                        text = stringResource(R.string.desc_enable_exam_timetable),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        } else if (s?.enableExamTimetable != false) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (timetableSettingsPage == null) {
             if (useExpressiveDesign) {
                 AppSettingsCategory(title = stringResource(R.string.section_exam_timetable_settings))
             } else {
@@ -1106,7 +1132,8 @@ internal fun LegacySettingsScreen(
                     )
                 }
             }
-            if (useExpressiveDesign || expandExamTimetableSettings) AppSettingsGroup(
+            }
+            if (useExpressiveDesign || timetableSettingsPage == TimetableSettingsPage.EXAM || expandExamTimetableSettings) AppSettingsGroup(
                 standardContentPadding = PaddingValues(16.dp),
                 standardSpacing = 12.dp
             ) {
@@ -1120,7 +1147,7 @@ internal fun LegacySettingsScreen(
                         )
                     }
                 }
-                if (expandExamTimetableSettings) {
+                if (timetableSettingsPage == TimetableSettingsPage.EXAM || expandExamTimetableSettings) {
                     item("desc_exam_timetable_settings", contentPadding = PaddingValues(20.dp)) {
                         Text(
                             text = stringResource(R.string.desc_exam_timetable_settings),
@@ -1308,7 +1335,9 @@ internal fun LegacySettingsScreen(
                 }
             }
         }
+        }
 
+        if (timetableSettingsPage == null) {
         // ── 通知設定 ──────────────────────────────────────────
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             AppSettingsCategory(title = stringResource(R.string.section_notification_settings))
@@ -1701,6 +1730,7 @@ internal fun LegacySettingsScreen(
                 description = stringResource(R.string.about_section_help),
                 onClick = onAbout
             )
+        }
         }
     }
 

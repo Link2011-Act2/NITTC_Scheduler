@@ -448,6 +448,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
     var selectedTab by rememberSaveable { mutableStateOf(if (startOnTimetable) AppTab.Timetable else AppTab.Output) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showSpecialTimetableSettings by rememberSaveable { mutableStateOf(false) }
+    var timetableSettingsPage by rememberSaveable { mutableStateOf<TimetableSettingsPage?>(null) }
     var showSync by rememberSaveable { mutableStateOf(false) }
     var showSyncDiscovery by rememberSaveable { mutableStateOf(false) }
     var showNearbySync by rememberSaveable { mutableStateOf(false) }
@@ -738,6 +739,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
         showAbout = false
         showSettings = false
         showSpecialTimetableSettings = false
+        timetableSettingsPage = null
         showUpdateOverview = true
     }
 
@@ -760,7 +762,12 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
         showAbout = false
         showSettings = true
     }
-    BackHandler(enabled = showSettings && !showSpecialTimetableSettings && !showAbout && !showOssLicenses) { showSettings = false }
+    BackHandler(enabled = showSettings && timetableSettingsPage != null && !showAbout && !showOssLicenses) {
+        timetableSettingsPage = null
+    }
+    BackHandler(enabled = showSettings && timetableSettingsPage == null && !showSpecialTimetableSettings && !showAbout && !showOssLicenses) {
+        showSettings = false
+    }
     BackHandler(enabled = showSpecialTimetableSettings && !showNearbySync && !showUpdateOverview) {
         showSpecialTimetableSettings = false
     }
@@ -1710,11 +1717,13 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
         AnimatedContent(
             targetState = currentScreenResource,
             transitionSpec = {
-                val spec = tween<IntOffset>(220, easing = FastOutSlowInEasing)
-                if (targetState != "main") {
-                    slideInHorizontally { it } + fadeIn() togetherWith slideOutHorizontally { -it / 2 } + fadeOut()
+                val isReturningFromAbout = initialState == "about" && targetState == "settings"
+                if (targetState == "main" || isReturningFromAbout) {
+                    slideInHorizontally { -it / 2 } + fadeIn() togetherWith
+                        slideOutHorizontally { it } + fadeOut()
                 } else {
-                    slideInHorizontally { -it / 2 } + fadeIn() togetherWith slideOutHorizontally { it } + fadeOut()
+                    slideInHorizontally { it } + fadeIn() togetherWith
+                        slideOutHorizontally { -it / 2 } + fadeOut()
                 }
             },
             label = "ScreenTransition"
@@ -1931,7 +1940,10 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                 val settingsTeacherCandidates = lessonAutocompleteOptions.subjectTeacherCandidates
                 SettingsScreen(
                     state = uiState,
-                    onBack = { showSettings = false },
+                    onBack = {
+                        timetableSettingsPage = null
+                        showSettings = false
+                    },
                     onAbout = {
                         showSettings = true
                         showAbout = true
@@ -1940,6 +1952,11 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                     onToggleNaturalLanguageTaskAdd = viewModel::toggleNaturalLanguageTaskAdd,
                     onToggleDrawerNavigation = viewModel::toggleDrawerNavigation,
                     onOpenSpecialTimetableSettings = { showSpecialTimetableSettings = true },
+                    timetableSettingsPage = timetableSettingsPage,
+                    onTimetableSettingsPageChange = { timetableSettingsPage = it },
+                    onToggleSemesterTimetables = viewModel::toggleSemesterTimetables,
+                    onToggleAbTimetable = viewModel::toggleAbTimetable,
+                    onToggleExamTimetable = viewModel::toggleExamTimetable,
                     onUpdateUiDesignMode = viewModel::updateUiDesignMode,
                     onAcknowledgeExpressiveWarning = viewModel::acknowledgeExpressiveWarning,
                     onToggleAddTasksToCalendar = { enabled ->
