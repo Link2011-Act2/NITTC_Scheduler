@@ -16,7 +16,7 @@ internal class SchedulerDataTransfer(
     private val dao: SchedulerDao = db.schedulerDao()
 
     private companion object {
-        const val CURRENT_EXPORT_VERSION = 15
+        const val CURRENT_EXPORT_VERSION = 16
         const val MIN_SUPPORTED_IMPORT_VERSION = 1
         const val DATASET_TASKS = SchedulerRepository.DATASET_TASKS
         const val DATASET_PLANS = SchedulerRepository.DATASET_PLANS
@@ -72,6 +72,8 @@ internal class SchedulerDataTransfer(
                 s.put("useKosenMode", settings.useKosenMode)
                 s.put("periodLabelStyle", settings.periodLabelStyle.name)
                 s.put("enableSemesterTimetables", settings.enableSemesterTimetables)
+                s.put("secondTermStartMonth", settings.secondTermStartMonth)
+                s.put("secondTermStartDay", settings.secondTermStartDay)
                 s.put("useDrawerNavigation", settings.useDrawerNavigation)
                 s.put("addTasksToCalendar", settings.addTasksToCalendar)
                 s.put("showCurrentTimeMarker", settings.showCurrentTimeMarker)
@@ -264,7 +266,11 @@ internal class SchedulerDataTransfer(
     }
 
     suspend fun exportSyncPayload(): org.json.JSONObject {
+        val settings = dao.getSettings()
         val lessons = dao.getLessonsOnce()
+        val lessonGroups = lessons.groupBy {
+            LessonSyncPartition(it.academicYear, it.timetableTerm).datasetKey
+        }
         val longBreaks = dao.getLongBreaksOnce()
         val dayTypes = dao.getDayTypesOnce()
         val tasks = dao.getTasksOnce()
@@ -276,15 +282,22 @@ internal class SchedulerDataTransfer(
         val profile = dao.getSyncProfile()
         val now = System.currentTimeMillis()
         val datasetMetaByKey = dao.getAllSyncDatasetMeta().associateBy { it.datasetKey }
+        val lessonPartitionKeys = (
+            lessonGroups.keys + datasetMetaByKey.keys.filter { lessonSyncPartition(it) != null }
+        ).toSortedSet()
 
         val root = org.json.JSONObject().putCurrentSyncProtocolVersion()
+        root.put(
+            SECOND_TERM_START_SYNC_KEY,
+            "${settings?.secondTermStartMonth ?: 10}-${settings?.secondTermStartDay ?: 1}"
+        )
         root.put("device", org.json.JSONObject().also { d ->
             d.put("deviceId", profile?.deviceId ?: "")
             d.put("deviceName", profile?.deviceName ?: "")
         })
 
         val meta = org.json.JSONObject()
-        SYNC_DATASET_KEYS.forEach { key ->
+        (SYNC_DATASET_KEYS.filter { it != DATASET_LESSONS } + lessonPartitionKeys).forEach { key ->
             val datasetMeta = datasetMetaByKey[key]
             meta.put(key, org.json.JSONObject().also { m ->
                 m.put("updatedAt", datasetMeta?.lastUpdatedAt?.takeIf { it > 0L } ?: now)
@@ -293,8 +306,10 @@ internal class SchedulerDataTransfer(
         }
         root.put("metadata", meta)
 
-        root.put(DATASET_LESSONS, org.json.JSONArray().also { arr ->
-            lessons.forEach { lesson ->
+        lessonPartitionKeys.forEach { key ->
+            val group = lessonGroups[key].orEmpty()
+            root.put(key, org.json.JSONArray().also { arr ->
+            group.forEach { lesson ->
                 arr.put(org.json.JSONObject().also { obj ->
                     obj.put("academicYear", lesson.academicYear)
                     obj.put("timetableTerm", lesson.timetableTerm.name)
@@ -312,7 +327,8 @@ internal class SchedulerDataTransfer(
                     if (lesson.bLocation != null) obj.put("bLocation", lesson.bLocation)
                 })
             }
-        })
+            })
+        }
 
         root.put(DATASET_LONG_BREAKS, org.json.JSONArray().also { arr ->
             longBreaks.forEach { lb ->
@@ -441,19 +457,28 @@ internal class SchedulerDataTransfer(
 
     suspend fun applySyncPayload(payload: org.json.JSONObject) {
         requireCurrentSyncProtocol(payload)
+        val settings = dao.getSettings()
+        require(
+            payload.optString(SECOND_TERM_START_SYNC_KEY) ==
+                "${settings?.secondTermStartMonth ?: 10}-${settings?.secondTermStartDay ?: 1}"
+        ) { "後期開始日の設定が端末間で異なります。両方の端末で同じ日付を設定してください。" }
         val touchedDatasets = mutableSetOf<String>()
 
-        payload.optJSONArray(DATASET_LESSONS)?.let { arr ->
-            touchedDatasets += DATASET_LESSONS
-            dao.deleteAllLessons()
+        payload.lessonPartitionKeys().sorted().forEach { key ->
+            val partition = checkNotNull(lessonSyncPartition(key))
+            val arr = payload.getJSONArray(key)
+            val importedLessons = mutableListOf<LessonEntity>()
             for (i in 0 until arr.length()) {
-                val obj = arr.optJSONObject(i) ?: continue
-                val academicYear = obj.optInt("academicYear").takeIf { it > 0 } ?: continue
-                dao.upsertLesson(LessonEntity(
-                    academicYear = academicYear,
-                    timetableTerm = runCatching {
-                        TimetableTerm.valueOf(obj.optString("timetableTerm", TimetableTerm.FIRST.name))
-                    }.getOrDefault(TimetableTerm.FIRST),
+                val obj = requireNotNull(arr.optJSONObject(i)) { "時間割の同期データが不正です。" }
+                require(obj.optInt("academicYear") == partition.academicYear &&
+                    obj.optString("timetableTerm") == partition.term.name
+                ) { "時間割の年度・学期が一致しません。" }
+                require(obj.optInt("dayOfWeek") in 1..5 && obj.optInt("slotIndex") in 0..11) {
+                    "時間割の曜日・時限が不正です。"
+                }
+                importedLessons += LessonEntity(
+                    academicYear = partition.academicYear,
+                    timetableTerm = partition.term,
                     dayOfWeek = obj.optInt("dayOfWeek"),
                     slotIndex = obj.optInt("slotIndex"),
                     mode = runCatching { LessonMode.valueOf(obj.optString("mode", "WEEKLY")) }.getOrElse { LessonMode.WEEKLY },
@@ -466,8 +491,11 @@ internal class SchedulerDataTransfer(
                     bSubject = obj.optString("bSubject", ""),
                     bTeacher = obj.optString("bTeacher", ""),
                     bLocation = obj.optString("bLocation", "").takeIf { it.isNotBlank() }
-                ))
+                )
             }
+            touchedDatasets += key
+            dao.deleteLessonsForPartition(partition.academicYear, partition.term)
+            importedLessons.forEach { dao.upsertLesson(it) }
         }
 
         payload.optJSONArray(DATASET_LONG_BREAKS)?.let { arr ->
@@ -698,6 +726,11 @@ internal class SchedulerDataTransfer(
 
         val settingsEntity = normalizedRoot.optJSONObject("settings")?.let { s ->
             val termStart = LocalDate.parse(s.getString("termStart"))
+            val importedSecondTermMonth = s.optInt("secondTermStartMonth", 10)
+            val importedSecondTermDay = s.optInt("secondTermStartDay", 1)
+            val validSecondTermStart = jp.linkserver.nittcsc.logic.validSecondTermStart(
+                importedSecondTermMonth, importedSecondTermDay
+            )
             SettingsEntity(
                 id = 1,
                 termStart = termStart,
@@ -728,6 +761,8 @@ internal class SchedulerDataTransfer(
                     }
                 },
                 enableSemesterTimetables = s.optBoolean("enableSemesterTimetables", true),
+                secondTermStartMonth = if (validSecondTermStart) importedSecondTermMonth else 10,
+                secondTermStartDay = if (validSecondTermStart) importedSecondTermDay else 1,
                 useDrawerNavigation = s.optBoolean("useDrawerNavigation", false),
                 addTasksToCalendar = s.optBoolean("addTasksToCalendar", false),
                 showCurrentTimeMarker = s.optBoolean("showCurrentTimeMarker", false),

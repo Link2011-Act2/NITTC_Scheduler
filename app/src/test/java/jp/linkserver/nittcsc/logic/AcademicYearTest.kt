@@ -61,4 +61,15 @@ class AcademicYearTest {
             )
         )
     }
+
+    @Test
+    fun `prepared first semester ends before configured second term start`() {
+        assertEquals(LocalDate.of(2027, 11, 14), firstSemesterEnd(2027, 11, 15))
+        assertEquals(
+            LocalDate.of(2027, 4, 1)..LocalDate.of(2028, 1, 9),
+            firstSemesterRange(2027, 1, 10)
+        )
+        assertFalse(validSecondTermStart(2, 29))
+        assertFalse(validSecondTermStart(4, 1))
+    }
 }

@@ -102,7 +102,9 @@ class LessonStartNotificationWorker(
                 dayTypeEntities = dao.getDayTypesOnce().associateBy { it.date },
                 lessons = dao.getLessonsOnce().map { it.forTimetable(settings.enableAbTimetable) }.associateBy { it.lessonKey() },
                 changedLessons = dao.getChangedLessonsOnce().associateBy { it.date to it.slotIndex },
-                semesterTimetablesEnabled = settings.enableSemesterTimetables
+                semesterTimetablesEnabled = settings.enableSemesterTimetables,
+                secondTermStartMonth = settings.secondTermStartMonth,
+                secondTermStartDay = settings.secondTermStartDay
             )
         } ?: return Result.success()
         if (lesson.subject.isBlank()) return Result.success()
@@ -495,7 +497,9 @@ class LessonStartNotificationWorker(
         dayTypeEntities: Map<LocalDate, DayTypeEntity>,
         lessons: Map<LessonKey, LessonEntity>,
         changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity>,
-        semesterTimetablesEnabled: Boolean
+        semesterTimetablesEnabled: Boolean,
+        secondTermStartMonth: Int,
+        secondTermStartDay: Int
     ): ResolvedLesson? {
         if (date.dayOfWeek.value !in 1..5) return null
         val dayTypeEntity = dayTypeEntities[date]
@@ -504,7 +508,9 @@ class LessonStartNotificationWorker(
 
         val lessonDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek ?: date.dayOfWeek.value
         val lessonDayType = dayTypeEntity?.overrideLessonDayType ?: dayType
-        val timetableTerm = timetableTermForDate(date, semesterTimetablesEnabled)
+        val timetableTerm = timetableTermForDate(
+            date, semesterTimetablesEnabled, secondTermStartMonth, secondTermStartDay
+        )
         val base = lessons[
             LessonKey(
                 academicYear = academicYearForDate(date),
@@ -661,7 +667,9 @@ class LessonStartNotificationWorker(
                             dayTypeEntities = dayTypeEntities,
                             lessons = lessons,
                             changedLessons = changedLessons,
-                            semesterTimetablesEnabled = settings.enableSemesterTimetables
+                            semesterTimetablesEnabled = settings.enableSemesterTimetables,
+                            secondTermStartMonth = settings.secondTermStartMonth,
+                            secondTermStartDay = settings.secondTermStartDay
                         )
                     } ?: continue
                     if (lesson.subject.isBlank() || isExcluded(lesson, exclusions)) continue
@@ -798,7 +806,9 @@ class LessonStartNotificationWorker(
             dayTypeEntities: Map<LocalDate, DayTypeEntity>,
             lessons: Map<LessonKey, LessonEntity>,
             changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity>,
-            semesterTimetablesEnabled: Boolean
+            semesterTimetablesEnabled: Boolean,
+            secondTermStartMonth: Int,
+            secondTermStartDay: Int
         ): ResolvedLesson? {
             if (date.dayOfWeek.value !in 1..5) return null
             val dayTypeEntity = dayTypeEntities[date]
@@ -807,7 +817,9 @@ class LessonStartNotificationWorker(
 
             val lessonDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek ?: date.dayOfWeek.value
             val lessonDayType = dayTypeEntity?.overrideLessonDayType ?: dayType
-            val timetableTerm = timetableTermForDate(date, semesterTimetablesEnabled)
+            val timetableTerm = timetableTermForDate(
+                date, semesterTimetablesEnabled, secondTermStartMonth, secondTermStartDay
+            )
             val base = lessons[
                 LessonKey(
                     academicYear = academicYearForDate(date),

@@ -49,4 +49,13 @@ class TimetableTermTest {
             LessonKey(2027, TimetableTerm.FIRST, 1, 0)
         )
     }
+
+    @Test
+    fun `custom second term start applies to the selected academic year`() {
+        assertEquals(TimetableTerm.FIRST, timetableTermForDate(LocalDate.of(2026, 11, 14), true, 11, 15))
+        assertEquals(TimetableTerm.SECOND, timetableTermForDate(LocalDate.of(2026, 11, 15), true, 11, 15))
+        assertEquals(TimetableTerm.FIRST, timetableTermForDate(LocalDate.of(2027, 1, 9), true, 1, 10))
+        assertEquals(TimetableTerm.SECOND, timetableTermForDate(LocalDate.of(2027, 1, 10), true, 1, 10))
+        assertEquals(TimetableTerm.FIRST, timetableTermForDate(LocalDate.of(2027, 4, 1), true, 1, 10))
+    }
 }

@@ -20,6 +20,8 @@ import jp.linkserver.nittcsc.data.SchedulerRepository
 import jp.linkserver.nittcsc.data.SYNC_PROTOCOL_VERSION_KEY
 import jp.linkserver.nittcsc.data.requireCompatibleSyncProtocols
 import jp.linkserver.nittcsc.data.requireCurrentSyncProtocol
+import jp.linkserver.nittcsc.data.lessonSyncPartition
+import jp.linkserver.nittcsc.data.syncDatasetKeys
 import jp.linkserver.nittcsc.sync.SyncChoice
 import jp.linkserver.nittcsc.sync.SyncConflict
 import kotlinx.coroutines.CoroutineScope
@@ -469,24 +471,11 @@ class NearbySyncManager(
     }
 
     private fun isConsistentPayload(local: JSONObject, remote: JSONObject): Boolean {
-        return commonDatasets(local, remote).all { key ->
-            val localContent = local.opt(key)?.toString() ?: ""
-            val remoteContent = remote.opt(key)?.toString() ?: ""
-            localContent == remoteContent
+        return syncDatasetKeys(local, remote).all { key ->
+            local.has(key) && remote.has(key) &&
+                local.opt(key)?.toString() == remote.opt(key)?.toString()
         }
     }
-
-    private val datasets = listOf(
-        SchedulerRepository.DATASET_TASKS,
-        SchedulerRepository.DATASET_PLANS,
-        SchedulerRepository.DATASET_LESSONS,
-        SchedulerRepository.DATASET_DAY_TYPES,
-        SchedulerRepository.DATASET_LONG_BREAKS,
-        SchedulerRepository.DATASET_CANCELLED_LESSONS,
-        SchedulerRepository.DATASET_CHANGED_LESSONS,
-        SchedulerRepository.DATASET_LESSON_NOTES,
-        SchedulerRepository.DATASET_EXAM_TIMETABLES
-    )
 
     private fun detectNearbyConflicts(local: JSONObject, remote: JSONObject): List<SyncConflict> {
         requireCompatibleSyncProtocols(local, remote)
@@ -506,7 +495,9 @@ class NearbySyncManager(
             if (shouldFlagConflict) {
                 conflicts += SyncConflict(
                     datasetKey = key,
-                    label = when (key) {
+                    label = lessonSyncPartition(key)?.let { partition ->
+                        "${partition.academicYear}年度${if (partition.term.name == "FIRST") "前期" else "後期"}の時間割"
+                    } ?: when (key) {
                         SchedulerRepository.DATASET_TASKS -> "課題"
                         SchedulerRepository.DATASET_PLANS -> "予定"
                         SchedulerRepository.DATASET_LESSONS -> "時間割"
@@ -557,16 +548,19 @@ class NearbySyncManager(
                 newMeta.put(key, localMeta.optJSONObject(key) ?: JSONObject())
             }
         }
-        datasets
-            .filter { it !in commonDatasetKeys && local.has(it) }
+        syncDatasetKeys(local, remote)
+            .filter { it !in commonDatasetKeys }
             .forEach { key ->
-                newMeta.put(key, localMeta.optJSONObject(key) ?: JSONObject())
+                val source = if (local.has(key)) local else remote
+                val sourceMeta = if (source === local) localMeta else remoteMeta
+                if (source.has(key)) merged.put(key, source.get(key))
+                newMeta.put(key, sourceMeta.optJSONObject(key) ?: JSONObject())
             }
         merged.put("metadata", newMeta)
         return merged
     }
 
     private fun commonDatasets(local: JSONObject, remote: JSONObject): List<String> {
-        return datasets.filter { key -> local.has(key) && remote.has(key) }
+        return syncDatasetKeys(local, remote).filter { key -> local.has(key) && remote.has(key) }
     }
 }

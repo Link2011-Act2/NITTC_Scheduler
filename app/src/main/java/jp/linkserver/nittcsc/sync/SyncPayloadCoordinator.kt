@@ -3,6 +3,8 @@ package jp.linkserver.nittcsc.sync
 import jp.linkserver.nittcsc.data.SchedulerRepository
 import jp.linkserver.nittcsc.data.SyncRegisteredDeviceEntity
 import jp.linkserver.nittcsc.data.requireCompatibleSyncProtocols
+import jp.linkserver.nittcsc.data.lessonSyncPartition
+import jp.linkserver.nittcsc.data.syncDatasetKeys
 import org.json.JSONObject
 
 internal class SyncPayloadCoordinator(
@@ -92,9 +94,14 @@ internal class SyncPayloadCoordinator(
             )
         }
 
-        allSyncDatasets()
-            .filter { it !in commonDatasetKeys && localPayload.has(it) }
-            .forEach { key -> metadata.put(key, localMeta.optJSONObject(key) ?: JSONObject()) }
+        syncDatasetKeys(localPayload, remotePayload)
+            .filter { it !in commonDatasetKeys }
+            .forEach { key ->
+                val source = if (localPayload.has(key)) localPayload else remotePayload
+                val sourceMeta = if (source === localPayload) localMeta else remoteMeta
+                if (source.has(key)) merged.put(key, source.get(key))
+                metadata.put(key, sourceMeta.optJSONObject(key) ?: JSONObject())
+            }
 
         merged.put("metadata", metadata)
         return merged
@@ -105,12 +112,15 @@ internal class SyncPayloadCoordinator(
     }
 
     private fun commonDatasets(localPayload: JSONObject, remotePayload: JSONObject): List<String> {
-        return allSyncDatasets().filter { key -> localPayload.has(key) && remotePayload.has(key) }
+        return syncDatasetKeys(localPayload, remotePayload)
+            .filter { key -> localPayload.has(key) && remotePayload.has(key) }
     }
 
-    private fun allSyncDatasets(): List<String> = SchedulerRepository.SYNC_DATASET_KEYS
-
-    private fun datasetLabel(key: String): String = when (key) {
+    private fun datasetLabel(key: String): String {
+        lessonSyncPartition(key)?.let { partition ->
+            return "${partition.academicYear}年度${if (partition.term.name == "FIRST") "前期" else "後期"}の時間割"
+        }
+        return when (key) {
         SchedulerRepository.DATASET_TASKS -> "課題"
         SchedulerRepository.DATASET_PLANS -> "予定"
         SchedulerRepository.DATASET_LESSONS -> "時間割"
@@ -121,6 +131,7 @@ internal class SyncPayloadCoordinator(
         SchedulerRepository.DATASET_LESSON_NOTES -> "授業メモ"
         SchedulerRepository.DATASET_EXAM_TIMETABLES -> "テスト時間割"
         else -> key
+        }
     }
 
     private fun SyncRegisteredDeviceEntity?.lastSyncedAt(key: String): Long {
@@ -128,14 +139,16 @@ internal class SyncPayloadCoordinator(
         return when (key) {
             SchedulerRepository.DATASET_TASKS -> device.lastTasksSyncAt
             SchedulerRepository.DATASET_PLANS -> device.lastPlansSyncAt
-            SchedulerRepository.DATASET_LESSONS -> device.lastLessonsSyncAt
+        SchedulerRepository.DATASET_LESSONS -> device.lastLessonsSyncAt
             SchedulerRepository.DATASET_DAY_TYPES -> device.lastDayTypesSyncAt
             SchedulerRepository.DATASET_LONG_BREAKS -> device.lastLongBreaksSyncAt
             SchedulerRepository.DATASET_CANCELLED_LESSONS -> device.lastCancelledLessonsSyncAt
             SchedulerRepository.DATASET_CHANGED_LESSONS -> device.lastChangedLessonsSyncAt
             SchedulerRepository.DATASET_LESSON_NOTES -> device.lastLessonNotesSyncAt
             SchedulerRepository.DATASET_EXAM_TIMETABLES -> device.lastExamTimetablesSyncAt
-            else -> 0L
+        else -> if (lessonSyncPartition(key) != null) {
+            runCatching { JSONObject(device.lastLessonPartitionsSyncAt).optLong(key, 0L) }.getOrDefault(0L)
+        } else 0L
         }
     }
 }

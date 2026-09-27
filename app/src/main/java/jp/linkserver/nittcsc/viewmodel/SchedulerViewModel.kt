@@ -585,6 +585,10 @@ class SchedulerViewModel(
         launchRepositoryUpdate { repository.toggleSemesterTimetables(enabled) }
     }
 
+    fun updateSecondTermStart(month: Int, day: Int) {
+        launchRepositoryUpdate { repository.updateSecondTermStart(month, day) }
+    }
+
     fun updateUiDesignMode(mode: UiDesignMode) {
         launchRepositoryUpdate { repository.updateUiDesignMode(mode) }
     }
@@ -775,7 +779,9 @@ class SchedulerViewModel(
         dayTypeMap: Map<LocalDate, DayType>,
         dayTypeEntities: Map<LocalDate, DayTypeEntity> = emptyMap(),
         changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity> = emptyMap(),
-        semesterTimetablesEnabled: Boolean = false
+        semesterTimetablesEnabled: Boolean = false,
+        secondTermStartMonth: Int = 10,
+        secondTermStartDay: Int = 1
     ): ResolvedLesson? {
         if (date.dayOfWeek.value !in 1..5) return null
         val dayTypeEntity = dayTypeEntities[date]
@@ -788,7 +794,9 @@ class SchedulerViewModel(
                 lessons,
                 dayTypeMap,
                 dayTypeEntities,
-                semesterTimetablesEnabled
+                semesterTimetablesEnabled,
+                secondTermStartMonth,
+                secondTermStartDay
             ),
             changedLesson = changedLessons[date to slotIndex]
         )
@@ -800,7 +808,9 @@ class SchedulerViewModel(
         lessons: Map<LessonKey, LessonEntity>,
         dayTypeMap: Map<LocalDate, DayType>,
         dayTypeEntities: Map<LocalDate, DayTypeEntity> = emptyMap(),
-        semesterTimetablesEnabled: Boolean = false
+        semesterTimetablesEnabled: Boolean = false,
+        secondTermStartMonth: Int = 10,
+        secondTermStartDay: Int = 1
     ): ResolvedLesson? {
         if (date.dayOfWeek.value !in 1..5) return null
 
@@ -810,7 +820,9 @@ class SchedulerViewModel(
 
         val lessonDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek ?: date.dayOfWeek.value
         val lessonDayType = dayTypeEntity?.overrideLessonDayType ?: dayType
-        val timetableTerm = timetableTermForDate(date, semesterTimetablesEnabled)
+        val timetableTerm = timetableTermForDate(
+            date, semesterTimetablesEnabled, secondTermStartMonth, secondTermStartDay
+        )
         val lesson = lessons[
             LessonKey(academicYearForDate(date), timetableTerm, lessonDayOfWeek, slotIndex)
         ] ?: return null

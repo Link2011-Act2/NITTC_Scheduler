@@ -117,7 +117,9 @@ object WidgetDataHelper {
         dayTypeEntities: Map<LocalDate, DayTypeEntity>,
         dayTypeMap: Map<LocalDate, DayType>,
         changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity> = emptyMap(),
-        semesterTimetablesEnabled: Boolean = false
+        semesterTimetablesEnabled: Boolean = false,
+        secondTermStartMonth: Int = 10,
+        secondTermStartDay: Int = 1
     ): ResolvedLesson? {
         if (date.dayOfWeek.value !in 1..5) return null
         val dayTypeEntity = dayTypeEntities[date]
@@ -126,7 +128,9 @@ object WidgetDataHelper {
 
         val lessonDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek ?: date.dayOfWeek.value
         val lessonDayType = dayTypeEntity?.overrideLessonDayType ?: dayType
-        val timetableTerm = timetableTermForDate(date, semesterTimetablesEnabled)
+        val timetableTerm = timetableTermForDate(
+            date, semesterTimetablesEnabled, secondTermStartMonth, secondTermStartDay
+        )
         val lesson = lessons[
             LessonKey(
                 academicYear = academicYearForDate(date),
@@ -201,7 +205,9 @@ object WidgetDataHelper {
             dayTypeEntities = data.dayTypeEntities,
             dayTypeMap = data.dayTypeMap,
             changedLessons = data.changedLessons,
-            semesterTimetablesEnabled = data.settings?.enableSemesterTimetables == true
+            semesterTimetablesEnabled = data.settings?.enableSemesterTimetables == true,
+            secondTermStartMonth = data.settings?.secondTermStartMonth ?: 10,
+            secondTermStartDay = data.settings?.secondTermStartDay ?: 1
         )
     }
 

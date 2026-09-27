@@ -186,6 +186,12 @@ interface SchedulerDao {
     @Query("DELETE FROM lessons")
     suspend fun deleteAllLessons()
 
+    @Query("DELETE FROM lessons WHERE academicYear = :academicYear AND timetableTerm = :timetableTerm")
+    suspend fun deleteLessonsForPartition(
+        academicYear: Int,
+        timetableTerm: jp.linkserver.nittcsc.logic.TimetableTerm
+    )
+
     @Query("SELECT * FROM tasks ORDER BY dueDate, dueHour, dueMinute, priority DESC")
     fun observeTasks(): Flow<List<TaskEntity>>
 

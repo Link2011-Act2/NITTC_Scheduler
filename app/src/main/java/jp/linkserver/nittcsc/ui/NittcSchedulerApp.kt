@@ -137,6 +137,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -215,6 +216,7 @@ import jp.linkserver.nittcsc.logic.normalizeSearchText
 import jp.linkserver.nittcsc.logic.planMatchesLesson
 import jp.linkserver.nittcsc.logic.taskMatchesLesson
 import jp.linkserver.nittcsc.logic.timetableTermForDate
+import jp.linkserver.nittcsc.logic.unconfiguredSecondTermYears
 import jp.linkserver.nittcsc.logic.tokenizeSearchQuery
 import jp.linkserver.nittcsc.logic.usesNoLessonAppearance
 import jp.linkserver.nittcsc.ml.ModelDownloadManager
@@ -383,13 +385,14 @@ private val LegacyTaskBadgeOnContainer = Color(0xFFFFDAD6)
 fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
     val state by viewModel.uiState.collectAsState()
     var startOnTimetable by rememberSaveable { mutableStateOf(false) }
+    var showSecondTermUnsetDialog by rememberSaveable { mutableStateOf(false) }
     if (!state.initialized || state.settings == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             androidx.compose.material3.CircularProgressIndicator()
         }
         return
     }
-    if (state.settings?.initialSetupCompleted == false) {
+    if (InternalFeatureFlags.INITIAL_SETUP && state.settings?.initialSetupCompleted == false) {
         InitialSetupScreen(
             onComplete = { draft ->
                 startOnTimetable = true
@@ -403,11 +406,44 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         return
     }
     androidx.compose.runtime.CompositionLocalProvider(
-        LocalAbTimetableEnabled provides (state.settings?.enableAbTimetable != false)
+        LocalAbTimetableEnabled provides (state.settings?.enableAbTimetable != false),
+        LocalSecondTermUnset provides SecondTermUnsetDisplay(
+            years = remember(state.lessons) { unconfiguredSecondTermYears(state.lessons.values) },
+            enabled = state.settings?.enableSemesterTimetables == true,
+            month = state.settings?.secondTermStartMonth ?: 10,
+            day = state.settings?.secondTermStartDay ?: 1,
+            onOpen = { showSecondTermUnsetDialog = true }
+        )
     ) {
         NittcSchedulerContent(viewModel, startOnTimetable)
+        if (showSecondTermUnsetDialog) {
+            AlertDialog(
+                onDismissRequest = { showSecondTermUnsetDialog = false },
+                title = { Text(stringResource(R.string.dialog_second_term_unset_title)) },
+                text = { Text(stringResource(R.string.dialog_second_term_unset_message)) },
+                confirmButton = {
+                    TextButton(onClick = { showSecondTermUnsetDialog = false }) {
+                        Text(stringResource(R.string.btn_close))
+                    }
+                }
+            )
+        }
     }
 }
+
+private data class SecondTermUnsetDisplay(
+    val years: Set<Int> = emptySet(),
+    val enabled: Boolean = false,
+    val month: Int = 10,
+    val day: Int = 1,
+    val onOpen: () -> Unit = {}
+) {
+    fun applies(date: LocalDate): Boolean = enabled &&
+        academicYearForDate(date) in years &&
+        timetableTermForDate(date, true, month, day) == TimetableTerm.SECOND
+}
+
+private val LocalSecondTermUnset = staticCompositionLocalOf { SecondTermUnsetDisplay() }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -501,9 +537,15 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
     var selectedTimetableTerm by rememberSaveable(
         semesterTimetablesEnabled,
         activeAcademicYear,
-        preparedNextAcademicYear
+        preparedNextAcademicYear,
+        uiState.settings?.secondTermStartMonth,
+        uiState.settings?.secondTermStartDay
     ) {
-        mutableStateOf(timetableTermForDate(LocalDate.now(), semesterTimetablesEnabled))
+        mutableStateOf(timetableTermForDate(
+            LocalDate.now(), semesterTimetablesEnabled,
+            uiState.settings?.secondTermStartMonth ?: 10,
+            uiState.settings?.secondTermStartDay ?: 1
+        ))
     }
     val firstTermLabel = stringResource(R.string.label_first_term)
     val secondTermLabel = stringResource(R.string.label_second_term)
@@ -1409,7 +1451,9 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
             lessons = uiState.lessons,
             dayTypeMap = uiState.dayTypeMap,
             dayTypeEntities = uiState.dayTypeEntities,
-            semesterTimetablesEnabled = uiState.settings?.enableSemesterTimetables == true
+            semesterTimetablesEnabled = uiState.settings?.enableSemesterTimetables == true,
+            secondTermStartMonth = uiState.settings?.secondTermStartMonth ?: 10,
+            secondTermStartDay = uiState.settings?.secondTermStartDay ?: 1
         )
     }
 
@@ -1421,7 +1465,9 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
             dayTypeMap = uiState.dayTypeMap,
             dayTypeEntities = uiState.dayTypeEntities,
             changedLessons = uiState.changedLessons,
-            semesterTimetablesEnabled = uiState.settings?.enableSemesterTimetables == true
+            semesterTimetablesEnabled = uiState.settings?.enableSemesterTimetables == true,
+            secondTermStartMonth = uiState.settings?.secondTermStartMonth ?: 10,
+            secondTermStartDay = uiState.settings?.secondTermStartDay ?: 1
         )
     }
 
@@ -1952,6 +1998,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                     onToggleNaturalLanguageTaskAdd = viewModel::toggleNaturalLanguageTaskAdd,
                     onToggleDrawerNavigation = viewModel::toggleDrawerNavigation,
                     onOpenSpecialTimetableSettings = { showSpecialTimetableSettings = true },
+                    onUpdateSecondTermStart = viewModel::updateSecondTermStart,
                     timetableSettingsPage = timetableSettingsPage,
                     onTimetableSettingsPageChange = { timetableSettingsPage = it },
                     onToggleSemesterTimetables = viewModel::toggleSemesterTimetables,
@@ -6093,8 +6140,15 @@ private fun DayScheduleTable(
     val timelineMarkerCenterOffsetDp = 8f
     val timeColWidth = 52.dp
     val strLunchBreak = stringResource(R.string.label_lunch_break)
+    val secondTermUnset = !isExamSchedule && dayType != DayType.HOLIDAY &&
+        LocalSecondTermUnset.current.applies(date)
+    val secondTermUnsetDisplay = LocalSecondTermUnset.current
     val strNoLesson = stringResource(
-        if (isExamSchedule) R.string.label_exam_no_test else R.string.label_no_class_short
+        when {
+            isExamSchedule -> R.string.label_exam_no_test
+            secondTermUnset -> R.string.label_second_term_unset
+            else -> R.string.label_no_class_short
+        }
     )
     val strHasTask = stringResource(R.string.label_task_exists)
     val strHasPlan = stringResource(R.string.label_plan_exists)
@@ -6673,6 +6727,7 @@ private fun DayScheduleTable(
                                 .combinedClickable(
                                     onClick = {
                                         when {
+                                            lesson == null && secondTermUnset -> secondTermUnsetDisplay.onOpen()
                                             primaryTask != null -> onOpenTask(primaryTask)
                                             primaryPlan != null -> onOpenPlan(primaryPlan)
                                         }
@@ -7201,6 +7256,8 @@ private fun WeekScheduleTable(
     var lessonNoteEditor by remember(dates) { mutableStateOf<WeekLessonNoteEditorData?>(null) }
     val strCancelled = stringResource(R.string.label_cancelled)
     val strNoTest = stringResource(R.string.label_exam_no_test)
+    val secondTermUnsetDisplay = LocalSecondTermUnset.current
+    val strSecondTermUnset = stringResource(R.string.label_second_term_unset)
     val lessonNotesByDateSlot = remember(lessonNotes, dates, lessonNotesEnabled) {
         if (lessonNotesEnabled) {
             lessonNotes
@@ -7384,7 +7441,11 @@ private fun WeekScheduleTable(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .combinedClickable(
-                                    onClick = { onDayClick(date) },
+                                    onClick = {
+                                        if (lesson == null && !isHoliday && !isExamDate &&
+                                            secondTermUnsetDisplay.applies(date)
+                                        ) secondTermUnsetDisplay.onOpen() else onDayClick(date)
+                                    },
                                     onLongClick = if ((!isHoliday && !isExamDate) || lesson != null) {
                                         {
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -7518,6 +7579,13 @@ private fun WeekScheduleTable(
                                             )
                                         }
                                     }
+                                } else if (!isHoliday && !isExamDate && secondTermUnsetDisplay.applies(date)) {
+                                    Text(
+                                        text = strSecondTermUnset,
+                                        modifier = Modifier.align(Alignment.Center),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 } else if (isExamSlot) {
                                     Column(
                                         modifier = Modifier.align(Alignment.Center),

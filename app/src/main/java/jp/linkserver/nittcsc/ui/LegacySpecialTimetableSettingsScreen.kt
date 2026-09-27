@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import jp.linkserver.nittcsc.R
+import jp.linkserver.nittcsc.InternalFeatureFlags
 import jp.linkserver.nittcsc.data.SettingsEntity
 import jp.linkserver.nittcsc.ui.components.AppCard
 import jp.linkserver.nittcsc.ui.components.AppFlexibleTopAppBar
@@ -61,6 +62,7 @@ internal fun LegacySpecialTimetableSettingsScreen(
                             checked = settings?.enableSemesterTimetables != false,
                             onCheckedChange = onToggleSemesterTimetables
                         )
+                        if (InternalFeatureFlags.SPECIAL_TIMETABLE_TOGGLES) {
                         HorizontalDivider()
                         LegacySettingsSwitchRow(
                             title = stringResource(R.string.label_enable_ab_timetable),
@@ -75,6 +77,7 @@ internal fun LegacySpecialTimetableSettingsScreen(
                             checked = settings?.enableExamTimetable != false,
                             onCheckedChange = onToggleExamTimetable
                         )
+                        }
                     }
                 }
                 Text(stringResource(R.string.msg_settings_auto_save),

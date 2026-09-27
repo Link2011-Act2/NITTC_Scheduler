@@ -12,11 +12,15 @@ fun academicYearStart(academicYear: Int): LocalDate =
 fun academicYearEnd(academicYear: Int): LocalDate =
     LocalDate.of(academicYear + 1, Month.MARCH, 31)
 
-fun firstSemesterEnd(academicYear: Int): LocalDate =
-    LocalDate.of(academicYear, Month.SEPTEMBER, 30)
+fun firstSemesterEnd(academicYear: Int, secondTermStartMonth: Int = 10, secondTermStartDay: Int = 1): LocalDate =
+    secondTermStartDate(academicYear, secondTermStartMonth, secondTermStartDay).minusDays(1)
 
-fun firstSemesterRange(academicYear: Int): ClosedRange<LocalDate> =
-    academicYearStart(academicYear)..firstSemesterEnd(academicYear)
+fun firstSemesterRange(
+    academicYear: Int,
+    secondTermStartMonth: Int = 10,
+    secondTermStartDay: Int = 1
+): ClosedRange<LocalDate> =
+    academicYearStart(academicYear)..firstSemesterEnd(academicYear, secondTermStartMonth, secondTermStartDay)
 
 fun shouldAdvanceAcademicYear(activeAcademicYear: Int, today: LocalDate): Boolean =
     academicYearForDate(today) > activeAcademicYear

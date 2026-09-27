@@ -16,6 +16,7 @@ import jp.linkserver.nittcsc.data.SyncProfileEntity
 import jp.linkserver.nittcsc.data.SyncRegisteredDeviceEntity
 import jp.linkserver.nittcsc.data.SyncTrustedPeerEntity
 import jp.linkserver.nittcsc.data.requireCurrentSyncProtocol
+import jp.linkserver.nittcsc.data.lessonPartitionKeys
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -844,6 +845,15 @@ class LocalSyncManager(
     private suspend fun updateRegisteredDeviceAfterSync(target: DiscoveredSyncDevice, mergedPayload: JSONObject) {
         val existing = dao.getSyncRegisteredDevice(target.deviceId) ?: return
         val meta = mergedPayload.getJSONObject("metadata")
+        val lessonPartitionTimes = runCatching {
+            JSONObject(existing.lastLessonPartitionsSyncAt)
+        }.getOrElse { JSONObject() }
+        mergedPayload.lessonPartitionKeys().forEach { key ->
+            lessonPartitionTimes.put(
+                key,
+                meta.optJSONObject(key)?.optLong("updatedAt", 0L) ?: 0L
+            )
+        }
         dao.upsertSyncRegisteredDevice(
             existing.copy(
                 userNickname = target.userNickname,
@@ -854,6 +864,7 @@ class LocalSyncManager(
                 lastTasksSyncAt = meta.optJSONObject(SchedulerRepository.DATASET_TASKS)?.optLong("updatedAt", existing.lastTasksSyncAt) ?: existing.lastTasksSyncAt,
                 lastPlansSyncAt = meta.optJSONObject(SchedulerRepository.DATASET_PLANS)?.optLong("updatedAt", existing.lastPlansSyncAt) ?: existing.lastPlansSyncAt,
                 lastLessonsSyncAt = meta.optJSONObject(SchedulerRepository.DATASET_LESSONS)?.optLong("updatedAt", existing.lastLessonsSyncAt) ?: existing.lastLessonsSyncAt,
+                lastLessonPartitionsSyncAt = lessonPartitionTimes.toString(),
                 lastDayTypesSyncAt = meta.optJSONObject(SchedulerRepository.DATASET_DAY_TYPES)?.optLong("updatedAt", existing.lastDayTypesSyncAt) ?: existing.lastDayTypesSyncAt,
                 lastLongBreaksSyncAt = meta.optJSONObject(SchedulerRepository.DATASET_LONG_BREAKS)?.optLong("updatedAt", existing.lastLongBreaksSyncAt) ?: existing.lastLongBreaksSyncAt,
                 lastCancelledLessonsSyncAt = meta.optJSONObject(SchedulerRepository.DATASET_CANCELLED_LESSONS)?.optLong("updatedAt", existing.lastCancelledLessonsSyncAt) ?: existing.lastCancelledLessonsSyncAt,

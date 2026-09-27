@@ -83,8 +83,14 @@ internal fun AbTableScreen(
     val nextAcademicYearStart = remember(preparedNextAcademicYear) {
         preparedNextAcademicYear?.let { LocalDate.of(it, 4, 1) }
     }
-    val nextAcademicYearEnd = remember(preparedNextAcademicYear) {
-        preparedNextAcademicYear?.let { LocalDate.of(it, 9, 30) }
+    val nextAcademicYearEnd = remember(
+        preparedNextAcademicYear, settings.secondTermStartMonth, settings.secondTermStartDay
+    ) {
+        preparedNextAcademicYear?.let {
+            jp.linkserver.nittcsc.logic.firstSemesterEnd(
+                it, settings.secondTermStartMonth, settings.secondTermStartDay
+            )
+        }
     }
     val currentPeriodEnd = remember(settings.termEnd, nextAcademicYearStart) {
         nextAcademicYearStart?.let { minOf(settings.termEnd, it.minusDays(1)) } ?: settings.termEnd

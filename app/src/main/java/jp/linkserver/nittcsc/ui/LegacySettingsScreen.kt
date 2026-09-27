@@ -135,6 +135,7 @@ internal fun LegacySettingsScreen(
     onToggleNaturalLanguageTaskAdd: (Boolean) -> Unit = {},
     onToggleDrawerNavigation: (Boolean) -> Unit,
     onOpenSpecialTimetableSettings: () -> Unit = {},
+    onUpdateSecondTermStart: (Int, Int) -> Unit = { _, _ -> },
     onUpdateUiDesignMode: (UiDesignMode) -> Unit = {},
     onAcknowledgeExpressiveWarning: () -> Unit = {},
     onToggleAddTasksToCalendar: (Boolean) -> Unit,
@@ -907,7 +908,11 @@ internal fun LegacySettingsScreen(
                     item("special_timetable_settings_title") {
                         SettingsNavigationCard(
                             title = stringResource(R.string.special_timetable_settings_title),
-                            description = stringResource(R.string.special_timetable_settings_description),
+                            description = stringResource(
+                                if (InternalFeatureFlags.SPECIAL_TIMETABLE_TOGGLES)
+                                    R.string.special_timetable_settings_description
+                                else R.string.special_timetable_settings_release_description
+                            ),
                             onClick = onOpenSpecialTimetableSettings
                         )
                     }
@@ -1079,6 +1084,9 @@ internal fun LegacySettingsScreen(
                                 onMinuteChange = { departureMinute = it }
                             )
                         }
+                    }
+                    item("second-term-start") {
+                        SecondTermStartSetting(s, onUpdateSecondTermStart)
                     }
                     item("Text_12", contentPadding = PaddingValues(20.dp)) {
                         Text(

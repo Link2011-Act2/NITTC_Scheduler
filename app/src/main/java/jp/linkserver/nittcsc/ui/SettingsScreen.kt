@@ -126,6 +126,7 @@ fun SettingsScreen(
     onToggleNaturalLanguageTaskAdd: (Boolean) -> Unit = {},
     onToggleDrawerNavigation: (Boolean) -> Unit,
     onOpenSpecialTimetableSettings: () -> Unit = {},
+    onUpdateSecondTermStart: (Int, Int) -> Unit = { _, _ -> },
     timetableSettingsPage: TimetableSettingsPage? = null,
     onTimetableSettingsPageChange: (TimetableSettingsPage?) -> Unit = {},
     onToggleSemesterTimetables: (Boolean) -> Unit = {},
@@ -169,6 +170,7 @@ fun SettingsScreen(
             onToggleNaturalLanguageTaskAdd = onToggleNaturalLanguageTaskAdd,
             onToggleDrawerNavigation = onToggleDrawerNavigation,
             onOpenSpecialTimetableSettings = onOpenSpecialTimetableSettings,
+            onUpdateSecondTermStart = onUpdateSecondTermStart,
             onUpdateUiDesignMode = onUpdateUiDesignMode,
             onAcknowledgeExpressiveWarning = onAcknowledgeExpressiveWarning,
             onToggleAddTasksToCalendar = onToggleAddTasksToCalendar,
@@ -588,6 +590,7 @@ fun SettingsScreen(
                         onToggleShowWeekdayOnDates = {},
                         onToggleAdvancedTimeSettingsUi = onToggleAdvancedTimeSettingsUi,
                         onUpdateScheduleSettings = onUpdateScheduleSettings,
+                        onUpdateSecondTermStart = onUpdateSecondTermStart,
                         onUpdateExamTimetableSettings = onUpdateExamTimetableSettings,
                         timetableSettingsPage = page
                     )
@@ -627,7 +630,11 @@ fun SettingsScreen(
                 item("special-timetable-features") {
                     SettingsNavigationCard(
                         title = stringResource(R.string.special_timetable_settings_title),
-                        description = stringResource(R.string.special_timetable_settings_description),
+                        description = stringResource(
+                            if (InternalFeatureFlags.SPECIAL_TIMETABLE_TOGGLES)
+                                R.string.special_timetable_settings_description
+                            else R.string.special_timetable_settings_release_description
+                        ),
                         onClick = { onTimetableSettingsPageChange(TimetableSettingsPage.SPECIAL) }
                     )
                 }

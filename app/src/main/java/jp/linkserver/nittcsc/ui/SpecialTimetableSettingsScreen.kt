@@ -7,6 +7,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import jp.linkserver.nittcsc.R
+import jp.linkserver.nittcsc.InternalFeatureFlags
 import jp.linkserver.nittcsc.data.SettingsEntity
 import jp.linkserver.nittcsc.data.UiDesignMode
 import jp.linkserver.nittcsc.ui.components.AppSettingsGroup
@@ -46,7 +47,7 @@ internal fun SpecialTimetableSettingsScreen(
                     onCheckedChange = onToggleSemesterTimetables
                 )
             }
-            item("ab-timetable") {
+            if (InternalFeatureFlags.SPECIAL_TIMETABLE_TOGGLES) item("ab-timetable") {
                 SettingsSwitchRow(
                     title = stringResource(R.string.label_enable_ab_timetable),
                     description = stringResource(R.string.desc_enable_ab_timetable),
@@ -54,7 +55,7 @@ internal fun SpecialTimetableSettingsScreen(
                     onCheckedChange = onToggleAbTimetable
                 )
             }
-            item("exam-timetable") {
+            if (InternalFeatureFlags.SPECIAL_TIMETABLE_TOGGLES) item("exam-timetable") {
                 SettingsSwitchRow(
                     title = stringResource(R.string.label_enable_exam_timetable),
                     description = stringResource(R.string.desc_enable_exam_timetable),
