@@ -222,6 +222,10 @@
     <string name="holiday_label_school_closed_short">休校</string>
     <string name="holiday_label_excursion">遠足</string>
     <string name="holiday_label_excursion_short">遠足</string>
+    <string name="holiday_label_event">行事</string>
+    <string name="holiday_label_event_short">行事</string>
+    <string name="holiday_label_exam_return">試験返却</string>
+    <string name="holiday_label_exam_return_short">返却</string>
 
     <!-- Download Related -->
     <string name="msg_downloading">ダウンロード中</string>
@@ -642,7 +646,7 @@
     <string name="desc_show_current_time_marker">時間割画面に現在時刻の表示を追加します</string>
     <string name="section_experimental">実験的機能 (Experimental)</string>
     <string name="label_show_weekday_on_dates">日付に曜日を表示</string>
-    <string name="desc_show_weekday_on_dates">時間割上部や期間表示を除き、日付の横に(金)のような曜日を表示します</string>
+    <string name="desc_show_weekday_on_dates">日付の横に曜日を表示します</string>
     <string name="label_unify_task_plan_view">ToDo タブを有効化</string>
     <string name="desc_unify_task_plan_view">「課題」「予定」タブを一つのタブに統合します</string>
     <string name="btn_reset_update_dismiss">更新通知の抑止を解除</string>

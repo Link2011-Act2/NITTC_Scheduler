@@ -8351,7 +8351,7 @@ internal fun LessonOverrideDialog(
     val weekdayOptions = remember {
         listOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY)
     }
-    val holidayLabelOptions = HolidaySpecialLabel.entries
+    val holidayLabelOptions = HolidaySpecialLabel.entries.filter { it.isSelectable }
     val previewDayType = when {
         holidayDialogMode == HolidayDialogMode.LABEL &&
             (selectedHolidayLabel != null || currentDayType == DayType.HOLIDAY) -> DayType.HOLIDAY

@@ -21,12 +21,16 @@ enum class LessonMode {
 
 enum class HolidaySpecialLabel(
     val usesExamTimetable: Boolean = false,
-    val usesRegularCalendarTextColor: Boolean = false
+    val usesRegularCalendarTextColor: Boolean = false,
+    val isSelectable: Boolean = true
 ) {
     MIDTERM(usesExamTimetable = true, usesRegularCalendarTextColor = true),
     FINAL(usesExamTimetable = true, usesRegularCalendarTextColor = true),
-    SCHOOL_CLOSED,
-    EXCURSION(usesRegularCalendarTextColor = true)
+    // Keep this value so older database rows, backups, and sync payloads remain readable.
+    SCHOOL_CLOSED(isSelectable = false),
+    EXCURSION(usesRegularCalendarTextColor = true),
+    EVENT(usesRegularCalendarTextColor = true),
+    EXAM_RETURN(usesRegularCalendarTextColor = true)
 }
 
 enum class LessonStartNotificationChipMode {

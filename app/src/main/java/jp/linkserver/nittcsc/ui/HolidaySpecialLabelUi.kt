@@ -22,4 +22,10 @@ internal fun HolidaySpecialLabel.textResources(): HolidaySpecialLabelText = when
     HolidaySpecialLabel.EXCURSION -> HolidaySpecialLabelText(
         R.string.holiday_label_excursion, R.string.holiday_label_excursion_short
     )
+    HolidaySpecialLabel.EVENT -> HolidaySpecialLabelText(
+        R.string.holiday_label_event, R.string.holiday_label_event_short
+    )
+    HolidaySpecialLabel.EXAM_RETURN -> HolidaySpecialLabelText(
+        R.string.holiday_label_exam_return, R.string.holiday_label_exam_return_short
+    )
 }
