@@ -37,6 +37,7 @@ data class SettingsEntity(
     val termStart: LocalDate,
     val termEnd: LocalDate,
     val activeAcademicYear: Int = 0,
+    val pendingLegacyTimetableYear: Int? = null,
     val enableLocalAi: Boolean = false,
     val enableNaturalLanguageTaskAdd: Boolean = false,
     val enableLessonNotes: Boolean = true,

@@ -126,6 +126,18 @@ class SchedulerViewModel(
     val nearbySyncManager: NearbySyncManager? = null
 ) : ViewModel() {
 
+    private var syncServicesStarted = false
+
+    private suspend fun startSyncServicesIfReady() {
+        if (syncServicesStarted || repository.hasPendingLegacyTimetableSelection()) return
+        syncManager?.initialize()
+        syncServicesStarted = true
+        val manager = nearbySyncManager ?: return
+        val profile = syncManager?.getProfile()
+        manager.setLocalName(profile?.deviceName ?: android.os.Build.MODEL)
+        manager.startStandbyAdvertising()
+    }
+
     private val selectedDayOfWeek = MutableStateFlow(DayOfWeek.MONDAY.value)
     private val selectedResultDate = MutableStateFlow(LocalDate.now())
     private val initialized = MutableStateFlow(false)
@@ -263,14 +275,8 @@ class SchedulerViewModel(
     init {
         viewModelScope.launch {
             repository.initialize()
-            syncManager?.initialize()
+            startSyncServicesIfReady()
             initialized.value = true
-
-            // アプリ起動後、Nearbyアドバタイズをスタンバイ開始（相手から見つけられるようにする）
-            val manager = nearbySyncManager ?: return@launch
-            val profile = syncManager?.getProfile()
-            manager.setLocalName(profile?.deviceName ?: android.os.Build.MODEL)
-            manager.startStandbyAdvertising()
         }
         // Wi-Fi同期受信時にSnackbarで通知
         syncManager?.let { mgr ->
@@ -332,8 +338,15 @@ class SchedulerViewModel(
     fun runAutoSync() {
         val manager = syncManager ?: return
         viewModelScope.launch {
+            if (repository.hasPendingLegacyTimetableSelection()) return@launch
             manager.runAutoSync()
         }
+    }
+
+    suspend fun assignLegacyTimetableTo(term: TimetableTerm): Boolean {
+        val assigned = repository.assignLegacyTimetableTo(term)
+        if (assigned) startSyncServicesIfReady()
+        return assigned
     }
 
     fun saveSyncProfile(userNickname: String, deviceName: String, password: String, autoSyncEnabled: Boolean, conflictAutoNewerFirst: Boolean = false) {

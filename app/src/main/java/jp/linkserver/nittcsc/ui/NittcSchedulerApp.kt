@@ -392,6 +392,19 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         }
         return
     }
+    state.settings?.pendingLegacyTimetableYear?.let { academicYear ->
+        val legacyLessons = remember(state.lessons, academicYear) {
+            state.lessons.values.filter { lesson ->
+                lesson.academicYear == academicYear && lesson.timetableTerm == TimetableTerm.FIRST
+            }
+        }
+        LegacyTimetableMigrationDialog(
+            academicYear = academicYear,
+            lessons = legacyLessons,
+            onSelect = viewModel::assignLegacyTimetableTo
+        )
+        return
+    }
     if (InternalFeatureFlags.INITIAL_SETUP && state.settings?.initialSetupCompleted == false) {
         InitialSetupScreen(
             onComplete = { draft ->

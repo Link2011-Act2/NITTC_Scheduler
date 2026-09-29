@@ -171,6 +171,38 @@ class SchedulerRepository(
             advanced
         }
 
+    suspend fun hasPendingLegacyTimetableSelection(): Boolean =
+        dao.getSettings()?.pendingLegacyTimetableYear != null
+
+    suspend fun assignLegacyTimetableTo(term: TimetableTerm): Boolean = db.withTransaction {
+        val settings = dao.getSettings() ?: return@withTransaction false
+        val academicYear = settings.pendingLegacyTimetableYear ?: return@withTransaction false
+        if (term == TimetableTerm.SECOND) {
+            val secondTerm = dao.getLessonsOnce().filter {
+                it.academicYear == academicYear && it.timetableTerm == TimetableTerm.SECOND
+            }
+            // 新しい学期に入力済みの授業がある場合は上書きしない。
+            if (secondTerm.any { it.hasEnteredLessonContent() }) return@withTransaction false
+            dao.deleteLessonsForPartition(academicYear, TimetableTerm.SECOND)
+            // 行の ID を保持し、既存の課題・予定との関連付けを維持する。
+            dao.moveFirstTermLessonsToSecond(academicYear)
+        }
+
+        ensureLessonRows(academicYear, TimetableTerm.entries.toSet())
+        dao.upsertSettings(settings.copy(pendingLegacyTimetableYear = null))
+        touchSyncDatasetMeta(
+            LessonSyncPartition(academicYear, TimetableTerm.FIRST).datasetKey,
+            LessonSyncPartition(academicYear, TimetableTerm.SECOND).datasetKey
+        )
+        true
+    }
+
+    private fun LessonEntity.hasEnteredLessonContent(): Boolean =
+        mode != LessonMode.WEEKLY ||
+            weeklySubject.isNotBlank() || weeklyTeacher.isNotBlank() || !weeklyLocation.isNullOrBlank() ||
+            aSubject.isNotBlank() || aTeacher.isNotBlank() || !aLocation.isNullOrBlank() ||
+            bSubject.isNotBlank() || bTeacher.isNotBlank() || !bLocation.isNullOrBlank()
+
     suspend fun prepareNextAcademicYear(today: LocalDate = LocalDate.now()): Boolean {
         refreshAcademicYear(today)
         return db.withTransaction {

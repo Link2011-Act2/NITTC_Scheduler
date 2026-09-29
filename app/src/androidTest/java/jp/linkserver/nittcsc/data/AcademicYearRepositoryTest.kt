@@ -154,4 +154,59 @@ class AcademicYearRepositoryTest {
         assertEquals(LocalDate.of(2026, 5, 1), dao.getSettings()?.termStart)
         assertEquals(LocalDate.of(2027, 2, 28), dao.getSettings()?.termEnd)
     }
+
+    @Test
+    fun legacyTimetableCanMoveToSecondTermWithoutChangingLessonReferences() = runBlocking {
+        repository.initialize(LocalDate.of(2026, 11, 1))
+        repository.upsertLesson(
+            academicYear = 2026,
+            timetableTerm = TimetableTerm.FIRST,
+            dayOfWeek = 1,
+            slotIndex = 0,
+            draft = LessonDraft(weeklySubject = "数学", weeklyTeacher = "山田")
+        )
+        val oldLesson = checkNotNull(dao.getLesson(2026, TimetableTerm.FIRST, 1, 0))
+        dao.upsertTask(TaskEntity(
+            lessonId = oldLesson.id,
+            subject = "数学",
+            title = "課題",
+            dueDate = LocalDate.of(2026, 11, 2),
+            createdDate = LocalDate.of(2026, 11, 1)
+        ))
+        dao.upsertPlan(PlanEntity(
+            lessonId = oldLesson.id,
+            subject = "数学",
+            title = "予定",
+            dueDate = LocalDate.of(2026, 11, 2),
+            createdDate = LocalDate.of(2026, 11, 1)
+        ))
+        dao.upsertSettings(checkNotNull(dao.getSettings()).copy(pendingLegacyTimetableYear = 2026))
+
+        assertTrue(repository.assignLegacyTimetableTo(TimetableTerm.SECOND))
+
+        val moved = checkNotNull(dao.getLesson(2026, TimetableTerm.SECOND, 1, 0))
+        assertEquals(oldLesson.id, moved.id)
+        assertEquals("数学", moved.weeklySubject)
+        assertEquals("", dao.getLesson(2026, TimetableTerm.FIRST, 1, 0)?.weeklySubject)
+        assertEquals(oldLesson.id, dao.getTasksOnce().single().lessonId)
+        assertEquals(oldLesson.id, dao.getPlansOnce().single().lessonId)
+        assertNull(dao.getSettings()?.pendingLegacyTimetableYear)
+    }
+
+    @Test
+    fun legacyTimetableSelectionDoesNotOverwriteAnEnteredSecondTerm() = runBlocking {
+        repository.initialize(LocalDate.of(2026, 11, 1))
+        repository.upsertLesson(
+            academicYear = 2026,
+            timetableTerm = TimetableTerm.SECOND,
+            dayOfWeek = 1,
+            slotIndex = 0,
+            draft = LessonDraft(weeklySubject = "登録済み")
+        )
+        dao.upsertSettings(checkNotNull(dao.getSettings()).copy(pendingLegacyTimetableYear = 2026))
+
+        assertFalse(repository.assignLegacyTimetableTo(TimetableTerm.SECOND))
+        assertEquals("登録済み", dao.getLesson(2026, TimetableTerm.SECOND, 1, 0)?.weeklySubject)
+        assertEquals(2026, dao.getSettings()?.pendingLegacyTimetableYear)
+    }
 }

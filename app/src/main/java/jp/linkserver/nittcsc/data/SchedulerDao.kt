@@ -192,6 +192,9 @@ interface SchedulerDao {
         timetableTerm: jp.linkserver.nittcsc.logic.TimetableTerm
     )
 
+    @Query("UPDATE lessons SET timetableTerm = 'SECOND' WHERE academicYear = :academicYear AND timetableTerm = 'FIRST'")
+    suspend fun moveFirstTermLessonsToSecond(academicYear: Int)
+
     @Query("SELECT * FROM tasks ORDER BY dueDate, dueHour, dueMinute, priority DESC")
     fun observeTasks(): Flow<List<TaskEntity>>
 

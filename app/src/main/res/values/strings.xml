@@ -169,6 +169,16 @@
     <string name="label_period_settings">期間設定</string>
     <string name="dialog_prepare_next_academic_year_title">%d年度前期を準備しますか？</string>
     <string name="dialog_prepare_next_academic_year_message">次年度前期用の空のA/B表と時間割を作成します。現在年度のA/B表と時間割は変更されません。</string>
+    <string name="dialog_legacy_timetable_title">%d年度の時間割を引き継ぐ</string>
+    <string name="dialog_legacy_timetable_message">アップデート前に登録した時間割は、前期・後期のどちらの内容ですか？選んだ学期へ移します。もう一方の学期は空欄になります。</string>
+    <string name="btn_legacy_timetable_preview">旧時間割をプレビュー</string>
+    <string name="title_legacy_timetable_preview">%d年度・旧時間割の内容</string>
+    <string name="msg_legacy_timetable_preview_empty">登録済みの授業はありません。</string>
+    <string name="label_legacy_timetable_slot">%1$s曜日・%2$dコマ</string>
+    <string name="label_legacy_timetable_subject">%1$s: %2$s</string>
+    <string name="btn_legacy_timetable_first">前期に入れる</string>
+    <string name="btn_legacy_timetable_second">後期に入れる</string>
+    <string name="msg_legacy_timetable_move_failed">時間割を移せませんでした。もう一方の学期に登録済みの授業がないか確認してください。</string>
     <string name="label_academic_year">%d年度</string>
     <string name="label_next_academic_year_first_term">%d年度 前期</string>
     <string name="label_next_academic_year_preparing">次年度・準備中</string>
