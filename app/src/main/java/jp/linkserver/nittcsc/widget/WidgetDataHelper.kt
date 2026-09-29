@@ -8,7 +8,6 @@ import jp.linkserver.nittcsc.data.DayTypeEntity
 import jp.linkserver.nittcsc.data.ExamDayScheduleEntity
 import jp.linkserver.nittcsc.data.ExamLessonEntity
 import jp.linkserver.nittcsc.data.hasEnteredContent
-import jp.linkserver.nittcsc.data.HolidaySpecialLabel
 import jp.linkserver.nittcsc.data.LessonEntity
 import jp.linkserver.nittcsc.data.LessonMode
 import jp.linkserver.nittcsc.data.lessonKey
@@ -215,7 +214,7 @@ object WidgetDataHelper {
         val label = data.dayTypeEntities[date]?.holidaySpecialLabel
         return data.settings?.enableExamTimetable != false && date in data.examDaySchedules &&
             data.examLessons.values.any { it.date == date && it.hasEnteredContent() } &&
-            (label == HolidaySpecialLabel.MIDTERM || label == HolidaySpecialLabel.FINAL)
+            label?.usesExamTimetable == true
     }
 
     /** 今日から先で最も近い授業を返す（授業中ならその授業を含む） */

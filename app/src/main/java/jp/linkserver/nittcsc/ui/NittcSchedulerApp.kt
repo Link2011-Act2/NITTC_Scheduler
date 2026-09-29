@@ -536,6 +536,31 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
     var lessonChangeEditor by remember { mutableStateOf<LessonChangeEditorState?>(null) }
     var pendingLessonMoveDialog by remember { mutableStateOf<PendingLessonMoveDialogState?>(null) }
 
+    fun applyHolidaySpecialLabel(date: LocalDate, label: HolidaySpecialLabel?) {
+        val alreadyHasExamLabel = uiState.dayTypeEntities.values.any { entity ->
+            entity.holidaySpecialLabel?.usesExamTimetable == true
+        }
+        if (
+            label?.usesExamTimetable == true && uiState.settings?.enableExamTimetable == true &&
+            !pendingExamLabelHint &&
+            if (tutorialFirstTimeCheckDisabledForTesting) {
+                true
+            } else {
+                !alreadyHasExamLabel &&
+                    !tutorialPreferences.getBoolean(KEY_EXAM_LABEL_HINT_SHOWN, false)
+            }
+        ) {
+            if (!tutorialFirstTimeCheckDisabledForTesting) {
+                tutorialPreferences.edit()
+                    .putBoolean(KEY_EXAM_LABEL_HINT_PENDING, true)
+                    .apply()
+            }
+            pendingExamLabelHint = true
+            pendingExamLabelHintForTesting = tutorialFirstTimeCheckDisabledForTesting
+        }
+        viewModel.updateHolidaySpecialLabel(date, label)
+    }
+
     val semesterTimetablesEnabled = uiState.settings?.enableSemesterTimetables == true
     val activeAcademicYear = uiState.settings?.activeAcademicYear
         ?.takeIf { it > 0 }
@@ -2472,6 +2497,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                                         onOpenLessonSearch = { showLessonSearch = true },
                                         onSaveLessonOverride = viewModel::saveLessonOverride,
                                         onClearLessonOverride = viewModel::clearLessonOverride,
+                                        onUpdateHolidaySpecialLabel = ::applyHolidaySpecialLabel,
                                         onOpenTask = { task ->
                                             navigateToTabFromAction(AppTab.Tasks)
                                             editingTaskId = null
@@ -2653,38 +2679,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                                         onSaveDayTypes = viewModel::saveDayTypes,
                                         onSaveLessonOverride = viewModel::saveLessonOverride,
                                         onClearLessonOverride = viewModel::clearLessonOverride,
-                                        onUpdateHolidaySpecialLabel = { date, label ->
-                                            val isExamLabel =
-                                                label == HolidaySpecialLabel.MIDTERM ||
-                                                    label == HolidaySpecialLabel.FINAL
-                                            val alreadyHasExamLabel = uiState.dayTypeEntities.values.any { entity ->
-                                                entity.holidaySpecialLabel == HolidaySpecialLabel.MIDTERM ||
-                                                    entity.holidaySpecialLabel == HolidaySpecialLabel.FINAL
-                                            }
-                                            if (
-                                                isExamLabel && uiState.settings?.enableExamTimetable == true &&
-                                                !pendingExamLabelHint &&
-                                                if (tutorialFirstTimeCheckDisabledForTesting) {
-                                                    true
-                                                } else {
-                                                    !alreadyHasExamLabel &&
-                                                        !tutorialPreferences.getBoolean(
-                                                            KEY_EXAM_LABEL_HINT_SHOWN,
-                                                            false
-                                                        )
-                                                }
-                                            ) {
-                                                if (!tutorialFirstTimeCheckDisabledForTesting) {
-                                                    tutorialPreferences.edit()
-                                                        .putBoolean(KEY_EXAM_LABEL_HINT_PENDING, true)
-                                                        .apply()
-                                                }
-                                                pendingExamLabelHint = true
-                                                pendingExamLabelHintForTesting =
-                                                    tutorialFirstTimeCheckDisabledForTesting
-                                            }
-                                            viewModel.updateHolidaySpecialLabel(date, label)
-                                        },
+                                        onUpdateHolidaySpecialLabel = ::applyHolidaySpecialLabel,
                                         preparedNextAcademicYear =
                                             uiState.preparedNextAcademicYear(),
                                         onPrepareNextAcademicYear =
@@ -3595,6 +3590,7 @@ private fun OutputScreen(
     onOpenLessonSearch: () -> Unit,
     onSaveLessonOverride: (LocalDate, Int, DayType) -> Unit,
     onClearLessonOverride: (LocalDate) -> Unit,
+    onUpdateHolidaySpecialLabel: (LocalDate, HolidaySpecialLabel?) -> Unit,
     onOpenTask: (TaskEntity) -> Unit,
     onOpenPlan: (PlanEntity) -> Unit,
     onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean, date: LocalDate, time: LocalTime, isExamSlot: Boolean) -> Unit)? = null,
@@ -3666,7 +3662,7 @@ private fun OutputScreen(
         val label = state.dayTypeEntities[date]?.holidaySpecialLabel
         return state.examDaySchedules.containsKey(date) &&
             examLessonsByDate[date].orEmpty().any { it.hasEnteredContent() } &&
-            (label == HolidaySpecialLabel.MIDTERM || label == HolidaySpecialLabel.FINAL)
+            label?.usesExamTimetable == true
     }
     fun examSlotsForDate(date: LocalDate): List<ClassSlot> {
         val savedLessons = examLessonsByDate[date].orEmpty().sortedBy { it.slotIndex }
@@ -4171,6 +4167,7 @@ private fun OutputScreen(
                                 showCurrentTimeMarker = showCurrentTimeMarker && pageWeekDates.contains(today),
                                 onSaveLessonOverride = onSaveLessonOverride,
                                 onClearLessonOverride = onClearLessonOverride,
+                                onUpdateHolidaySpecialLabel = onUpdateHolidaySpecialLabel,
                                 onAddFromLesson = onAddFromLesson,
                                 onSetLessonCancelled = onSetLessonCancelled,
                                 onEditChangedLesson = onEditChangedLesson,
@@ -7225,6 +7222,7 @@ private fun WeekScheduleTable(
     showCurrentTimeMarker: Boolean = false,
     onSaveLessonOverride: (LocalDate, Int, DayType) -> Unit,
     onClearLessonOverride: (LocalDate) -> Unit,
+    onUpdateHolidaySpecialLabel: (LocalDate, HolidaySpecialLabel?) -> Unit,
     onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean, date: LocalDate, time: LocalTime, isExamSlot: Boolean) -> Unit)? = null,
     onSetLessonCancelled: (LocalDate, Int, Boolean) -> Unit,
     onEditChangedLesson: (LocalDate, Int) -> Unit,
@@ -7734,11 +7732,15 @@ private fun WeekScheduleTable(
             currentOverrideDayType = dayTypeEntity?.overrideLessonDayType,
             currentHolidaySpecialLabel = dayTypeEntity?.holidaySpecialLabel,
             onDismiss = { overrideEditingDate = null },
-            onApply = { dayOfWeek, dayTypeValue, _ ->
-                if (dayOfWeek == null) {
-                    onClearLessonOverride(date)
+            onApply = { dayOfWeek, dayTypeValue, holidayLabel ->
+                if (dayTypeValue == DayType.HOLIDAY) {
+                    onUpdateHolidaySpecialLabel(date, holidayLabel)
                 } else {
-                    onSaveLessonOverride(date, dayOfWeek, dayTypeValue)
+                    if (dayOfWeek == null) {
+                        onClearLessonOverride(date)
+                    } else {
+                        onSaveLessonOverride(date, dayOfWeek, dayTypeValue)
+                    }
                 }
                 overrideEditingDate = null
             }
@@ -8336,10 +8338,9 @@ internal fun LessonOverrideDialog(
         mutableStateOf(currentHolidaySpecialLabel)
     }
     val canUseScheduleMode = currentDayType != DayType.HOLIDAY
-    val canUseLabelMode = currentDayType == DayType.HOLIDAY
     var holidayDialogMode by remember(date, currentDayType) {
         mutableStateOf(
-            if (canUseLabelMode) {
+            if (currentDayType == DayType.HOLIDAY) {
                 HolidayDialogMode.LABEL
             } else {
                 HolidayDialogMode.SCHEDULE
@@ -8350,16 +8351,13 @@ internal fun LessonOverrideDialog(
     val weekdayOptions = remember {
         listOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY)
     }
-    val appliedDayType = if (effectiveShowDayTypeSelector) selectedDayType else currentDayType
-    val holidayLabelOptions = remember {
-        listOf(
-            HolidaySpecialLabel.MIDTERM,
-            HolidaySpecialLabel.FINAL,
-            HolidaySpecialLabel.SCHOOL_CLOSED,
-            HolidaySpecialLabel.EXCURSION
-        )
+    val holidayLabelOptions = HolidaySpecialLabel.entries
+    val previewDayType = when {
+        holidayDialogMode == HolidayDialogMode.LABEL &&
+            (selectedHolidayLabel != null || currentDayType == DayType.HOLIDAY) -> DayType.HOLIDAY
+        effectiveShowDayTypeSelector -> selectedDayType
+        else -> currentDayType
     }
-    val previewDayType = if (effectiveShowDayTypeSelector) selectedDayType else currentDayType
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -8411,8 +8409,7 @@ internal fun LessonOverrideDialog(
                     )
                     FilterChip(
                         selected = holidayDialogMode == HolidayDialogMode.LABEL,
-                        onClick = { if (canUseLabelMode) holidayDialogMode = HolidayDialogMode.LABEL },
-                        enabled = canUseLabelMode,
+                        onClick = { holidayDialogMode = HolidayDialogMode.LABEL },
                         label = { Text(stringResource(R.string.label_holiday_mode_label)) }
                     )
                 }
@@ -8467,7 +8464,7 @@ internal fun LessonOverrideDialog(
                     }
                 }
 
-                if (effectiveShowDayTypeSelector) {
+                if (effectiveShowDayTypeSelector && holidayDialogMode == HolidayDialogMode.SCHEDULE) {
                     Box(modifier = Modifier.fillMaxWidth()) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(stringResource(R.string.label_override_day_type), style = MaterialTheme.typography.titleSmall)
@@ -8503,7 +8500,7 @@ internal fun LessonOverrideDialog(
                     }
                 }
 
-                if (previewDayType == DayType.HOLIDAY && holidayDialogMode == HolidayDialogMode.LABEL) {
+                if (holidayDialogMode == HolidayDialogMode.LABEL) {
                     Box(modifier = Modifier.fillMaxWidth()) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(stringResource(R.string.label_holiday_special_label), style = MaterialTheme.typography.titleSmall)
@@ -8518,7 +8515,7 @@ internal fun LessonOverrideDialog(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        selectedHolidayLabel?.let { stringResource(holidaySpecialLabelTitleRes(it)) }
+                                        selectedHolidayLabel?.let { stringResource(it.textResources().title) }
                                             ?: stringResource(R.string.label_holiday_special_label_none)
                                     )
                                     Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
@@ -8538,7 +8535,7 @@ internal fun LessonOverrideDialog(
                             )
                             holidayLabelOptions.forEach { label ->
                                 DropdownMenuItem(
-                                    text = { Text(stringResource(holidaySpecialLabelTitleRes(label))) },
+                                    text = { Text(stringResource(label.textResources().title)) },
                                     onClick = {
                                         selectedHolidayLabel = label
                                         holidayLabelExpanded = false
@@ -8554,11 +8551,15 @@ internal fun LessonOverrideDialog(
             TextButton(
                 onClick = {
                     onApply(
-                        selectedDayOfWeek.takeIf { scheduleOverrideEnabled },
+                        selectedDayOfWeek.takeIf {
+                            holidayDialogMode == HolidayDialogMode.SCHEDULE && scheduleOverrideEnabled
+                        },
                         previewDayType,
-                        selectedHolidayLabel.takeIf { previewDayType == DayType.HOLIDAY }
+                        selectedHolidayLabel.takeIf { holidayDialogMode == HolidayDialogMode.LABEL }
                     )
-                }
+                },
+                enabled = holidayDialogMode != HolidayDialogMode.LABEL ||
+                    currentDayType == DayType.HOLIDAY || selectedHolidayLabel != null
             ) {
                 Text(stringResource(R.string.btn_save))
             }
@@ -8580,7 +8581,7 @@ internal fun dayTypeDisplayText(
     holidaySpecialLabel: HolidaySpecialLabel? = null
 ): String {
     val baseLabel = if (dayType == DayType.HOLIDAY && holidaySpecialLabel != null) {
-        stringResource(holidaySpecialLabelShortRes(holidaySpecialLabel))
+        stringResource(holidaySpecialLabel.textResources().short)
     } else if (!LocalAbTimetableEnabled.current && dayType != DayType.HOLIDAY) {
         stringResource(R.string.daytype_regular)
     } else {
@@ -8593,11 +8594,8 @@ internal fun dayTypeDisplayText(
 }
 
 @Composable
-private fun examCalendarLabelText(label: HolidaySpecialLabel?): String? = when (label) {
-    HolidaySpecialLabel.MIDTERM,
-    HolidaySpecialLabel.FINAL -> stringResource(holidaySpecialLabelShortRes(label))
-    else -> null
-}
+private fun examCalendarLabelText(label: HolidaySpecialLabel?): String? =
+    label?.takeIf { it.usesExamTimetable }?.let { stringResource(it.textResources().short) }
 
 @Composable
 private fun calendarDateTextColor(
@@ -8606,12 +8604,9 @@ private fun calendarDateTextColor(
     defaultColor: Color
 ): Color {
     val specialLabel = dayTypeEntity?.holidaySpecialLabel
-    val ignoresHolidayColor = specialLabel == HolidaySpecialLabel.MIDTERM ||
-        specialLabel == HolidaySpecialLabel.FINAL ||
-        specialLabel == HolidaySpecialLabel.EXCURSION
+    val ignoresHolidayColor = specialLabel?.usesRegularCalendarTextColor == true
     return when {
         date.dayOfWeek == DayOfWeek.SATURDAY -> MaterialTheme.colorScheme.primary
-        specialLabel == HolidaySpecialLabel.SCHOOL_CLOSED -> MaterialTheme.colorScheme.error
         date.dayOfWeek == DayOfWeek.SUNDAY -> MaterialTheme.colorScheme.error
         dayTypeEntity?.dayType == DayType.HOLIDAY && !ignoresHolidayColor ->
             MaterialTheme.colorScheme.error
@@ -8668,20 +8663,6 @@ internal fun dayTypeRes(dayType: DayType): Int = when (dayType) {
     DayType.A -> R.string.daytype_a
     DayType.B -> R.string.daytype_b
     DayType.HOLIDAY -> R.string.daytype_holiday
-}
-
-private fun holidaySpecialLabelTitleRes(label: HolidaySpecialLabel): Int = when (label) {
-    HolidaySpecialLabel.MIDTERM -> R.string.holiday_label_midterm
-    HolidaySpecialLabel.FINAL -> R.string.holiday_label_final
-    HolidaySpecialLabel.SCHOOL_CLOSED -> R.string.holiday_label_school_closed
-    HolidaySpecialLabel.EXCURSION -> R.string.holiday_label_excursion
-}
-
-private fun holidaySpecialLabelShortRes(label: HolidaySpecialLabel): Int = when (label) {
-    HolidaySpecialLabel.MIDTERM -> R.string.holiday_label_midterm_short
-    HolidaySpecialLabel.FINAL -> R.string.holiday_label_final_short
-    HolidaySpecialLabel.SCHOOL_CLOSED -> R.string.holiday_label_school_closed_short
-    HolidaySpecialLabel.EXCURSION -> R.string.holiday_label_excursion_short
 }
 
 private enum class HolidayDialogMode {

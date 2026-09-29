@@ -193,7 +193,7 @@
     <string name="label_holiday_mode_schedule">日程振替</string>
     <string name="label_holiday_mode_label">特別ラベル</string>
     <string name="desc_holiday_mode_schedule">この日に別の曜日の授業を割り当てます</string>
-    <string name="desc_holiday_mode_label">この日に中間試験等のラベルを付けます</string>
+    <string name="desc_holiday_mode_label">ラベルを付けると、この日は休日になります</string>
 
     <!-- Date/Time Related -->
     <string name="label_start_date">開始日: %s</string>
@@ -760,8 +760,8 @@
     <string name="legend_ab_toggle">タップで切替: A → B → 休日</string>
     <string name="legend_ab_override_long_press">長押しでカスタム</string>
     <string name="btn_create_exam_timetable">試験時間割を作成</string>
-    <string name="tutorial_exam_button_first_visit">画面上部の試験時間割ボタンから、試験日ごとの時間割を設定できます。</string>
-    <string name="tutorial_exam_label_created">試験用ラベルを設定しました。「時間割編集」タブを開き、画面上部の試験時間割ボタンから内容を設定できます。</string>
+    <string name="tutorial_exam_button_first_visit">画面上部の試験時間割ボタンから、テスト日の時間割を設定できます</string>
+    <string name="tutorial_exam_label_created">試験用ラベルを設定しました。「時間割編集」タブを開き、画面上部の試験時間割ボタンから内容を設定できます</string>
     <string name="tutorial_lesson_long_press">授業を長押しすると、課題・予定の追加や授業メモ、授業変更などのアクションを開けます。</string>
     <string name="tutorial_ab_multi_day_drag">日付を長押ししたまま別の日付までドラッグすると、選んだ範囲のA日・B日・休日をまとめて変更できます。</string>
     <string name="tutorial_ab_custom_long_press">日付を長押しすると、授業曜日の指定や中間・期末ラベルなど、その日だけの設定をカスタムできます。</string>

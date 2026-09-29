@@ -4,7 +4,6 @@ import jp.linkserver.nittcsc.InternalFeatureFlags
 import jp.linkserver.nittcsc.logic.CLASS_SLOTS
 import jp.linkserver.nittcsc.logic.InitialSetupDraft
 import jp.linkserver.nittcsc.logic.forTimetable
-import jp.linkserver.nittcsc.data.HolidaySpecialLabel
 import jp.linkserver.nittcsc.logic.ExportRange
 import jp.linkserver.nittcsc.logic.GeneratedLesson
 import jp.linkserver.nittcsc.logic.JapaneseHolidayCalculator
@@ -678,11 +677,19 @@ class SchedulerRepository(
 
     suspend fun updateHolidaySpecialLabel(date: LocalDate, label: HolidaySpecialLabel?) {
         db.withTransaction {
-            val existing = dao.getDayType(date) ?: DayTypeEntity(date = date, dayType = DayType.HOLIDAY)
+            val existing = dao.getDayType(date)
+            if (existing == null && label == null) return@withTransaction
             dao.upsertDayType(
-                existing.copy(
-                    holidaySpecialLabel = if (existing.dayType == DayType.HOLIDAY) label else null
-                )
+                if (label == null) {
+                    requireNotNull(existing).copy(holidaySpecialLabel = null)
+                } else {
+                    (existing ?: DayTypeEntity(date = date, dayType = DayType.HOLIDAY)).copy(
+                        dayType = DayType.HOLIDAY,
+                        overrideLessonDayOfWeek = null,
+                        overrideLessonDayType = null,
+                        holidaySpecialLabel = label
+                    )
+                }
             )
             touchSyncDatasetMeta(DATASET_DAY_TYPES)
         }
@@ -895,10 +902,8 @@ class SchedulerRepository(
         val examScheduleDates = dao.getExamDaySchedulesOnce()
             .map { it.date }
             .filterTo(mutableSetOf()) { date ->
-                settings.enableExamTimetable && examLessonsByDate[date].orEmpty().any { it.hasEnteredContent() } && when (dayTypeMap[date]?.holidaySpecialLabel) {
-                    HolidaySpecialLabel.MIDTERM, HolidaySpecialLabel.FINAL -> true
-                    else -> false
-                }
+                settings.enableExamTimetable && examLessonsByDate[date].orEmpty().any { it.hasEnteredContent() } &&
+                    dayTypeMap[date]?.holidaySpecialLabel?.usesExamTimetable == true
             }
 
         val dateBounds = when (range) {

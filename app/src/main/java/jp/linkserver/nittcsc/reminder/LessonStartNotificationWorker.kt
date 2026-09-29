@@ -29,7 +29,6 @@ import jp.linkserver.nittcsc.data.DayType
 import jp.linkserver.nittcsc.data.DayTypeEntity
 import jp.linkserver.nittcsc.data.ExamLessonEntity
 import jp.linkserver.nittcsc.data.hasEnteredContent
-import jp.linkserver.nittcsc.data.HolidaySpecialLabel
 import jp.linkserver.nittcsc.data.LessonEntity
 import jp.linkserver.nittcsc.data.LessonMode
 import jp.linkserver.nittcsc.data.lessonKey
@@ -80,7 +79,7 @@ class LessonStartNotificationWorker(
         val examLessonsForDate = dao.getExamLessonsForDate(date)
         val isExamDate = settings.enableExamTimetable && dao.getExamDaySchedule(date) != null &&
             examLessonsForDate.any { it.hasEnteredContent() } &&
-            (specialLabel == HolidaySpecialLabel.MIDTERM || specialLabel == HolidaySpecialLabel.FINAL)
+            specialLabel?.usesExamTimetable == true
         val examLesson = if (isExamDate) {
             examLessonsForDate.firstOrNull { it.slotIndex == slotIndex }
         } else {
@@ -618,10 +617,8 @@ class LessonStartNotificationWorker(
             val examScheduleDates = dao.getExamDaySchedulesOnce()
                 .map { it.date }
                 .filterTo(mutableSetOf()) { date ->
-                    settings.enableExamTimetable && examLessonsByDate[date].orEmpty().any { it.hasEnteredContent() } && when (dayTypeEntities[date]?.holidaySpecialLabel) {
-                        HolidaySpecialLabel.MIDTERM, HolidaySpecialLabel.FINAL -> true
-                        else -> false
-                    }
+                    settings.enableExamTimetable && examLessonsByDate[date].orEmpty().any { it.hasEnteredContent() } &&
+                        dayTypeEntities[date]?.holidaySpecialLabel?.usesExamTimetable == true
                 }
             val exclusions = dao.getLessonNotificationExclusionsOnce()
             val minutesBefore = settings.lessonStartNotificationMinutesBefore.coerceIn(0, 360).toLong()

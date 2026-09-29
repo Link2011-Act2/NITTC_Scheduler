@@ -81,7 +81,7 @@ data class ExamPeriod(
 
 fun buildExamPeriods(dayTypes: Collection<DayTypeEntity>): List<ExamPeriod> {
     val examDays = dayTypes
-        .filter { it.holidaySpecialLabel == HolidaySpecialLabel.MIDTERM || it.holidaySpecialLabel == HolidaySpecialLabel.FINAL }
+        .filter { it.holidaySpecialLabel?.usesExamTimetable == true }
         .sortedBy { it.date }
     if (examDays.isEmpty()) return emptyList()
 
@@ -811,11 +811,7 @@ private fun ExamSlotEditorCard(
     }
 }
 
-private fun examPeriodTitleRes(label: HolidaySpecialLabel): Int = when (label) {
-    HolidaySpecialLabel.MIDTERM -> R.string.holiday_label_midterm
-    HolidaySpecialLabel.FINAL -> R.string.holiday_label_final
-    else -> R.string.title_exam_timetable_periods
-}
+private fun examPeriodTitleRes(label: HolidaySpecialLabel): Int = label.textResources().title
 
 private val examDateFormatter = DateTimeFormatter.ofPattern("M/d")
 private val examTabDateFormatter = DateTimeFormatter.ofPattern("M/d(E)")

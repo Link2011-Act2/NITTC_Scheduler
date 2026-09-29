@@ -102,6 +102,7 @@ fun AddTaskScreen(
     }
     var dueHour by rememberSaveable(editorStateKey) { mutableStateOf(task?.dueHour ?: defaultDueHour) }
     var dueMinute by rememberSaveable(editorStateKey) { mutableStateOf(task?.dueMinute ?: defaultDueMinute) }
+    var dueEditedManually by rememberSaveable(editorStateKey) { mutableStateOf(false) }
     var priority by rememberSaveable(editorStateKey) { mutableStateOf(task?.priority ?: 0) }
     val defaultReminderDateTime = remember(task?.id) {
         val now = LocalDateTime.now()
@@ -198,8 +199,9 @@ fun AddTaskScreen(
             .toList()
     }
 
-    LaunchedEffect(subject.trim(), teacher.trim()) {
+    LaunchedEffect(subject.trim(), teacher.trim(), dueEditedManually) {
         if (!showLessonDateNavigation) return@LaunchedEffect
+        if (dueEditedManually) return@LaunchedEffect
         val subjectValue = subject.trim()
         if (subjectValue.isBlank()) return@LaunchedEffect
         if (!subjectEditedByUser) return@LaunchedEffect
@@ -211,7 +213,7 @@ fun AddTaskScreen(
                 LocalDate.now(),
                 LocalTime.now()
             )
-            if (nextDateTime != null) {
+            if (nextDateTime != null && !dueEditedManually) {
                 dueDate = nextDateTime.first
                 dueHour = nextDateTime.second.hour
                 dueMinute = nextDateTime.second.minute
@@ -522,7 +524,9 @@ fun AddTaskScreen(
                             confirmButton = {
                                 TextButton(onClick = {
                                     datePickerState.selectedDateMillis?.let { millis ->
-                                        dueDate = LocalDate.ofEpochDay(millis / 86400000L)
+                                        val selectedDate = LocalDate.ofEpochDay(millis / 86400000L)
+                                        if (selectedDate != dueDate) dueEditedManually = true
+                                        dueDate = selectedDate
                                     }
                                     showDatePickerDialog = false
                                 }) { Text(stringResource(R.string.btn_save)) }
@@ -551,6 +555,9 @@ fun AddTaskScreen(
                             onDismissRequest = { showTimePickerDialog = false },
                             confirmButton = {
                                 TextButton(onClick = {
+                                    if (timePickerState.hour != dueHour || timePickerState.minute != dueMinute) {
+                                        dueEditedManually = true
+                                    }
                                     dueHour = timePickerState.hour
                                     dueMinute = timePickerState.minute
                                     showTimePickerDialog = false
@@ -620,6 +627,7 @@ fun AddTaskScreen(
                             OutlinedButton(
                                 onClick = {
                                     if (subject.isNotBlank()) {
+                                        dueEditedManually = true
                                         isAutoResolvingDate = true
                                         coroutineScope.launch {
                                             try {
@@ -648,6 +656,7 @@ fun AddTaskScreen(
                             OutlinedButton(
                                 onClick = {
                                     if (subject.isNotBlank()) {
+                                        dueEditedManually = true
                                         isAutoResolvingDate = true
                                         coroutineScope.launch {
                                             try {

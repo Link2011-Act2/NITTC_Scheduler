@@ -19,11 +19,14 @@ enum class LessonMode {
     ALTERNATING
 }
 
-enum class HolidaySpecialLabel {
-    MIDTERM,
-    FINAL,
+enum class HolidaySpecialLabel(
+    val usesExamTimetable: Boolean = false,
+    val usesRegularCalendarTextColor: Boolean = false
+) {
+    MIDTERM(usesExamTimetable = true, usesRegularCalendarTextColor = true),
+    FINAL(usesExamTimetable = true, usesRegularCalendarTextColor = true),
     SCHOOL_CLOSED,
-    EXCURSION
+    EXCURSION(usesRegularCalendarTextColor = true)
 }
 
 enum class LessonStartNotificationChipMode {

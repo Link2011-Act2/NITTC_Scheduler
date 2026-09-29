@@ -402,12 +402,15 @@ internal fun AbTableScreen(
             showDayTypeSelector = false,
             onDismiss = { overrideEditingDate = null },
             onApply = { dayOfWeek, dayType, holidayLabel ->
-                if (dayOfWeek == null) {
-                    onClearLessonOverride(date)
+                if (dayType == DayType.HOLIDAY) {
+                    onUpdateHolidaySpecialLabel(date, holidayLabel)
                 } else {
-                    onSaveLessonOverride(date, dayOfWeek, dayType)
+                    if (dayOfWeek == null) {
+                        onClearLessonOverride(date)
+                    } else {
+                        onSaveLessonOverride(date, dayOfWeek, dayType)
+                    }
                 }
-                onUpdateHolidaySpecialLabel(date, holidayLabel)
                 overrideEditingDate = null
             }
         )
