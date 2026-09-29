@@ -308,6 +308,7 @@ private enum class SearchDisplayMode(@param:StringRes val labelRes: Int) {
 }
 
 private enum class TutorialHintKind {
+    SEMESTER_SWITCH,
     EXAM_BUTTON_FIRST_VISIT,
     EXAM_LABEL_CREATED,
     LESSON_LONG_PRESS,
@@ -316,6 +317,7 @@ private enum class TutorialHintKind {
 }
 
 private const val TUTORIAL_PREFS_NAME = "tutorial_hints"
+private const val KEY_SEMESTER_SWITCH_HINT_SHOWN = "semester_switch_hint_shown"
 private const val KEY_EXAM_BUTTON_HINT_SHOWN = "exam_button_hint_shown"
 private const val KEY_EXAM_LABEL_HINT_PENDING = "exam_label_hint_pending"
 private const val KEY_EXAM_LABEL_HINT_SHOWN = "exam_label_hint_shown"
@@ -486,6 +488,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
     }
     var pendingExamLabelHintForTesting by rememberSaveable { mutableStateOf(false) }
     var tutorialFirstTimeCheckDisabledForTesting by rememberSaveable { mutableStateOf(false) }
+    var semesterSwitchHintShownForCurrentVisit by rememberSaveable { mutableStateOf(false) }
     var examButtonHintShownForCurrentVisit by rememberSaveable { mutableStateOf(false) }
     var lessonLongPressHintShownForCurrentVisit by rememberSaveable { mutableStateOf(false) }
     var abMultiDayDragHintShownForCurrentVisit by rememberSaveable { mutableStateOf(false) }
@@ -654,6 +657,12 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
         showSettings
     ) {
         if (
+            activeTutorialHint == TutorialHintKind.SEMESTER_SWITCH &&
+            (selectedTab != AppTab.Timetable || uiState.settings?.enableSemesterTimetables != true)
+        ) {
+            activeTutorialHint = null
+        }
+        if (
             activeTutorialHint == TutorialHintKind.EXAM_BUTTON_FIRST_VISIT &&
             selectedTab != AppTab.Timetable
         ) {
@@ -676,6 +685,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
             lessonDayTutorialEligible = false
         }
         if (selectedTab != AppTab.Timetable) {
+            semesterSwitchHintShownForCurrentVisit = false
             examButtonHintShownForCurrentVisit = false
         }
         if (selectedTab != AppTab.Output || !lessonDayTutorialEligible) {
@@ -738,6 +748,21 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                 }
                 abCustomLongPressHintShownForCurrentVisit = true
                 activeTutorialHint = TutorialHintKind.AB_CUSTOM_LONG_PRESS
+            }
+            selectedTab == AppTab.Timetable &&
+                uiState.settings?.enableSemesterTimetables == true &&
+                if (tutorialFirstTimeCheckDisabledForTesting) {
+                    !semesterSwitchHintShownForCurrentVisit
+                } else {
+                    !tutorialPreferences.getBoolean(KEY_SEMESTER_SWITCH_HINT_SHOWN, false)
+                } -> {
+                if (!tutorialFirstTimeCheckDisabledForTesting) {
+                    tutorialPreferences.edit()
+                        .putBoolean(KEY_SEMESTER_SWITCH_HINT_SHOWN, true)
+                        .apply()
+                }
+                semesterSwitchHintShownForCurrentVisit = true
+                activeTutorialHint = TutorialHintKind.SEMESTER_SWITCH
             }
             selectedTab == AppTab.Timetable &&
                 uiState.settings?.enableExamTimetable == true &&
@@ -3041,6 +3066,8 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                 TutorialHintCard(
                     message = stringResource(
                         when (hint) {
+                            TutorialHintKind.SEMESTER_SWITCH ->
+                                R.string.tutorial_semester_switch
                             TutorialHintKind.EXAM_BUTTON_FIRST_VISIT ->
                                 R.string.tutorial_exam_button_first_visit
                             TutorialHintKind.EXAM_LABEL_CREATED ->
@@ -3054,6 +3081,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                         }
                     ),
                     icon = if (
+                        hint == TutorialHintKind.SEMESTER_SWITCH ||
                         hint == TutorialHintKind.LESSON_LONG_PRESS ||
                         hint == TutorialHintKind.AB_MULTI_DAY_DRAG ||
                         hint == TutorialHintKind.AB_CUSTOM_LONG_PRESS

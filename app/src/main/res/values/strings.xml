@@ -764,6 +764,7 @@
     <string name="legend_ab_toggle">タップで切替: A → B → 休日</string>
     <string name="legend_ab_override_long_press">長押しでカスタム</string>
     <string name="btn_create_exam_timetable">試験時間割を作成</string>
+    <string name="tutorial_semester_switch">前期と後期の時間割は別々に設定できます。画面上部の学期名（▽）をタップして切り替えられます</string>
     <string name="tutorial_exam_button_first_visit">画面上部の試験時間割ボタンから、テスト日の時間割を設定できます</string>
     <string name="tutorial_exam_label_created">試験用ラベルを設定しました。「時間割編集」タブを開き、画面上部の試験時間割ボタンから内容を設定できます</string>
     <string name="tutorial_lesson_long_press">授業を長押しすると、課題・予定の追加や授業メモ、授業変更などのアクションを開けます。</string>
