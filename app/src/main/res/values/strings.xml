@@ -168,17 +168,16 @@
     <string name="label_period">期間</string>
     <string name="label_period_settings">期間設定</string>
     <string name="dialog_prepare_next_academic_year_title">%d年度前期を準備しますか？</string>
-    <string name="dialog_prepare_next_academic_year_message">次年度前期用の空のA/B表と時間割を作成します。現在年度のA/B表と時間割は変更されません。</string>
-    <string name="dialog_legacy_timetable_title">%d年度の時間割を引き継ぐ</string>
-    <string name="dialog_legacy_timetable_message">アップデート前に登録した時間割は、前期・後期のどちらの内容ですか？選んだ学期へ移します。もう一方の学期は空欄になります。</string>
+    <string name="dialog_prepare_next_academic_year_message">次年度前期用の空のA/B表と時間割を作成します。現在年度のA/B表と時間割は変更されません</string>
+    <string name="dialog_legacy_timetable_title">時間割の引き継ぎ</string>
+    <string name="dialog_legacy_timetable_message">%d年度に登録した時間割は、前期・後期のどちらの内容ですか？選択した学期へ移行します</string>
     <string name="btn_legacy_timetable_preview">旧時間割をプレビュー</string>
     <string name="title_legacy_timetable_preview">%d年度・旧時間割の内容</string>
-    <string name="msg_legacy_timetable_preview_empty">登録済みの授業はありません。</string>
-    <string name="label_legacy_timetable_slot">%1$s曜日・%2$dコマ</string>
-    <string name="label_legacy_timetable_subject">%1$s: %2$s</string>
+    <string name="msg_legacy_timetable_preview_empty">登録済みの授業はありません</string>
+    <string name="label_legacy_timetable_weekday">%s曜日</string>
     <string name="btn_legacy_timetable_first">前期に入れる</string>
     <string name="btn_legacy_timetable_second">後期に入れる</string>
-    <string name="msg_legacy_timetable_move_failed">時間割を移せませんでした。もう一方の学期に登録済みの授業がないか確認してください。</string>
+    <string name="msg_legacy_timetable_move_failed">時間割を移せませんでした。もう一方の学期に登録済みの授業がないか確認してください</string>
     <string name="label_academic_year">%d年度</string>
     <string name="label_next_academic_year_first_term">%d年度 前期</string>
     <string name="label_next_academic_year_preparing">次年度・準備中</string>
@@ -482,7 +481,7 @@
     <string name="setup_exam_later_description">今は通常の時間割を使います。テスト用の時間割は、設定画面からいつでも有効にできます。</string>
     <string name="setup_review_title">この内容で時間割を作成します</string>
     <string name="setup_review_description">内容を確認してください。開始すると、教科を入力する画面が開きます。</string>
-    <string name="setup_semester_on">前期・後期：使用する（4〜9月／10〜3月）</string>
+    <string name="setup_semester_on">前期・後期：使用する</string>
     <string name="setup_semester_off">前期・後期：分けない</string>
     <string name="setup_ab_on">A/B：使用する</string>
     <string name="setup_ab_off">A/B：使用しない</string>
@@ -499,7 +498,6 @@
     <string name="special_timetable_settings_release_description">前期・後期の時間割を設定します</string>
     <string name="legend_school_days_toggle">日付を押すと授業日・休日が切り替わります</string>
     <string name="tutorial_school_days_drag">日付を長押ししたままドラッグすると、授業日・休日をまとめて変更できます。</string>
-    <string name="setup_open_ab_table">A/B表を設定する</string>
 
     <!-- Settings: Timetable Settings Section -->
     <string name="section_timetable_settings">時間割設定</string>
@@ -517,7 +515,7 @@
     <string name="label_second_term_unset">未設定</string>
     <string name="dialog_second_term_unset_title">後期の時間割が未設定です</string>
     <string name="dialog_second_term_unset_message">後期は前期とは別の時間割です。時間割編集で後期の授業を登録してください。</string>
-    <string name="desc_semester_timetables">オンにすると4〜9月は前期、10〜3月は後期の時間割を使用します</string>
+    <string name="desc_semester_timetables">オンにすると時期によって前期/後期の時間割を分けます</string>
     <string name="label_first_term">前期</string>
     <string name="label_second_term">後期</string>
     <string name="label_koshi_notation">校時表記の種類</string>
@@ -607,7 +605,7 @@
     <string name="m3e_duration_days_hours">%1$d日%2$d時間</string>
     <string name="lesson_start_live_update_body">次は「%1$s」です。</string>
     <string name="label_lesson_start_live_update_early_minutes">授業開始時間を早める</string>
-    <string name="desc_lesson_start_live_update_early_minutes">カウントダウン終了時刻を何分か早めます\n実際は1分前くらいにチャイムが鳴ると思うので、デフォルトは1分です</string>
+    <string name="desc_lesson_start_live_update_early_minutes">カウントダウン終了時刻を何分か早めます</string>
     <string name="lesson_start_live_update_early_none">早めない</string>
     <string name="lesson_start_live_update_early_value">%1$d分早める</string>
     <string name="lesson_start_live_update_chip_minutes">%1$d分</string>

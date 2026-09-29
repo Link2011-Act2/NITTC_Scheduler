@@ -401,6 +401,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
         LegacyTimetableMigrationDialog(
             academicYear = academicYear,
             lessons = legacyLessons,
+            periodsPerDay = state.settings?.periodsPerDay ?: 4,
             onSelect = viewModel::assignLegacyTimetableTo
         )
         return
@@ -2642,7 +2643,6 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                                         timetableTarget = selectedTimetableTarget,
                                         useLargeScreenLayout = useLargeScreenLayout,
                                         onSelectDay = viewModel::selectDayOfWeek,
-                                        onOpenAbTable = { selectedTab = AppTab.AbTable },
                                         onAutoSaveLesson = viewModel::saveLessonWithoutNotification,
                                         onSaveLesson = viewModel::saveLesson
                                     )
@@ -3205,7 +3205,6 @@ private fun TimetableInputScreen(
     timetableTarget: TimetableEditTarget,
     useLargeScreenLayout: Boolean,
     onSelectDay: (Int) -> Unit,
-    onOpenAbTable: () -> Unit,
     onAutoSaveLesson: (Int, TimetableTerm, Int, Int, LessonDraft) -> Unit,
     onSaveLesson: (Int, TimetableTerm, Int, Int, LessonDraft) -> Unit
 ) {
@@ -3225,11 +3224,6 @@ private fun TimetableInputScreen(
     )
 
     Column(modifier = modifier.fillMaxSize()) {
-        if (state.settings?.enableAbTimetable == true) {
-            TextButton(onClick = onOpenAbTable, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.setup_open_ab_table))
-            }
-        }
         // 曜日タブ（スクロールしても常に表示）
         if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
             Box(

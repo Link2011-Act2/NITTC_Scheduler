@@ -778,7 +778,7 @@ internal class SchedulerDataTransfer(
                 lessonStartNotificationMinutesBefore = s.optInt("lessonStartNotificationMinutesBefore", 10),
                 lessonStartNotificationLiveUpdatesEnabled = s.optBoolean("lessonStartNotificationLiveUpdatesEnabled", true),
                 lessonStartNotificationProgressCountsDown = s.optBoolean("lessonStartNotificationProgressCountsDown", false),
-                lessonStartNotificationLiveUpdateEarlyMinutes = s.optInt("lessonStartNotificationLiveUpdateEarlyMinutes", 1).coerceIn(0, 5),
+                lessonStartNotificationLiveUpdateEarlyMinutes = s.optInt("lessonStartNotificationLiveUpdateEarlyMinutes", 0).coerceIn(0, 5),
                 lessonStartNotificationChipMode = runCatching {
                     LessonStartNotificationChipMode.valueOf(
                         s.optString(
@@ -1197,7 +1197,7 @@ internal class SchedulerDataTransfer(
                 s.put("lessonStartNotificationProgressCountsDown", false)
             }
             if (!s.has("lessonStartNotificationLiveUpdateEarlyMinutes")) {
-                s.put("lessonStartNotificationLiveUpdateEarlyMinutes", 1)
+                s.put("lessonStartNotificationLiveUpdateEarlyMinutes", 0)
             }
             if (!s.has("lessonStartNotificationChipMode")) {
                 s.put("lessonStartNotificationChipMode", LessonStartNotificationChipMode.MINUTE_TEXT.name)

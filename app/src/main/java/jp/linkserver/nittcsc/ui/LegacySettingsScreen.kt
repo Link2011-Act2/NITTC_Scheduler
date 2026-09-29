@@ -183,7 +183,7 @@ internal fun LegacySettingsScreen(
     val enabledLessonStartProgressCountsDown =
         state.settings?.lessonStartNotificationProgressCountsDown ?: false
     val lessonStartLiveUpdateEarlyMinutes =
-        state.settings?.lessonStartNotificationLiveUpdateEarlyMinutes ?: 1
+        state.settings?.lessonStartNotificationLiveUpdateEarlyMinutes ?: 0
     val lessonStartChipMode =
         state.settings?.lessonStartNotificationChipMode ?: LessonStartNotificationChipMode.MINUTE_TEXT
     var expandTimetableSettings by rememberSaveable { mutableStateOf(true) }
@@ -1085,8 +1085,10 @@ internal fun LegacySettingsScreen(
                             )
                         }
                     }
-                    item("second-term-start") {
-                        SecondTermStartSetting(s, onUpdateSecondTermStart)
+                    if (s?.enableSemesterTimetables != false) {
+                        item("second-term-start") {
+                            SecondTermStartSetting(s, onUpdateSecondTermStart)
+                        }
                     }
                     item("Text_12", contentPadding = PaddingValues(20.dp)) {
                         Text(

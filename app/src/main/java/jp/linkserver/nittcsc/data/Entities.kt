@@ -71,7 +71,7 @@ data class SettingsEntity(
     val lessonStartNotificationMinutesBefore: Int = 10,
     val lessonStartNotificationLiveUpdatesEnabled: Boolean = true,
     val lessonStartNotificationProgressCountsDown: Boolean = false,
-    val lessonStartNotificationLiveUpdateEarlyMinutes: Int = 1,
+    val lessonStartNotificationLiveUpdateEarlyMinutes: Int = 0,
     val lessonStartNotificationChipMode: LessonStartNotificationChipMode = LessonStartNotificationChipMode.MINUTE_TEXT,
     val syncLessonsToCalendar: Boolean = false,
     val lessonCalendarSyncStart: LocalDate? = null,

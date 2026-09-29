@@ -219,7 +219,7 @@ fun SettingsScreen(
     val enabledLessonStartProgressCountsDown =
         state.settings?.lessonStartNotificationProgressCountsDown ?: false
     val lessonStartLiveUpdateEarlyMinutes =
-        state.settings?.lessonStartNotificationLiveUpdateEarlyMinutes ?: 1
+        state.settings?.lessonStartNotificationLiveUpdateEarlyMinutes ?: 0
     val lessonStartChipMode =
         state.settings?.lessonStartNotificationChipMode ?: LessonStartNotificationChipMode.MINUTE_TEXT
     var showLocalAiWarningDialog by remember { mutableStateOf(false) }
