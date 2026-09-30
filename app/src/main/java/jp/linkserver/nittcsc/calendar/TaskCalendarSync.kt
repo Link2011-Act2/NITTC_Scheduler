@@ -7,11 +7,17 @@ import android.provider.CalendarContract
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.PlanEntity
 import jp.linkserver.nittcsc.data.TaskEntity
+import jp.linkserver.nittcsc.logic.CalendarDeletionResult
+import jp.linkserver.nittcsc.logic.activeCalendarEventSelection
 import java.time.ZoneId
 
 class TaskCalendarSync(private val context: Context) {
 
     fun syncTask(task: TaskEntity): TaskEntity {
+        return synchronized(CalendarEventAccess.LOCK) { syncTaskLocked(task) }
+    }
+
+    private fun syncTaskLocked(task: TaskEntity): TaskEntity {
         val title = "${task.subject}: ${task.title}"
         val description = buildString {
             append("NITTC Scheduler - 課題")
@@ -29,7 +35,8 @@ class TaskCalendarSync(private val context: Context) {
             minute = task.dueMinute,
             title = title,
             description = description,
-            existingEventId = task.calendarEventId
+            existingEventId = task.calendarEventId,
+            customAppUri = "nittcsc://calendar/task/deadline/${task.id}"
         )
         val reminderEventId = if (task.reminderEnabled && task.reminderDate != null) {
             upsertEvent(
@@ -38,7 +45,8 @@ class TaskCalendarSync(private val context: Context) {
                 minute = task.reminderMinute,
                 title = context.getString(R.string.task_reminder_calendar_title, task.subject, task.title),
                 description = buildReminderDescription(task),
-                existingEventId = task.reminderCalendarEventId
+                existingEventId = task.reminderCalendarEventId,
+                customAppUri = "nittcsc://calendar/task/reminder/${task.id}"
             )
         } else {
             task.reminderCalendarEventId?.let(::deleteTaskEvent)
@@ -68,11 +76,16 @@ class TaskCalendarSync(private val context: Context) {
             minute = plan.dueMinute,
             title = title,
             description = description,
-            existingEventId = plan.calendarEventId
+            existingEventId = plan.calendarEventId,
+            customAppUri = "nittcsc://calendar/plan/deadline/${plan.id}"
         )
     }
 
     fun syncPlan(plan: PlanEntity): PlanEntity {
+        return synchronized(CalendarEventAccess.LOCK) { syncPlanLocked(plan) }
+    }
+
+    private fun syncPlanLocked(plan: PlanEntity): PlanEntity {
         val dueEventId = upsertPlanEvent(plan)
         val reminderEventId = if (plan.reminderEnabled && plan.reminderDate != null) {
             upsertEvent(
@@ -81,7 +94,8 @@ class TaskCalendarSync(private val context: Context) {
                 minute = plan.reminderMinute,
                 title = context.getString(R.string.plan_reminder_calendar_title, plan.subject, plan.title),
                 description = buildPlanReminderDescription(plan),
-                existingEventId = plan.reminderCalendarEventId
+                existingEventId = plan.reminderCalendarEventId,
+                customAppUri = "nittcsc://calendar/plan/reminder/${plan.id}"
             )
         } else {
             plan.reminderCalendarEventId?.let(::deletePlanEvent)
@@ -99,7 +113,8 @@ class TaskCalendarSync(private val context: Context) {
         minute: Int,
         title: String,
         description: String,
-        existingEventId: Long?
+        existingEventId: Long?,
+        customAppUri: String
     ): Long? {
         return try {
             val calendarId = getWritableCalendarId() ?: return null
@@ -118,13 +133,22 @@ class TaskCalendarSync(private val context: Context) {
                 put(CalendarContract.Events.DTSTART, startMillis)
                 put(CalendarContract.Events.DTEND, endMillis)
                 put(CalendarContract.Events.EVENT_TIMEZONE, zoneId.id)
+                put(CalendarContract.Events.CUSTOM_APP_PACKAGE, context.packageName)
+                put(CalendarContract.Events.CUSTOM_APP_URI, customAppUri)
             }
 
             val resolver = context.contentResolver
             if (existingEventId != null) {
                 val target = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, existingEventId)
-                val updated = resolver.update(target, values, null, null)
-                if (updated > 0) return existingEventId
+                // 一括削除後もRoomに残る旧IDで、削除済み行を更新しない。
+                val active = resolver.query(
+                    CalendarContract.Events.CONTENT_URI,
+                    arrayOf(CalendarContract.Events._ID),
+                    activeCalendarEventSelection("${CalendarContract.Events._ID} = ?"),
+                    arrayOf(existingEventId.toString()),
+                    null
+                )?.use { it.moveToFirst() } ?: return null
+                if (active && resolver.update(target, values, null, null) > 0) return existingEventId
             }
 
             val inserted = resolver.insert(CalendarContract.Events.CONTENT_URI, values)
@@ -149,44 +173,28 @@ class TaskCalendarSync(private val context: Context) {
 
     fun deletePlanEvent(calendarEventId: Long): Boolean = deleteTaskEvent(calendarEventId)
 
-    fun clearDeadlineEvents(): Int {
-        return try {
-            context.contentResolver.delete(
-                CalendarContract.Events.CONTENT_URI,
-                DEADLINE_EVENT_SELECTION,
-                DEADLINE_EVENT_SELECTION_ARGS
-            )
-        } catch (_: SecurityException) {
-            0
-        } catch (_: Exception) {
-            0
-        }
+    fun clearDeadlineEvents(): CalendarDeletionResult {
+        return CalendarEventAccess(
+            context.contentResolver, deadlineEventSelection(), deadlineEventSelectionArgs()
+        ).deleteAndVerify()
     }
 
-    fun clearReminderEvents(): Int {
-        return try {
-            context.contentResolver.delete(
-                CalendarContract.Events.CONTENT_URI,
-                REMINDER_EVENT_SELECTION,
-                REMINDER_EVENT_SELECTION_ARGS
-            )
-        } catch (_: SecurityException) {
-            0
-        } catch (_: Exception) {
-            0
-        }
+    fun clearReminderEvents(): CalendarDeletionResult {
+        return CalendarEventAccess(
+            context.contentResolver, reminderEventSelection(), reminderEventSelectionArgs()
+        ).deleteAndVerify()
     }
 
     fun countDeadlineEvents(): Int {
-        return countEvents(DEADLINE_EVENT_SELECTION, DEADLINE_EVENT_SELECTION_ARGS)
+        return countEvents(deadlineEventSelection(), deadlineEventSelectionArgs())
     }
 
     fun countReminderEvents(): Int {
-        return countEvents(REMINDER_EVENT_SELECTION, REMINDER_EVENT_SELECTION_ARGS)
+        return countEvents(reminderEventSelection(), reminderEventSelectionArgs())
     }
 
-    fun clearAppCreatedEvents(): Int {
-        return clearDeadlineEvents() + clearReminderEvents()
+    fun clearAppCreatedEvents(): List<CalendarDeletionResult> {
+        return listOf(clearDeadlineEvents(), clearReminderEvents())
     }
 
     private fun buildReminderDescription(task: TaskEntity): String {
@@ -245,22 +253,21 @@ class TaskCalendarSync(private val context: Context) {
     }
 
     private fun countEvents(selection: String, selectionArgs: Array<String>): Int {
-        return try {
-            context.contentResolver.query(
-                CalendarContract.Events.CONTENT_URI,
-                arrayOf(CalendarContract.Events._ID),
-                selection,
-                selectionArgs,
-                null
-            )?.use { cursor ->
-                cursor.count
-            } ?: 0
-        } catch (_: SecurityException) {
-            0
-        } catch (_: Exception) {
-            0
-        }
+        return CalendarEventAccess(context.contentResolver, selection, selectionArgs).count()
     }
+
+    private fun deadlineEventSelection() = "$DEADLINE_EVENT_SELECTION OR $CUSTOM_EVENT_SELECTION"
+    private fun reminderEventSelection() = "$REMINDER_EVENT_SELECTION OR $CUSTOM_EVENT_SELECTION"
+
+    private fun deadlineEventSelectionArgs() = DEADLINE_EVENT_SELECTION_ARGS + arrayOf(
+        "$TASK_DEADLINE_DESCRIPTION\r\n%", "$PLAN_DEADLINE_DESCRIPTION\r\n%",
+        context.packageName, "nittcsc://calendar/task/deadline/%", "nittcsc://calendar/plan/deadline/%"
+    )
+
+    private fun reminderEventSelectionArgs() = REMINDER_EVENT_SELECTION_ARGS + arrayOf(
+        "$TASK_REMINDER_DESCRIPTION\r\n%", "$PLAN_REMINDER_DESCRIPTION\r\n%",
+        context.packageName, "nittcsc://calendar/task/reminder/%", "nittcsc://calendar/plan/reminder/%"
+    )
 
     companion object {
         private const val TASK_DEADLINE_DESCRIPTION = "NITTC Scheduler - 課題"
@@ -271,7 +278,8 @@ class TaskCalendarSync(private val context: Context) {
             "${CalendarContract.Events.DESCRIPTION} = ? OR " +
                 "${CalendarContract.Events.DESCRIPTION} LIKE ? OR " +
                 "${CalendarContract.Events.DESCRIPTION} = ? OR " +
-                "${CalendarContract.Events.DESCRIPTION} LIKE ?"
+                "${CalendarContract.Events.DESCRIPTION} LIKE ? OR " +
+                "${CalendarContract.Events.DESCRIPTION} LIKE ? OR ${CalendarContract.Events.DESCRIPTION} LIKE ?"
         private val DEADLINE_EVENT_SELECTION_ARGS = arrayOf(
             TASK_DEADLINE_DESCRIPTION,
             "$TASK_DEADLINE_DESCRIPTION\n%",
@@ -282,12 +290,16 @@ class TaskCalendarSync(private val context: Context) {
             "${CalendarContract.Events.DESCRIPTION} = ? OR " +
                 "${CalendarContract.Events.DESCRIPTION} LIKE ? OR " +
                 "${CalendarContract.Events.DESCRIPTION} = ? OR " +
-                "${CalendarContract.Events.DESCRIPTION} LIKE ?"
+                "${CalendarContract.Events.DESCRIPTION} LIKE ? OR " +
+                "${CalendarContract.Events.DESCRIPTION} LIKE ? OR ${CalendarContract.Events.DESCRIPTION} LIKE ?"
         private val REMINDER_EVENT_SELECTION_ARGS = arrayOf(
             TASK_REMINDER_DESCRIPTION,
             "$TASK_REMINDER_DESCRIPTION\n%",
             PLAN_REMINDER_DESCRIPTION,
             "$PLAN_REMINDER_DESCRIPTION\n%"
         )
+        private val CUSTOM_EVENT_SELECTION =
+            "(${CalendarContract.Events.CUSTOM_APP_PACKAGE} = ? AND " +
+                "(${CalendarContract.Events.CUSTOM_APP_URI} LIKE ? OR ${CalendarContract.Events.CUSTOM_APP_URI} LIKE ?))"
     }
 }

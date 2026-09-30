@@ -29,6 +29,8 @@ import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.PagerSnapDistance
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
@@ -49,6 +51,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.animation.Crossfade
@@ -515,6 +519,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
     var showOssLicenses by rememberSaveable { mutableStateOf(false) }
     var showLessonSearch by rememberSaveable { mutableStateOf(false) }
     var requestedOutputDayEpochDay by rememberSaveable { mutableStateOf<Long?>(null) }
+    var requestedOutputSlotIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     var showTaskPlanCalendar by rememberSaveable { mutableStateOf(false) }
     var showExamTimetablePeriods by rememberSaveable { mutableStateOf(false) }
     var selectedExamPeriodStartEpochDay by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -920,7 +925,6 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
     var pendingClearDeadlineCalendarEvents by rememberSaveable { mutableStateOf(false) }
     var pendingClearReminderCalendarEvents by rememberSaveable { mutableStateOf(false) }
     var showCalendarDeletePreviewDialog by rememberSaveable { mutableStateOf(false) }
-    var calendarDeletePreviewCount by rememberSaveable { mutableStateOf(0) }
     var previewClearLessonCalendarEvents by rememberSaveable { mutableStateOf(false) }
     var previewClearDeadlineCalendarEvents by rememberSaveable { mutableStateOf(false) }
     var previewClearReminderCalendarEvents by rememberSaveable { mutableStateOf(false) }
@@ -967,13 +971,25 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
             val end = settings.lessonCalendarSyncEnd ?: settings.termEnd
             if (start <= end) {
                 val lessons = viewModel.generateLessons(ExportRange.Custom(start, end))
-                withContext(Dispatchers.IO) {
+                val result = withContext(Dispatchers.IO) {
                     CalendarExporter(context).sync(lessons)
+                }
+                if (result.addedCount == 0 && result.skippedCount > 0) {
+                    snackbarHostState.showSnackbar(result.message)
                 }
             }
         } else {
-            withContext(Dispatchers.IO) {
-                runCatching { CalendarExporter(context).clearSyncedLessons() }
+            val result = withContext(Dispatchers.IO) {
+                CalendarExporter(context).clearSyncedLessons()
+            }
+            if (!result.isSuccess) {
+                snackbarHostState.showSnackbar(resources.getString(
+                    if (result.failure == jp.linkserver.nittcsc.logic.CalendarDeletionFailure.PERMISSION) {
+                        R.string.msg_calendar_delete_permission_denied
+                    } else {
+                        R.string.calendar_delete_provider_failed
+                    }
+                ))
             }
         }
     }
@@ -1110,62 +1126,15 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
 
     val msgNoTasksToSync = stringResource(R.string.msg_no_tasks_to_sync)
 
-    fun performClearAppCalendarEvents(
-        clearLessons: Boolean,
-        clearDeadlines: Boolean,
-        clearReminders: Boolean
-    ) {
-        appScope.launch {
-            val deletedCount = withContext(Dispatchers.IO) {
-                var count = 0
-                if (clearLessons) {
-                    count += CalendarExporter(context).clearAppCreatedLessonEvents()
-                }
-                if (clearDeadlines || clearReminders) {
-                    val taskCalendarSync = TaskCalendarSync(context)
-                    if (clearDeadlines) {
-                        count += taskCalendarSync.clearDeadlineEvents()
-                    }
-                    if (clearReminders) {
-                        count += taskCalendarSync.clearReminderEvents()
-                    }
-                }
-                count
-            }
-            snackbarHostState.showSnackbar(
-                resources.getString(R.string.msg_app_calendar_events_deleted, deletedCount)
-            )
-        }
-    }
-
     fun previewClearAppCalendarEvents(
         clearLessons: Boolean,
         clearDeadlines: Boolean,
         clearReminders: Boolean
     ) {
-        appScope.launch {
-            val eventCount = withContext(Dispatchers.IO) {
-                var count = 0
-                if (clearLessons) {
-                    count += CalendarExporter(context).countAppCreatedLessonEvents()
-                }
-                if (clearDeadlines || clearReminders) {
-                    val taskCalendarSync = TaskCalendarSync(context)
-                    if (clearDeadlines) {
-                        count += taskCalendarSync.countDeadlineEvents()
-                    }
-                    if (clearReminders) {
-                        count += taskCalendarSync.countReminderEvents()
-                    }
-                }
-                count
-            }
-            previewClearLessonCalendarEvents = clearLessons
-            previewClearDeadlineCalendarEvents = clearDeadlines
-            previewClearReminderCalendarEvents = clearReminders
-            calendarDeletePreviewCount = eventCount
-            showCalendarDeletePreviewDialog = true
-        }
+        previewClearLessonCalendarEvents = clearLessons
+        previewClearDeadlineCalendarEvents = clearDeadlines
+        previewClearReminderCalendarEvents = clearReminders
+        showCalendarDeletePreviewDialog = true
     }
 
     val calendarPermissionLauncher = rememberLauncherForActivityResult(
@@ -1319,51 +1288,11 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
     }
 
     if (showCalendarDeletePreviewDialog) {
-        val selectedDeleteCategories = listOfNotNull(
-            if (previewClearLessonCalendarEvents) stringResource(R.string.label_clear_calendar_lessons) else null,
-            if (previewClearDeadlineCalendarEvents) stringResource(R.string.label_clear_calendar_deadlines) else null,
-            if (previewClearReminderCalendarEvents) stringResource(R.string.label_clear_calendar_reminders) else null
-        ).joinToString("、")
-        AlertDialog(
-            onDismissRequest = { showCalendarDeletePreviewDialog = false },
-            title = { Text(stringResource(R.string.dialog_clear_app_calendar_events_confirm_title)) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = stringResource(
-                            R.string.dialog_clear_app_calendar_events_confirm_message,
-                            calendarDeletePreviewCount
-                        )
-                    )
-                    Text(
-                        text = stringResource(
-                            R.string.dialog_clear_app_calendar_events_confirm_categories,
-                            selectedDeleteCategories
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showCalendarDeletePreviewDialog = false
-                        performClearAppCalendarEvents(
-                            clearLessons = previewClearLessonCalendarEvents,
-                            clearDeadlines = previewClearDeadlineCalendarEvents,
-                            clearReminders = previewClearReminderCalendarEvents
-                        )
-                    }
-                ) {
-                    Text(stringResource(R.string.btn_delete_confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCalendarDeletePreviewDialog = false }) {
-                    Text(stringResource(R.string.btn_cancel))
-                }
-            }
+        CalendarDeletionDialog(
+            clearLessons = previewClearLessonCalendarEvents,
+            clearDeadlines = previewClearDeadlineCalendarEvents,
+            clearReminders = previewClearReminderCalendarEvents,
+            onDismiss = { showCalendarDeletePreviewDialog = false }
         )
     }
 
@@ -1949,6 +1878,14 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                         onOpenDate = { date ->
                             viewModel.setResultDate(date)
                             requestedOutputDayEpochDay = date.toEpochDay()
+                            requestedOutputSlotIndex = null
+                            selectedTab = AppTab.Output
+                            showLessonSearch = false
+                        },
+                        onOpenLesson = { date, slotIndex ->
+                            viewModel.setResultDate(date)
+                            requestedOutputDayEpochDay = date.toEpochDay()
+                            requestedOutputSlotIndex = slotIndex
                             selectedTab = AppTab.Output
                             showLessonSearch = false
                         },
@@ -2519,6 +2456,10 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                                         onRequestedDayViewHandled = {
                                             requestedOutputDayEpochDay = null
                                         },
+                                        requestedSlotIndex = requestedOutputSlotIndex,
+                                        onRequestedSlotHandled = {
+                                            requestedOutputSlotIndex = null
+                                        },
                                         onOpenLessonSearch = { showLessonSearch = true },
                                         onSaveLessonOverride = viewModel::saveLessonOverride,
                                         onClearLessonOverride = viewModel::clearLessonOverride,
@@ -2738,7 +2679,11 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                                 selectedTab == AppTab.Tasks || selectedTab == AppTab.Plans
 
                             Scaffold(
-                                snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+                                snackbarHost = {
+                                    if (currentScreenResource == "main") {
+                                        SnackbarHost(hostState = snackbarHostState)
+                                    }
+                                },
                                 topBar = {
                                     AppTopAppBar(
                                         title = {
@@ -3050,6 +2995,15 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                     }
                 }
             }
+        }
+
+        // メイン画面以外にも同じ通知を表示する。遷移中もHostを二重に配置しない。
+        if (currentScreenResource != "main") {
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.align(Alignment.BottomCenter)
+                    .navigationBarsPadding().imePadding().padding(horizontal = 12.dp, vertical = 8.dp)
+            )
         }
 
         AnimatedVisibility(
@@ -3615,6 +3569,8 @@ private fun OutputScreen(
     onPickDate: (LocalDate) -> Unit,
     requestedDayViewEpochDay: Long?,
     onRequestedDayViewHandled: () -> Unit,
+    requestedSlotIndex: Int?,
+    onRequestedSlotHandled: () -> Unit,
     onOpenLessonSearch: () -> Unit,
     onSaveLessonOverride: (LocalDate, Int, DayType) -> Unit,
     onClearLessonOverride: (LocalDate) -> Unit,
@@ -3817,32 +3773,16 @@ private fun OutputScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(vertical = 16.dp),
+            contentPadding = PaddingValues(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            if (
-                useExpressiveDesign &&
-                currentDateTime != null &&
-                displayMode == OutputDisplayMode.DAY &&
-                selectedDate == today &&
-                upcomingLesson != null
-            ) {
-                item(key = "expressive-upcoming-lesson") {
-                    ExpressiveUpcomingLessonHero(
-                        selection = upcomingLesson,
-                        now = currentDateTime,
-                        onClick = if (upcomingLesson.candidate.date != today) {
-                            {
-                                displayMode = OutputDisplayMode.DAY
-                                onPickDate(upcomingLesson.candidate.date)
-                            }
-                        } else {
-                            null
-                        }
-                    )
-                }
-            }
-            item {
+            stickyHeader(key = "output-date-toolbar") {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.background)
+                        .padding(vertical = 8.dp)
+                ) {
                 if (showResultDatePicker) {
                     val state = rememberDatePickerState(initialSelectedDateMillis = selectedDate.toEpochDay() * 86400000L)
                     DatePickerDialog(
@@ -3992,6 +3932,29 @@ private fun OutputScreen(
                         }
                     }
                 }
+                }
+            }
+            if (
+                useExpressiveDesign &&
+                currentDateTime != null &&
+                displayMode == OutputDisplayMode.DAY &&
+                selectedDate == today &&
+                upcomingLesson != null
+            ) {
+                item(key = "expressive-upcoming-lesson") {
+                    ExpressiveUpcomingLessonHero(
+                        selection = upcomingLesson,
+                        now = currentDateTime,
+                        onClick = if (upcomingLesson.candidate.date != today) {
+                            {
+                                displayMode = OutputDisplayMode.DAY
+                                onPickDate(upcomingLesson.candidate.date)
+                            }
+                        } else {
+                            null
+                        }
+                    )
+                }
         }
 
         item {
@@ -4130,6 +4093,8 @@ private fun OutputScreen(
                                 onDeleteLessonNote = onDeleteLessonNote,
                                 onSaveExamMemo = onSaveExamMemo,
                                 isLessonCancelled = isLessonCancelled,
+                                requestedSlotIndex = if (pageDate == selectedDate) requestedSlotIndex else null,
+                                onRequestedSlotHandled = onRequestedSlotHandled,
                                 modifier = Modifier.fillMaxWidth()
                             )
                         } else {
@@ -5077,6 +5042,7 @@ private fun LessonSearchScreen(
     changedLessonForDate: (LocalDate, Int) -> ChangedLessonEntity?,
     isLessonCancelled: (LocalDate, Int) -> Boolean,
     onOpenDate: (LocalDate) -> Unit,
+    onOpenLesson: (LocalDate, Int) -> Unit,
     onBack: () -> Unit
 ) {
     var query by rememberSaveable { mutableStateOf("") }
@@ -5292,11 +5258,7 @@ private fun LessonSearchScreen(
                         modifier = Modifier.fillMaxSize(),
                         query = query,
                         results = results.filter { !it.date.isBefore(today) },
-                        onSelectDate = { date ->
-                            displayedMonthText = YearMonth.from(date).toString()
-                            selectedSearchDateEpochDay = date.toEpochDay()
-                            searchDisplayMode = SearchDisplayMode.CALENDAR
-                        }
+                        onSelectLesson = onOpenLesson
                     )
             }
         }
@@ -5701,7 +5663,7 @@ private fun SearchCalendarDayCell(
 private fun LessonSearchListView(
     query: String,
     results: List<LessonSearchResult>,
-    onSelectDate: (LocalDate) -> Unit,
+    onSelectLesson: (LocalDate, Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val timeFormatter = remember { DateTimeFormatter.ofPattern("H:mm") }
@@ -5747,7 +5709,7 @@ private fun LessonSearchListView(
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onSelectDate(result.date) },
+                        .clickable { onSelectLesson(result.date, result.slot.index) },
                     shape = RoundedCornerShape(16.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerLow
                 ) {
@@ -6056,6 +6018,8 @@ private fun DayScheduleTable(
     onDeleteLessonNote: (LocalDate, Int) -> Unit,
     onSaveExamMemo: (LocalDate, Int, String) -> Unit,
     isLessonCancelled: (LocalDate, Int) -> Boolean,
+    requestedSlotIndex: Int? = null,
+    onRequestedSlotHandled: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val today = LocalDate.now()
@@ -6318,6 +6282,13 @@ private fun DayScheduleTable(
 
     Column(modifier = modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
         segments.forEach { seg ->
+            val slotRequester = remember(seg.slotIndex, seg.startMin) { BringIntoViewRequester() }
+            if (requestedSlotIndex != null && seg.slotIndex == requestedSlotIndex) {
+                LaunchedEffect(requestedSlotIndex) {
+                    slotRequester.bringIntoView()
+                    onRequestedSlotHandled()
+                }
+            }
             val rawHeightDp = (seg.durationMin * dpPerMinute).dp
             val slot = if (seg.slotIndex != null) classSlots.find { it.index == seg.slotIndex } else null
             val lesson = if (!isHoliday && seg.slotIndex != null) {
@@ -6596,7 +6567,10 @@ private fun DayScheduleTable(
             }.sortedWith(compareBy<LessonDetailItem> { it.dueHour }.thenBy { it.dueMinute })
             val isCancelled = !isHoliday && !isExamSchedule && slot != null && isLessonCancelled(date, slot.index)
 
-            Row(modifier = Modifier.fillMaxWidth().height(heightDp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().height(heightDp)
+                    .bringIntoViewRequester(slotRequester)
+            ) {
                 // 左: 時刻ラベル + 縦線
                 Box(modifier = Modifier.width(timeColWidth).fillMaxHeight()) {
                     // 縦線: 刻み目の中心から始まるよう offset でずらす

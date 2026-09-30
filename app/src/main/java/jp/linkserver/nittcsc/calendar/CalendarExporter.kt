@@ -3,6 +3,10 @@ package jp.linkserver.nittcsc.calendar
 import android.content.ContentValues
 import android.content.Context
 import android.provider.CalendarContract
+import jp.linkserver.nittcsc.R
+import jp.linkserver.nittcsc.logic.CalendarDeletionFailure
+import jp.linkserver.nittcsc.logic.CalendarDeletionResult
+import jp.linkserver.nittcsc.logic.activeCalendarEventSelection
 import jp.linkserver.nittcsc.logic.ExportResult
 import jp.linkserver.nittcsc.logic.GeneratedLesson
 import java.time.ZoneId
@@ -12,7 +16,16 @@ class CalendarExporter(private val context: Context) {
     fun sync(lessons: List<GeneratedLesson>): ExportResult {
         return synchronized(SYNC_LOCK) {
             try {
-                clearAppCreatedLessonEvents()
+                val deletion = clearAppCreatedLessonEvents()
+                if (!deletion.isSuccess) {
+                    return ExportResult(0, lessons.size, context.getString(
+                        if (deletion.failure == CalendarDeletionFailure.PERMISSION) {
+                            R.string.msg_calendar_delete_permission_denied
+                        } else {
+                            R.string.msg_calendar_sync_cleanup_failed
+                        }
+                    ))
+                }
                 if (lessons.isEmpty()) {
                     return ExportResult(0, 0, "同期対象の授業はありません。")
                 }
@@ -59,29 +72,23 @@ class CalendarExporter(private val context: Context) {
         }
     }
 
-    fun clearSyncedLessons(): Int {
+    fun clearSyncedLessons(): CalendarDeletionResult {
         return synchronized(SYNC_LOCK) {
-            context.contentResolver.delete(
-                CalendarContract.Events.CONTENT_URI,
+            CalendarEventAccess(
+                context.contentResolver,
                 AUTO_SYNC_SELECTION,
                 autoSyncSelectionArgs(context.packageName)
-            )
+            ).deleteAndVerify()
         }
     }
 
-    fun clearAppCreatedLessonEvents(): Int {
+    fun clearAppCreatedLessonEvents(): CalendarDeletionResult {
         return synchronized(SYNC_LOCK) {
-            try {
-                context.contentResolver.delete(
-                    CalendarContract.Events.CONTENT_URI,
-                    LESSON_EVENT_SELECTION,
-                    lessonEventSelectionArgs(context.packageName)
-                )
-            } catch (_: SecurityException) {
-                0
-            } catch (_: Exception) {
-                0
-            }
+            CalendarEventAccess(
+                context.contentResolver,
+                LESSON_EVENT_SELECTION,
+                lessonEventSelectionArgs(context.packageName)
+            ).deleteAndVerify()
         }
     }
 
@@ -174,7 +181,9 @@ class CalendarExporter(private val context: Context) {
 
     private fun eventExists(calendarId: Long, title: String, startMillis: Long, endMillis: Long): Boolean {
         val projection = arrayOf(CalendarContract.Events._ID)
-        val selection = "${CalendarContract.Events.CALENDAR_ID} = ? AND ${CalendarContract.Events.TITLE} = ? AND ${CalendarContract.Events.DTSTART} = ? AND ${CalendarContract.Events.DTEND} = ?"
+        val selection = activeCalendarEventSelection(
+            "${CalendarContract.Events.CALENDAR_ID} = ? AND ${CalendarContract.Events.TITLE} = ? AND ${CalendarContract.Events.DTSTART} = ? AND ${CalendarContract.Events.DTEND} = ?"
+        )
         val args = arrayOf(
             calendarId.toString(),
             title,
@@ -196,25 +205,11 @@ class CalendarExporter(private val context: Context) {
     }
 
     private fun countEvents(selection: String, selectionArgs: Array<String>): Int {
-        return try {
-            context.contentResolver.query(
-                CalendarContract.Events.CONTENT_URI,
-                arrayOf(CalendarContract.Events._ID),
-                selection,
-                selectionArgs,
-                null
-            )?.use { cursor ->
-                cursor.count
-            } ?: 0
-        } catch (_: SecurityException) {
-            0
-        } catch (_: Exception) {
-            0
-        }
+        return CalendarEventAccess(context.contentResolver, selection, selectionArgs).count()
     }
 
     companion object {
-        private val SYNC_LOCK = Any()
+        private val SYNC_LOCK = CalendarEventAccess.LOCK
         private const val AUTO_SYNC_MARKER = "[NITTC_SCHEDULER_TIMETABLE_AUTO_SYNC]"
         private const val AUTO_SYNC_URI_PREFIX = "nittcsc://calendar/lesson/auto/"
         private const val MANUAL_LESSON_URI_PREFIX = "nittcsc://calendar/lesson/manual/"
@@ -225,7 +220,8 @@ class CalendarExporter(private val context: Context) {
             "${CalendarContract.Events.DESCRIPTION} LIKE ? OR " +
                 "${CalendarContract.Events.DESCRIPTION} LIKE ? OR " +
                 "${CalendarContract.Events.DESCRIPTION} LIKE ? OR " +
-                "${CalendarContract.Events.DESCRIPTION} LIKE ? OR " +
+                // 旧形式の授業を拾う条件で、担当付きの課題・予定まで削除しない。
+                "(${CalendarContract.Events.DESCRIPTION} LIKE ? AND ${CalendarContract.Events.DESCRIPTION} NOT LIKE ?) OR " +
                 "(${CalendarContract.Events.CUSTOM_APP_PACKAGE} = ? AND ${CalendarContract.Events.CUSTOM_APP_URI} LIKE ?) OR " +
                 "(${CalendarContract.Events.CUSTOM_APP_PACKAGE} = ? AND ${CalendarContract.Events.CUSTOM_APP_URI} LIKE ?)"
         private fun autoSyncSelectionArgs(packageName: String) = arrayOf(
@@ -239,6 +235,7 @@ class CalendarExporter(private val context: Context) {
             "NITTC Scheduler\\n担当:%",
             "NITTC Scheduler\n担当:%",
             "%NITTC Scheduler%担当:%",
+            "%NITTC Scheduler - %",
             packageName,
             "$AUTO_SYNC_URI_PREFIX%",
             packageName,

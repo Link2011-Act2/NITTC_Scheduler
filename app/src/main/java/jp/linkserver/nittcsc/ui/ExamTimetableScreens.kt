@@ -58,12 +58,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import jp.linkserver.nittcsc.InternalFeatureFlags
 import jp.linkserver.nittcsc.R
+import jp.linkserver.nittcsc.data.DayType
 import jp.linkserver.nittcsc.data.DayTypeEntity
 import jp.linkserver.nittcsc.data.ExamDayScheduleEntity
 import jp.linkserver.nittcsc.data.ExamLessonEntity
 import jp.linkserver.nittcsc.data.HolidaySpecialLabel
 import jp.linkserver.nittcsc.data.SettingsEntity
 import jp.linkserver.nittcsc.logic.adaptiveEditorColumnCount
+import jp.linkserver.nittcsc.logic.canBridgeExamDays
 import jp.linkserver.nittcsc.logic.generateClassSlots
 import jp.linkserver.nittcsc.logic.formatExamPeriodLabel
 import jp.linkserver.nittcsc.logic.forExamTimetable
@@ -80,6 +82,7 @@ data class ExamPeriod(
 )
 
 fun buildExamPeriods(dayTypes: Collection<DayTypeEntity>): List<ExamPeriod> {
+    val holidays = dayTypes.filter { it.dayType == DayType.HOLIDAY }.mapTo(mutableSetOf()) { it.date }
     val examDays = dayTypes
         .filter { it.holidaySpecialLabel?.usesExamTimetable == true }
         .sortedBy { it.date }
@@ -91,7 +94,7 @@ fun buildExamPeriods(dayTypes: Collection<DayTypeEntity>): List<ExamPeriod> {
     examDays.drop(1).forEach { day ->
         val label = day.holidaySpecialLabel!!
         val continuesCurrent = label == currentLabel &&
-            gapContainsOnlyWeekends(currentDates.last(), day.date)
+            canBridgeExamDays(currentDates.last(), day.date, holidays)
         if (continuesCurrent) {
             currentDates += day.date
         } else {
@@ -102,16 +105,6 @@ fun buildExamPeriods(dayTypes: Collection<DayTypeEntity>): List<ExamPeriod> {
     }
     result += ExamPeriod(currentLabel, currentDates.first(), currentDates.last(), currentDates.toList())
     return result
-}
-
-private fun gapContainsOnlyWeekends(previousDate: LocalDate, nextDate: LocalDate): Boolean {
-    if (!nextDate.isAfter(previousDate)) return false
-    var date = previousDate.plusDays(1)
-    while (date.isBefore(nextDate)) {
-        if (date.dayOfWeek.value < 6) return false
-        date = date.plusDays(1)
-    }
-    return true
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

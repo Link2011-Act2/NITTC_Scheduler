@@ -32,7 +32,7 @@ val buildNumberFiles = (
 ).sortedBy { it.relativeTo(rootProject.projectDir).invariantSeparatorsPath }
 
 val appCodeName = "Sist" // トリッカルから取ります
-val appVersionName = "1.1.0-Release"
+val appVersionName = "v1.1.1-IntDev"
 val buildContentHash = MessageDigest.getInstance("SHA-256").run {
     buildNumberFiles.forEach { file ->
         update(file.relativeTo(rootProject.projectDir).invariantSeparatorsPath.toByteArray())
@@ -46,7 +46,7 @@ val buildTimestamp = DateTimeFormatter.ofPattern("yyMMdd-HHmm")
     .withZone(ZoneId.systemDefault())
     .format(Instant.ofEpochMilli(buildNumberFiles.maxOf { it.lastModified() }))
 val generatedBuildNumber =
-    "$appCodeName-v${appVersionName.substringBefore('-')}-$buildTimestamp-${buildContentHash.take(3)}"
+    "$appCodeName-v${appVersionName.substringBefore('-').removePrefix("v")}-$buildTimestamp-${buildContentHash.take(3)}"
 
 // ── OSS ライセンス生成タスク ──────────────────────────────────────────────
 
@@ -290,7 +290,7 @@ android {
         applicationId = "jp.linkserver.nittcsc"
         minSdk = 26
         targetSdk = 36
-        versionCode = 20
+        versionCode = 21
         versionName = appVersionName
         buildConfigField("String", "BUILD_NUMBER", "\"$generatedBuildNumber\"")
 
