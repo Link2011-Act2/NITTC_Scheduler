@@ -138,6 +138,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -195,7 +196,6 @@ import jp.linkserver.nittcsc.logic.ClassSlot
 import jp.linkserver.nittcsc.logic.ExportRange
 import jp.linkserver.nittcsc.logic.ExportResult
 import jp.linkserver.nittcsc.logic.LessonKey
-import jp.linkserver.nittcsc.logic.NaturalLanguageLessonCandidate
 import jp.linkserver.nittcsc.logic.NaturalLanguageTaskParser
 import jp.linkserver.nittcsc.logic.TimetableTerm
 import jp.linkserver.nittcsc.logic.UpcomingLessonCandidate
@@ -209,6 +209,7 @@ import jp.linkserver.nittcsc.logic.shouldUseLargeScreenLayout
 import jp.linkserver.nittcsc.logic.shouldUseNavigationRail
 import jp.linkserver.nittcsc.logic.shouldUseTwoPaneLayout
 import jp.linkserver.nittcsc.logic.buildLessonAutocompleteOptions
+import jp.linkserver.nittcsc.logic.updateTeacherAutoFill
 import jp.linkserver.nittcsc.logic.findTaskLessonSlotIndex
 import jp.linkserver.nittcsc.logic.findUpcomingLesson
 import jp.linkserver.nittcsc.logic.formatExamPeriodLabel
@@ -354,13 +355,6 @@ private data class PendingLessonMoveDialogState(
     val items: List<LessonMoveTargetItem>
 )
 
-private data class LessonAutocompleteEntry(
-    val subject: String,
-    val teacher: String,
-    val location: String?
-)
-
-
 private data class LessonSearchResult(
     val date: LocalDate,
     val slot: ClassSlot,
@@ -471,17 +465,10 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val resources = LocalResources.current
-    LaunchedEffect(uiState.initialized) {
+    val currentDate = rememberCurrentDate()
+    LaunchedEffect(uiState.initialized, currentDate) {
         if (!uiState.initialized) return@LaunchedEffect
-        while (true) {
-            val now = java.time.ZonedDateTime.now()
-            val nextMidnight = now.toLocalDate().plusDays(1).atStartOfDay(now.zone)
-            val waitMillis = java.time.Duration.between(now, nextMidnight)
-                .toMillis()
-                .coerceAtLeast(1_000L)
-            delay(waitMillis + 1_000L)
-            viewModel.refreshAcademicYear()
-        }
+        viewModel.refreshAcademicYear()
     }
     val tutorialPreferences = remember(context) {
         context.getSharedPreferences(TUTORIAL_PREFS_NAME, Context.MODE_PRIVATE)
@@ -1653,9 +1640,16 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
     val selectedExamPeriod = selectedExamPeriodStartEpochDay?.let { epochDay ->
         examPeriods.firstOrNull { it.startDate.toEpochDay() == epochDay }
     }
-    val lessonAutocompleteOptions = remember(uiState.lessons) {
-        buildLessonAutocompleteOptions(uiState.lessons.values)
+    val lessonAutocompleteOptions = remember(uiState.lessons, uiState.settings, currentDate) {
+        buildLessonAutocompleteOptions(
+            lessons = uiState.lessons.values,
+            currentDate = currentDate,
+            semesterTimetablesEnabled = semesterTimetablesEnabled,
+            secondTermStartMonth = uiState.settings?.secondTermStartMonth ?: 10,
+            secondTermStartDay = uiState.settings?.secondTermStartDay ?: 1
+        )
     }
+    val currentLessonAutocompleteOptions by rememberUpdatedState(lessonAutocompleteOptions)
 
     val currentScreenResource = when {
         showOssLicenses -> "oss"
@@ -1792,62 +1786,25 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                 "lessonChange" -> {
                     val editorState = lessonChangeEditor
                     if (editorState != null) {
-                        val lessonAutocompleteEntries = uiState.lessons.values.flatMap { lesson ->
-                            when (lesson.mode) {
-                                LessonMode.WEEKLY -> listOf(
-                                    LessonAutocompleteEntry(
-                                        subject = lesson.weeklySubject.trim(),
-                                        teacher = lesson.weeklyTeacher.trim(),
-                                        location = lesson.weeklyLocation?.trim()?.takeIf { it.isNotEmpty() }
-                                    )
+                        val initialLesson = remember(editorState) {
+                            if (editorState.existingChangedLesson == null) {
+                                editorState.currentLesson.copy(
+                                    teacher = lessonAutocompleteOptions.resolveTeacherForAutoFill(
+                                        editorState.currentLesson.subject, editorState.currentLesson.teacher
+                                    ).orEmpty()
                                 )
-                                LessonMode.ALTERNATING -> listOf(
-                                    LessonAutocompleteEntry(
-                                        subject = lesson.aSubject.trim(),
-                                        teacher = lesson.aTeacher.trim(),
-                                        location = lesson.aLocation?.trim()?.takeIf { it.isNotEmpty() }
-                                    ),
-                                    LessonAutocompleteEntry(
-                                        subject = lesson.bSubject.trim(),
-                                        teacher = lesson.bTeacher.trim(),
-                                        location = lesson.bLocation?.trim()?.takeIf { it.isNotEmpty() }
-                                    )
-                                )
-                            }
-                        }.filter { it.subject.isNotBlank() }
-                        val subjectSuggestions = lessonAutocompleteEntries
-                            .map { it.subject }
-                            .distinct()
-                            .sorted()
-                        val subjectTeacherCandidates = lessonAutocompleteEntries
-                            .filter { it.teacher.isNotBlank() }
-                            .groupBy({ it.subject }, { it.teacher })
-                            .mapValues { (_, teachers) -> teachers.distinct().sorted() }
-                        val subjectTeacherLocationCandidates = lessonAutocompleteEntries
-                            .filter { it.teacher.isNotBlank() && !it.location.isNullOrBlank() }
-                            .groupBy(
-                                keySelector = { it.subject to it.teacher },
-                                valueTransform = { it.location.orEmpty() }
-                            )
-                            .mapValues { (_, locations) -> locations.filter { it.isNotBlank() }.distinct().sorted() }
-                        val subjectLocationCandidates = lessonAutocompleteEntries
-                            .filter { !it.location.isNullOrBlank() }
-                            .groupBy(
-                                keySelector = { it.subject },
-                                valueTransform = { it.location.orEmpty() }
-                            )
-                            .mapValues { (_, locations) -> locations.filter { it.isNotBlank() }.distinct().sorted() }
-
+                            } else editorState.currentLesson
+                        }
                         ChangeLessonScreen(
                             date = editorState.date,
                             slotLabel = currentClassSlots.firstOrNull { it.index == editorState.slotIndex }?.label
                                 ?: "${editorState.slotIndex + 1}限",
                             originalLesson = editorState.originalLesson,
-                            initialLesson = editorState.currentLesson,
-                            subjectSuggestions = subjectSuggestions,
-                            subjectTeacherCandidates = subjectTeacherCandidates,
-                            subjectTeacherLocationCandidates = subjectTeacherLocationCandidates,
-                            subjectLocationCandidates = subjectLocationCandidates,
+                            initialLesson = initialLesson,
+                            subjectSuggestions = lessonAutocompleteOptions.subjectSuggestions,
+                            subjectTeacherCandidates = lessonAutocompleteOptions.subjectTeacherCandidates,
+                            subjectTeacherLocationCandidates = lessonAutocompleteOptions.subjectTeacherLocationCandidates,
+                            subjectLocationCandidates = lessonAutocompleteOptions.subjectLocationCandidates,
                             canClear = editorState.existingChangedLesson != null,
                             onSave = { subject, teacher, location ->
                                 saveChangedLessonWithPrompt(editorState, subject, teacher, location)
@@ -1945,6 +1902,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                 }
                 "vlm" -> {
                 VlmImportScreen(
+                    lessonAutocompleteOptions = lessonAutocompleteOptions,
                     hfToken = uiState.settings?.hfToken,
                     onUpdateHfToken = viewModel::updateHfToken,
                     onBack = { showVlmImport = false },
@@ -2143,29 +2101,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
 
                 val taskSubjectSuggestions = lessonAutocompleteOptions.subjectSuggestions
                 val taskTeacherCandidates = lessonAutocompleteOptions.subjectTeacherCandidates
-                val naturalLanguageLessonCandidates = uiState.lessons.values
-                    .flatMap { lesson ->
-                        when (lesson.mode) {
-                            LessonMode.WEEKLY -> listOf(
-                                NaturalLanguageLessonCandidate(
-                                    subject = lesson.weeklySubject.trim(),
-                                    teacher = lesson.weeklyTeacher.trim().takeIf { it.isNotBlank() }
-                                )
-                            )
-                            LessonMode.ALTERNATING -> listOf(
-                                NaturalLanguageLessonCandidate(
-                                    subject = lesson.aSubject.trim(),
-                                    teacher = lesson.aTeacher.trim().takeIf { it.isNotBlank() }
-                                ),
-                                NaturalLanguageLessonCandidate(
-                                    subject = lesson.bSubject.trim(),
-                                    teacher = lesson.bTeacher.trim().takeIf { it.isNotBlank() }
-                                )
-                            )
-                        }
-                    }
-                    .filter { it.subject.isNotBlank() }
-                    .distinctBy { it.subject to it.teacher }
+                val naturalLanguageLessonCandidates = lessonAutocompleteOptions.naturalLanguageCandidates
                 val naturalLanguageModelFamilies = rememberModelFamilies()
                 val naturalLanguageModelManager = remember { ModelDownloadManager(context) }
                 val naturalLanguageModelOptions = remember(
@@ -2273,13 +2209,15 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                             }
                         }
                     val resolvedSubject = matchedAiCandidate?.subject ?: fallbackResult.subject
-                    val resolvedTeacher = when {
+                    val suggestedTeacher = when {
                         matchedAiCandidate == null -> fallbackResult.teacher
                         aiResult.teacher.isNullOrBlank() -> matchedAiCandidate.teacher ?: fallbackResult.teacher
                         matchedAiCandidate.teacher.equals(aiResult.teacher, ignoreCase = true) ->
                             matchedAiCandidate.teacher
                         else -> fallbackResult.teacher
                     }
+                    val resolvedTeacher = currentLessonAutocompleteOptions
+                        .resolveTeacherForAutoFill(resolvedSubject, suggestedTeacher)
                     val resolvedTime = if (aiResult?.dueHour != null && aiResult.dueMinute != null) {
                         aiResult.dueHour to aiResult.dueMinute
                     } else {
@@ -2480,7 +2418,8 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                                         },
                                            onAddFromLesson = { subject, teacher, isPlan, date, time, isExamSlot ->
                                                prefillSubject = subject
-                                               prefillTeacher = teacher
+                                               prefillTeacher = lessonAutocompleteOptions
+                                                   .resolveTeacherForAutoFill(subject, teacher).orEmpty()
                                                prefillFromExamSlot = isExamSlot
                                                val lessonDateTime = LocalDateTime.of(date, time)
                                                if (isExamSlot || lessonDateTime.isAfter(LocalDateTime.now())) {
@@ -7772,6 +7711,12 @@ private fun ChangeLessonScreen(
     var teacher by rememberSaveable(date.toEpochDay(), slotLabel, initialLesson.teacher) {
         mutableStateOf(initialLesson.teacher)
     }
+    var autoFilledTeacher by rememberSaveable(date.toEpochDay(), slotLabel) {
+        mutableStateOf(initialLesson.teacher.takeIf { !canClear && it.isNotBlank() })
+    }
+    var autoFilledSubject by rememberSaveable(date.toEpochDay(), slotLabel) {
+        mutableStateOf(initialLesson.subject.trim())
+    }
     var location by rememberSaveable(date.toEpochDay(), slotLabel, initialLesson.location) {
         mutableStateOf(initialLesson.location.orEmpty())
     }
@@ -7840,10 +7785,14 @@ private fun ChangeLessonScreen(
     }
 
     LaunchedEffect(subject.trim(), subjectEditedByUser, teacherCandidates) {
-        if (!subjectEditedByUser) return@LaunchedEffect
-        if (teacherCandidates.size == 1) {
-            teacher = teacherCandidates.first()
-        }
+        if (!subjectEditedByUser && autoFilledTeacher == null) return@LaunchedEffect
+        if (subject.trim().equals(autoFilledSubject, ignoreCase = true) &&
+            subjectTeacherCandidates.keys.none { it.equals(subject.trim(), ignoreCase = true) }
+        ) return@LaunchedEffect
+        val result = updateTeacherAutoFill(teacher, autoFilledTeacher, teacherCandidates)
+        teacher = result.teacher
+        autoFilledTeacher = result.autoFilledTeacher
+        autoFilledSubject = subject.trim()
     }
 
     LaunchedEffect(subject.trim(), teacher.trim(), subjectEditedByUser, teacherLocationOptions, subjectLocationOptions) {
@@ -7979,7 +7928,7 @@ private fun ChangeLessonScreen(
                     }
                     OutlinedTextField(
                         value = teacher,
-                        onValueChange = { teacher = it },
+                        onValueChange = { teacher = it; autoFilledTeacher = null },
                         label = { Text(stringResource(R.string.label_task_teacher)) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
@@ -7994,7 +7943,7 @@ private fun ChangeLessonScreen(
                             teacherCandidates.forEach { candidate ->
                                 FilterChip(
                                     selected = candidate.equals(teacher.trim(), ignoreCase = true),
-                                    onClick = { teacher = candidate },
+                                    onClick = { teacher = candidate; autoFilledTeacher = null },
                                     label = { Text(candidate) }
                                 )
                             }

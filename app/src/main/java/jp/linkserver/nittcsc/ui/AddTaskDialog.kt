@@ -52,6 +52,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.dp
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.TaskEntity
+import jp.linkserver.nittcsc.logic.updateTeacherAutoFill
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -75,6 +76,10 @@ fun AddTaskDialog(
     var description by rememberSaveable(task?.id) { mutableStateOf(task?.description ?: "") }
     var subject by rememberSaveable(task?.id) { mutableStateOf(task?.subject ?: "") }
     var teacher by rememberSaveable(task?.id) { mutableStateOf(task?.teacher ?: "") }
+    var autoFilledTeacher by rememberSaveable(task?.id) {
+        mutableStateOf(task?.teacher?.takeIf { task.id == 0L && it.isNotBlank() })
+    }
+    var autoFilledSubject by rememberSaveable(task?.id) { mutableStateOf(task?.subject?.trim().orEmpty()) }
     var dueDate by rememberSaveable(task?.id, stateSaver = LocalDateSaver) {
         mutableStateOf(task?.dueDate ?: LocalDate.now())
     }
@@ -137,11 +142,13 @@ fun AddTaskDialog(
     }
 
     LaunchedEffect(subject.trim(), subjectTeacherCandidates) {
-        val subjectValue = subject.trim()
-        if (subjectValue.isBlank()) return@LaunchedEffect
-        if (teacherCandidatesForSubject.size == 1) {
-            teacher = teacherCandidatesForSubject.first()
-        }
+        if (subject.trim().equals(autoFilledSubject, ignoreCase = true) &&
+            subjectTeacherCandidates.keys.none { it.equals(subject.trim(), ignoreCase = true) }
+        ) return@LaunchedEffect
+        val result = updateTeacherAutoFill(teacher, autoFilledTeacher, teacherCandidatesForSubject)
+        teacher = result.teacher
+        autoFilledTeacher = result.autoFilledTeacher
+        autoFilledSubject = subject.trim()
     }
 
     AlertDialog(
@@ -224,7 +231,7 @@ fun AddTaskDialog(
                 // Teacher Field
                 OutlinedTextField(
                     value = teacher,
-                    onValueChange = { teacher = it },
+                    onValueChange = { teacher = it; autoFilledTeacher = null },
                     label = { Text(stringResource(R.string.label_task_teacher)) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
@@ -242,7 +249,7 @@ fun AddTaskDialog(
                         ) {
                             teacherCandidatesForSubject.forEach { candidate ->
                                 AssistChip(
-                                    onClick = { teacher = candidate },
+                                    onClick = { teacher = candidate; autoFilledTeacher = null },
                                     label = { Text(candidate) }
                                 )
                             }

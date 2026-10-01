@@ -38,6 +38,7 @@ import androidx.work.WorkManager
 import jp.linkserver.nittcsc.ml.*
 import jp.linkserver.nittcsc.data.*
 import jp.linkserver.nittcsc.logic.LessonKey
+import jp.linkserver.nittcsc.logic.LessonAutocompleteOptions
 import jp.linkserver.nittcsc.logic.TimetableTerm
 import jp.linkserver.nittcsc.logic.academicYearForDate
 import jp.linkserver.nittcsc.viewmodel.SchedulerUiState
@@ -279,6 +280,7 @@ class VlmDownloadViewModel(application: Application) : AndroidViewModel(applicat
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VlmImportScreen(
+    lessonAutocompleteOptions: LessonAutocompleteOptions,
     hfToken: String?,
     onUpdateHfToken: (String?) -> Unit,
     onBack: () -> Unit,
@@ -290,6 +292,7 @@ fun VlmImportScreen(
     downloadViewModel: VlmDownloadViewModel = viewModel()
 ) {
     val context = LocalContext.current
+    val currentLessonAutocompleteOptions by rememberUpdatedState(lessonAutocompleteOptions)
     val downloadManager = remember { ModelDownloadManager(context) }
     val coroutineScope = rememberCoroutineScope()
     val activeAcademicYear = state?.settings?.activeAcademicYear
@@ -425,7 +428,9 @@ fun VlmImportScreen(
                         parsedLessons = emptyList()
                     } catch (e: Exception) { e.printStackTrace() }
                 } else {
-                    parsedLessons = inferenceEngine.parseLessonsFromJson(jsonOutput)
+                    parsedLessons = inferenceEngine.parseLessonsFromJson(jsonOutput).map { lesson ->
+                        lesson.copy(draft = currentLessonAutocompleteOptions.resolveDraftTeachersForAutoFill(lesson.draft))
+                    }
                     parsedAbTable = emptyMap()
                 }
             } catch (e: Exception) {

@@ -35,6 +35,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import jp.linkserver.nittcsc.data.LessonNotificationExclusionEntity
 import jp.linkserver.nittcsc.data.LessonStartNotificationChipMode
+import jp.linkserver.nittcsc.logic.updateTeacherAutoFill
 import jp.linkserver.nittcsc.ui.components.AppSettingsGroup
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -77,6 +79,7 @@ internal fun LegacyLessonStartNotificationSettingsContent(
 ) {
     var subject by remember { mutableStateOf("") }
     var teacher by remember { mutableStateOf("") }
+    var autoFilledTeacher by remember { mutableStateOf<String?>(null) }
     var matchTeacher by remember { mutableStateOf(false) }
     var showSubjectSuggestions by remember { mutableStateOf(false) }
     var showLiveUpdateEarlyMinutesMenu by remember { mutableStateOf(false) }
@@ -106,6 +109,11 @@ internal fun LegacyLessonStartNotificationSettingsContent(
             .sorted()
     }
     val canAdd = subject.trim().isNotBlank()
+    LaunchedEffect(subject.trim(), teacherCandidates) {
+        val result = updateTeacherAutoFill(teacher, autoFilledTeacher, teacherCandidates)
+        teacher = result.teacher
+        autoFilledTeacher = result.autoFilledTeacher
+    }
 
     AppSettingsGroup {
         section("notification-content", standardContainer = { sectionContent ->
@@ -457,10 +465,6 @@ internal fun LegacyLessonStartNotificationSettingsContent(
                                         onClick = {
                                             subject = candidate
                                             showSubjectSuggestions = false
-                                            val candidates = subjectTeacherCandidates[candidate].orEmpty()
-                                            if (candidates.size == 1) {
-                                                teacher = candidates.first()
-                                            }
                                         }
                                     )
                                 }
@@ -499,7 +503,7 @@ internal fun LegacyLessonStartNotificationSettingsContent(
                         item("label_task_teacher", contentPadding = PaddingValues(20.dp)) {
                             OutlinedTextField(
                                 value = teacher,
-                                onValueChange = { teacher = it },
+                                onValueChange = { teacher = it; autoFilledTeacher = null },
                                 label = { Text(stringResource(R.string.label_task_teacher)) },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
@@ -516,7 +520,7 @@ internal fun LegacyLessonStartNotificationSettingsContent(
                                         Surface(
                                             shape = MaterialTheme.shapes.small,
                                             color = MaterialTheme.colorScheme.secondaryContainer,
-                                            modifier = Modifier.clickable { teacher = candidate }
+                                            modifier = Modifier.clickable { teacher = candidate; autoFilledTeacher = null }
                                         ) {
                                             Text(
                                                 text = candidate,
@@ -541,6 +545,7 @@ internal fun LegacyLessonStartNotificationSettingsContent(
                                 )
                                 subject = ""
                                 teacher = ""
+                                autoFilledTeacher = null
                                 matchTeacher = false
                             },
                             enabled = canAdd,

@@ -44,6 +44,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,6 +70,7 @@ import jp.linkserver.nittcsc.logic.canBridgeExamDays
 import jp.linkserver.nittcsc.logic.generateClassSlots
 import jp.linkserver.nittcsc.logic.formatExamPeriodLabel
 import jp.linkserver.nittcsc.logic.forExamTimetable
+import jp.linkserver.nittcsc.logic.updateTeacherAutoFill
 import androidx.compose.ui.res.stringResource
 import java.time.LocalDate
 import java.time.LocalTime
@@ -625,6 +627,22 @@ private fun ExamSlotEditorCard(
             .distinct()
             .sorted()
     }
+    var autoFilledTeacher by rememberSaveable(date.toEpochDay(), draft.slotIndex) {
+        mutableStateOf<String?>(null)
+    }
+    fun updateSubject(value: String) {
+        val candidates = subjectTeacherCandidates.entries
+            .firstOrNull { it.key.equals(value.trim(), ignoreCase = true) }?.value.orEmpty()
+        val result = updateTeacherAutoFill(draft.teacher, autoFilledTeacher, candidates)
+        autoFilledTeacher = result.autoFilledTeacher
+        onUpdateDraft(draft.copy(subject = value, teacher = result.teacher))
+    }
+    LaunchedEffect(teacherCandidatesForSubject) {
+        if (autoFilledTeacher == null) return@LaunchedEffect
+        val result = updateTeacherAutoFill(draft.teacher, autoFilledTeacher, teacherCandidatesForSubject)
+        autoFilledTeacher = result.autoFilledTeacher
+        if (draft.teacher != result.teacher) onUpdateDraft(draft.copy(teacher = result.teacher))
+    }
     val fieldColors = TextFieldDefaults.colors(
         focusedContainerColor = Color.Transparent,
         unfocusedContainerColor = Color.Transparent,
@@ -683,18 +701,7 @@ private fun ExamSlotEditorCard(
                     TextField(
                         value = draft.subject,
                         onValueChange = { value ->
-                            val matchedSubject = subjectSuggestions.firstOrNull {
-                                it.equals(value.trim(), ignoreCase = true)
-                            }
-                            val matchedTeachers = matchedSubject
-                                ?.let { subjectTeacherCandidates[it].orEmpty() }
-                                .orEmpty()
-                            onUpdateDraft(
-                                draft.copy(
-                                    subject = value,
-                                    teacher = matchedTeachers.singleOrNull() ?: draft.teacher
-                                )
-                            )
+                            updateSubject(value)
                             showSubjectSuggestions = false
                         },
                         placeholder = {
@@ -727,13 +734,7 @@ private fun ExamSlotEditorCard(
                         DropdownMenuItem(
                             text = { Text(candidate) },
                             onClick = {
-                                val matchedTeachers = subjectTeacherCandidates[candidate].orEmpty()
-                                onUpdateDraft(
-                                    draft.copy(
-                                        subject = candidate,
-                                        teacher = matchedTeachers.singleOrNull() ?: draft.teacher
-                                    )
-                                )
+                                updateSubject(candidate)
                                 showSubjectSuggestions = false
                             }
                         )
@@ -746,7 +747,10 @@ private fun ExamSlotEditorCard(
             ) {
                 TextField(
                     value = draft.teacher,
-                    onValueChange = { value -> onUpdateDraft(draft.copy(teacher = value)) },
+                    onValueChange = { value ->
+                        autoFilledTeacher = null
+                        onUpdateDraft(draft.copy(teacher = value))
+                    },
                     placeholder = { Text(stringResource(R.string.label_exam_teacher)) },
                     textStyle = MaterialTheme.typography.bodySmall,
                     singleLine = true,
@@ -778,6 +782,7 @@ private fun ExamSlotEditorCard(
                     teacherCandidatesForSubject.forEach { candidate ->
                         AssistChip(
                             onClick = {
+                                autoFilledTeacher = null
                                 onUpdateDraft(draft.copy(teacher = candidate))
                             },
                             label = { Text(candidate) }

@@ -61,6 +61,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.TaskEntity
+import jp.linkserver.nittcsc.logic.updateTeacherAutoFill
 import jp.linkserver.nittcsc.ui.components.AppSwitch
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -93,6 +94,10 @@ fun AddTaskScreen(
     var description by rememberSaveable(editorStateKey) { mutableStateOf(task?.description ?: "") }
     var subject by rememberSaveable(editorStateKey) { mutableStateOf(task?.subject ?: "") }
     var teacher by rememberSaveable(editorStateKey) { mutableStateOf(task?.teacher ?: "") }
+    var autoFilledTeacher by rememberSaveable(editorStateKey) {
+        mutableStateOf(task?.teacher?.takeIf { task.id == 0L && it.isNotBlank() })
+    }
+    var autoFilledSubject by rememberSaveable(editorStateKey) { mutableStateOf(task?.subject?.trim().orEmpty()) }
     // 新規タスクで教科名が事前設定されている場合は自動検索を即座にトリガーする
     var subjectEditedByUser by rememberSaveable(editorStateKey) {
         mutableStateOf(autoResolveInitialSubject && (task?.id ?: 0L) == 0L && task?.subject?.isNotBlank() == true)
@@ -223,13 +228,16 @@ fun AddTaskScreen(
         }
     }
 
-    LaunchedEffect(subject.trim(), subjectTeacherCandidates) {
-        val subjectValue = subject.trim()
-        if (subjectValue.isBlank()) return@LaunchedEffect
-        if (!subjectEditedByUser) return@LaunchedEffect
-        if (teacherCandidatesForSubject.size == 1) {
-            teacher = teacherCandidatesForSubject.first()
-        }
+    LaunchedEffect(subject.trim(), subjectEditedByUser, subjectTeacherCandidates) {
+        if (!subjectEditedByUser && autoFilledTeacher == null) return@LaunchedEffect
+        // 時間割未登録の教科を授業・試験から引き継いだ場合、その教員を維持する。
+        if (subject.trim().equals(autoFilledSubject, ignoreCase = true) &&
+            subjectTeacherCandidates.keys.none { it.equals(subject.trim(), ignoreCase = true) }
+        ) return@LaunchedEffect
+        val result = updateTeacherAutoFill(teacher, autoFilledTeacher, teacherCandidatesForSubject)
+        teacher = result.teacher
+        autoFilledTeacher = result.autoFilledTeacher
+        autoFilledSubject = subject.trim()
     }
 
     val canSave = title.isNotBlank() && (isPlan || subject.isNotBlank())
@@ -473,7 +481,7 @@ fun AddTaskScreen(
                     )
                     TextField(
                         value = teacher,
-                        onValueChange = { teacher = it },
+                        onValueChange = { teacher = it; autoFilledTeacher = null },
                         placeholder = { Text(stringResource(R.string.placeholder_teacher)) },
                         textStyle = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.fillMaxWidth(),
@@ -493,7 +501,7 @@ fun AddTaskScreen(
                         ) {
                             teacherCandidatesForSubject.forEach { candidate ->
                                 AssistChip(
-                                    onClick = { teacher = candidate },
+                                    onClick = { teacher = candidate; autoFilledTeacher = null },
                                     label = { Text(candidate) }
                                 )
                             }

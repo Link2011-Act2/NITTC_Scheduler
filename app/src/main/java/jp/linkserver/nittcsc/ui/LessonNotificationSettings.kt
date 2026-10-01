@@ -22,6 +22,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.LessonNotificationExclusionEntity
 import jp.linkserver.nittcsc.data.LessonStartNotificationChipMode
+import jp.linkserver.nittcsc.logic.updateTeacherAutoFill
 import jp.linkserver.nittcsc.ui.components.AppSettingsGroup
 import jp.linkserver.nittcsc.ui.components.AppSettingsExpandableItem
 import jp.linkserver.nittcsc.ui.components.NavigationPreferenceRow
@@ -202,6 +204,7 @@ private fun LessonNotificationExclusionDialog(
 ) {
     var subject by rememberSaveable { mutableStateOf("") }
     var teacher by rememberSaveable { mutableStateOf("") }
+    var autoFilledTeacher by rememberSaveable { mutableStateOf<String?>(null) }
     var matchTeacher by rememberSaveable { mutableStateOf(false) }
     var showSubjectSuggestions by rememberSaveable { mutableStateOf(false) }
     val filteredSubjects = remember(subject, subjectSuggestions) {
@@ -212,6 +215,11 @@ private fun LessonNotificationExclusionDialog(
     val teachers = remember(subject, subjectTeacherCandidates) {
         subjectTeacherCandidates.entries.firstOrNull { it.key.equals(subject.trim(), ignoreCase = true) }
             ?.value.orEmpty().map { it.trim() }.filter { it.isNotBlank() }.distinct().sorted()
+    }
+    LaunchedEffect(subject.trim(), teachers) {
+        val result = updateTeacherAutoFill(teacher, autoFilledTeacher, teachers)
+        teacher = result.teacher
+        autoFilledTeacher = result.autoFilledTeacher
     }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -238,7 +246,6 @@ private fun LessonNotificationExclusionDialog(
                             DropdownMenuItem(text = { Text(candidate) }, onClick = {
                                 subject = candidate
                                 showSubjectSuggestions = false
-                                subjectTeacherCandidates[candidate].orEmpty().singleOrNull()?.let { teacher = it }
                             })
                         }
                     }
@@ -249,12 +256,12 @@ private fun LessonNotificationExclusionDialog(
                     matchTeacher, onCheckedChange = { matchTeacher = it }
                 )
                 if (matchTeacher) {
-                    OutlinedTextField(value = teacher, onValueChange = { teacher = it },
+                    OutlinedTextField(value = teacher, onValueChange = { teacher = it; autoFilledTeacher = null },
                         label = { Text(stringResource(R.string.label_task_teacher)) },
                         singleLine = true, modifier = Modifier.fillMaxWidth())
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         teachers.take(4).forEach { candidate ->
-                            TextButton(onClick = { teacher = candidate }) { Text(candidate) }
+                            TextButton(onClick = { teacher = candidate; autoFilledTeacher = null }) { Text(candidate) }
                         }
                     }
                 }
