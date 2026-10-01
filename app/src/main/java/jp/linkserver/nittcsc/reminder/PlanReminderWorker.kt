@@ -56,7 +56,7 @@ class PlanReminderWorker(
         )
 
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification_assignment)
             .setContentTitle(applicationContext.getString(R.string.plan_reminder_notification_title))
             .setContentText(
                 applicationContext.getString(

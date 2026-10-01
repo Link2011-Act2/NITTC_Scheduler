@@ -215,7 +215,7 @@ class LessonStartNotificationWorker(
         pendingIntent: PendingIntent
     ): Notification {
         return NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification_school)
+            .setSmallIcon(R.drawable.ic_notification_person_raised_hand)
             .setContentTitle(applicationContext.getString(R.string.lesson_start_notification_title))
             .setContentText(
                 buildLessonStartText(minutesBefore, lesson.subject)
@@ -306,7 +306,7 @@ class LessonStartNotificationWorker(
         }.coerceIn(0, totalSeconds)
 
         val builder = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification_school)
+            .setSmallIcon(R.drawable.ic_notification_person_raised_hand)
             .setContentTitle(
                 applicationContext.getString(
                     R.string.lesson_start_live_update_title,
