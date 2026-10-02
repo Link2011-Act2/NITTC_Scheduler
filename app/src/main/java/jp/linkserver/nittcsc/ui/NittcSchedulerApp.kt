@@ -245,14 +245,6 @@ import jp.linkserver.nittcsc.ui.theme.Typography as StandardTypography
 import jp.linkserver.nittcsc.viewmodel.SchedulerUiState
 import jp.linkserver.nittcsc.viewmodel.SchedulerViewModel
 import jp.linkserver.nittcsc.sync.NearbyPhase
-import jp.linkserver.nittcsc.update.AppUpdateInfo
-import jp.linkserver.nittcsc.update.checkGitHubReleaseUpdate
-import jp.linkserver.nittcsc.update.dismissUpdateNotificationUntilNextVersion
-import jp.linkserver.nittcsc.update.isShowLatestReleaseForTestingEnabled
-import jp.linkserver.nittcsc.update.isUpdateNotificationDismissed
-import jp.linkserver.nittcsc.update.markUpdateCheckFinished
-import jp.linkserver.nittcsc.update.resolveUpdateCurrentVersionForTesting
-import jp.linkserver.nittcsc.update.shouldCheckForUpdates
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
@@ -500,9 +492,10 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
     var pendingNearbyPerms by remember { mutableStateOf<Array<String>>(emptyArray()) }
     var showVlmImport by rememberSaveable { mutableStateOf(false) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
-    var availableUpdate by remember { mutableStateOf<AppUpdateInfo?>(null) }
+    val availableUpdate = uiState.appUpdate.availableUpdate
     var showUpdateOverview by rememberSaveable { mutableStateOf(false) }
-    var updateNotification by remember { mutableStateOf<AppUpdateInfo?>(null) }
+    val updateNotification = uiState.appUpdate.notificationUpdate
+    var showUpdatePrompt by rememberSaveable { mutableStateOf(false) }
     var showOssLicenses by rememberSaveable { mutableStateOf(false) }
     var showLessonSearch by rememberSaveable { mutableStateOf(false) }
     var requestedOutputDayEpochDay by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -830,9 +823,9 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
         transientTabTarget = null
     }
 
-    fun openUpdateOverview(updateInfo: AppUpdateInfo) {
-        availableUpdate = updateInfo
-        updateNotification = null
+    fun openUpdateOverview() {
+        showUpdatePrompt = false
+        viewModel.hideUpdateBanner()
         showOssLicenses = false
         showAbout = false
         showSettings = false
@@ -1049,35 +1042,21 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
         viewModel.snackbarMessages.collect { snackbarHostState.showSnackbar(it) }
     }
 
-    LaunchedEffect(Unit) {
-        val currentVersionName = runCatching {
-            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.packageManager.getPackageInfo(
-                    context.packageName,
-                    android.content.pm.PackageManager.PackageInfoFlags.of(0)
-                )
-            } else {
-                @Suppress("DEPRECATION")
-                context.packageManager.getPackageInfo(context.packageName, 0)
-            }
-            info.versionName ?: "unknown"
-        }.getOrDefault("unknown")
-        if (shouldCheckForUpdates(context, currentVersionName)) {
-            val repositoryUrl = resources.getString(R.string.about_support_site_url)
-            val result = withContext(Dispatchers.IO) {
-                checkGitHubReleaseUpdate(
-                    repositoryUrl = repositoryUrl,
-                    currentVersion = resolveUpdateCurrentVersionForTesting(context, currentVersionName),
-                    showLatestForTesting = isShowLatestReleaseForTestingEnabled(context, currentVersionName)
-                )
-            }
-            markUpdateCheckFinished(context)
-            result.onSuccess { updateInfo ->
-                if (updateInfo != null && !isUpdateNotificationDismissed(context, updateInfo.tagName)) {
-                    availableUpdate = updateInfo
-                    updateNotification = updateInfo
-                }
-            }
+    LaunchedEffect(showSettings) {
+        if (!showSettings) viewModel.checkForAppUpdates()
+    }
+
+    if (showUpdatePrompt) {
+        updateNotification?.let { update ->
+            AppUpdatePrompt(
+                update = update,
+                onConfirm = { openUpdateOverview() },
+                onIgnore = {
+                    showUpdatePrompt = false
+                    viewModel.ignoreUpdateVersion(update.tagName)
+                },
+                onDismiss = { showUpdatePrompt = false }
+            )
         }
     }
 
@@ -1767,12 +1746,13 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                 }
                 "about" -> {
                     AboutScreen(
+                        onCheckForUpdates = viewModel::checkForAppUpdatesManually,
                         onBack = {
                             showAbout = false
                             showSettings = true
                         },
                         onOssLicenses = { showOssLicenses = true },
-                        onUpdateAvailable = ::openUpdateOverview
+                        onUpdateAvailable = { openUpdateOverview() }
                     )
                 }
                 "update" -> {
@@ -2679,6 +2659,12 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                                                 }
                                             }
                                             if (selectedTab == AppTab.Output) {
+                                                if (updateNotification != null) {
+                                                    AppUpdateAction(onClick = {
+                                                        viewModel.hideUpdateBanner()
+                                                        showUpdatePrompt = true
+                                                    })
+                                                }
                                                 if (uiState.settings?.enableLocalAi == true) {
                                                     AppIconButton(onClick = { showVlmImport = true }) {
                                                         Icon(Icons.Filled.AutoFixHigh, contentDescription = stringResource(R.string.cd_ai_import))
@@ -3003,7 +2989,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
         }
 
         AnimatedVisibility(
-            visible = updateNotification != null,
+            visible = uiState.appUpdate.showBanner && !showUpdatePrompt,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
@@ -3014,11 +3000,11 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
             updateNotification?.let { updateInfo ->
                 UpdateNotificationBanner(
                     updateInfo = updateInfo,
-                    onOpen = { openUpdateOverview(updateInfo) },
-                    onDismiss = {
-                        dismissUpdateNotificationUntilNextVersion(context, updateInfo.tagName)
-                        updateNotification = null
-                    }
+                    onOpen = {
+                        viewModel.hideUpdateBanner()
+                        showUpdatePrompt = true
+                    },
+                    onDismiss = { viewModel.hideUpdateBanner() }
                 )
             }
         }
@@ -3790,14 +3776,19 @@ private fun OutputScreen(
                                         modifier = Modifier
                                             .size(40.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = when (mode) {
-                                                OutputDisplayMode.DAY -> Icons.Filled.Event
-                                                OutputDisplayMode.WEEK -> Icons.Filled.TableChart
-                                            },
-                                            contentDescription = stringResource(mode.labelRes),
-                                            tint = iconTint
-                                        )
+                                        if (mode == OutputDisplayMode.DAY) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.calendar_view_day),
+                                                contentDescription = stringResource(mode.labelRes),
+                                                tint = iconTint
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Filled.TableChart,
+                                                contentDescription = stringResource(mode.labelRes),
+                                                tint = iconTint
+                                            )
+                                        }
                                     }
                                 }
                             }

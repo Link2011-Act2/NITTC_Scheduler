@@ -18,6 +18,7 @@ import jp.linkserver.nittcsc.sync.LocalSyncManager
 import jp.linkserver.nittcsc.sync.NearbySyncManager
 import jp.linkserver.nittcsc.ui.NittcSchedulerApp
 import jp.linkserver.nittcsc.ui.theme.AppTheme
+import jp.linkserver.nittcsc.update.createAppUpdateRepository
 import jp.linkserver.nittcsc.viewmodel.SchedulerViewModel
 import jp.linkserver.nittcsc.viewmodel.SchedulerViewModelFactory
 import jp.linkserver.nittcsc.widget.WidgetUpdateWorker
@@ -31,7 +32,7 @@ class MainActivity : ComponentActivity() {
         val repository = SchedulerRepository(database, UiDesignPreferences(this))
         val syncManager = LocalSyncManager(this, repository, database)
         val nearbySyncManager = NearbySyncManager(this, repository)
-        SchedulerViewModelFactory(repository, syncManager, nearbySyncManager)
+        SchedulerViewModelFactory(repository, syncManager, nearbySyncManager, createAppUpdateRepository(this))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -54,6 +55,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        viewModel.checkForAppUpdates()
         // 年度切替を先に反映してから、ウィジェットと同期を更新する
         lifecycleScope.launch {
             viewModel.refreshAcademicYear()

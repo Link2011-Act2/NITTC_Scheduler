@@ -840,6 +840,10 @@
     <string name="about_update_check_failed">アップデートを確認できませんでした: %1$s</string>
 
     <string name="update_screen_title">アップデートがあります</string>
+    <string name="cd_available_app_update">アップデートがあります。更新の確認を開く</string>
+    <string name="update_prompt_body">新しいバージョン %1$s が利用できます。アップデートしますか？</string>
+    <string name="update_prompt_confirm">更新内容を確認</string>
+    <string name="update_prompt_ignore">このバージョンは無視</string>
     <string name="update_release_notes_title">リリースノート</string>
     <string name="update_release_notes_empty">このバージョンのリリースノートはありません。</string>
     <string name="update_intermediate_release_notes_title">途中のリリースノート</string>
@@ -855,7 +859,7 @@
     <string name="update_install_permission_required">不明なアプリのインストールを許可してから、この画面に戻ってもう一度ボタンを押してください。</string>
     <string name="update_download_failed">ダウンロードに失敗しました: %1$s</string>
     <string name="update_banner_title">アップデートがあります</string>
-    <string name="update_banner_body">%1$s が利用できます。タップして詳細を開きます。</string>
+    <string name="update_banner_body">%1$s が利用できます。タップして更新を確認します。</string>
     <string name="update_banner_dismiss">更新通知を閉じる</string>
 
     <!-- OSS ライセンス（About 画面） -->

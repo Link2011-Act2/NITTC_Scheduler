@@ -48,19 +48,14 @@ import jp.linkserver.nittcsc.BuildConfig
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.ui.components.AppLoadingIndicator
 import jp.linkserver.nittcsc.update.AppUpdateInfo
-import jp.linkserver.nittcsc.update.checkGitHubReleaseUpdate
 import jp.linkserver.nittcsc.update.detectReleaseChannel
-import jp.linkserver.nittcsc.update.isShowLatestReleaseForTestingEnabled
-import jp.linkserver.nittcsc.update.markUpdateCheckFinished
-import jp.linkserver.nittcsc.update.resolveUpdateCurrentVersionForTesting
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AboutScreen(
     onBack: () -> Unit,
+    onCheckForUpdates: suspend () -> Result<AppUpdateInfo?>,
     onOssLicenses: () -> Unit = {},
     onUpdateAvailable: (AppUpdateInfo) -> Unit = {}
 ) {
@@ -99,14 +94,7 @@ fun AboutScreen(
         checkingUpdates = true
         updateStatus = resources.getString(R.string.about_update_checking)
         scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                checkGitHubReleaseUpdate(
-                    repositoryUrl = repositoryUrl,
-                    currentVersion = resolveUpdateCurrentVersionForTesting(context, versionName),
-                    showLatestForTesting = isShowLatestReleaseForTestingEnabled(context, versionName)
-                )
-            }
-            markUpdateCheckFinished(context)
+            val result = onCheckForUpdates()
             checkingUpdates = false
             result
                 .onSuccess { updateInfo ->

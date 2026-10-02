@@ -46,6 +46,10 @@ import jp.linkserver.nittcsc.sync.PreparedSyncSession
 import jp.linkserver.nittcsc.sync.SyncChoice
 import jp.linkserver.nittcsc.sync.SyncDiagnostics
 import jp.linkserver.nittcsc.sync.SyncResult
+import jp.linkserver.nittcsc.update.AppUpdateInfo
+import jp.linkserver.nittcsc.update.AppUpdateRepository
+import jp.linkserver.nittcsc.update.AppUpdateState
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -117,16 +121,33 @@ data class SchedulerUiState(
     val cancelledLessons: Set<Pair<LocalDate, Int>> = emptySet(),
     val syncDiagnostics: SyncDiagnostics = SyncDiagnostics(),
     val uiDesignMode: UiDesignMode = UiDesignMode.MATERIAL_3,
-    val expressiveWarningAcknowledged: Boolean = false
+    val expressiveWarningAcknowledged: Boolean = false,
+    val appUpdate: AppUpdateState = AppUpdateState()
 )
 
 class SchedulerViewModel(
     private val repository: SchedulerRepository,
     private val syncManager: LocalSyncManager? = null,
-    val nearbySyncManager: NearbySyncManager? = null
+    val nearbySyncManager: NearbySyncManager? = null,
+    private val appUpdateRepository: AppUpdateRepository? = null
 ) : ViewModel() {
 
     private var syncServicesStarted = false
+    private var updateCheckJob: Job? = null
+
+    fun checkForAppUpdates() {
+        val updates = appUpdateRepository ?: return
+        if (updateCheckJob?.isActive == true) return
+        updateCheckJob = viewModelScope.launch { updates.check() }
+    }
+
+    suspend fun checkForAppUpdatesManually(): Result<AppUpdateInfo?> {
+        return appUpdateRepository?.check(force = true) ?: Result.success(null)
+    }
+
+    fun hideUpdateBanner() = appUpdateRepository?.hideBanner()
+
+    fun ignoreUpdateVersion(tagName: String) = appUpdateRepository?.ignoreVersion(tagName)
 
     private suspend fun startSyncServicesIfReady() {
         if (syncServicesStarted || repository.hasPendingLegacyTimetableSelection()) return
@@ -263,6 +284,8 @@ class SchedulerViewModel(
             uiDesignMode = syncAndDesign.uiDesignMode,
             expressiveWarningAcknowledged = syncAndDesign.expressiveWarningAcknowledged
         )
+    }.combine(appUpdateRepository?.state ?: MutableStateFlow(AppUpdateState())) { state, update ->
+        state.copy(appUpdate = update)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -1014,12 +1037,13 @@ class SchedulerViewModel(
 class SchedulerViewModelFactory(
     private val repository: SchedulerRepository,
     private val syncManager: LocalSyncManager? = null,
-    private val nearbySyncManager: NearbySyncManager? = null
+    private val nearbySyncManager: NearbySyncManager? = null,
+    private val appUpdateRepository: AppUpdateRepository? = null
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(SchedulerViewModel::class.java)) {
-            return SchedulerViewModel(repository, syncManager, nearbySyncManager) as T
+            return SchedulerViewModel(repository, syncManager, nearbySyncManager, appUpdateRepository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

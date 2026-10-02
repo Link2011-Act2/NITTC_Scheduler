@@ -7,8 +7,9 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
 
-private const val UPDATE_PREFS = "github_release_updates"
-private const val KEY_LAST_CHECK_MS = "last_check_ms"
+internal const val UPDATE_PREFS = "github_release_updates"
+internal const val KEY_LAST_CHECK_MS = "last_check_ms"
+internal const val KEY_LAST_CHECK_VERSION = "last_check_version"
 private const val KEY_DISMISSED_UPDATE_TAG = "dismissed_update_tag"
 private const val KEY_SHOW_LATEST_FOR_TESTING = "show_latest_release_for_testing"
 private const val KEY_CURRENT_VERSION_OVERRIDE_FOR_TESTING = "current_version_override_for_testing"
@@ -59,18 +60,14 @@ suspend fun checkGitHubReleaseUpdate(
     }
 }
 
-fun markUpdateCheckFinished(context: Context) {
-    context.getSharedPreferences(UPDATE_PREFS, Context.MODE_PRIVATE)
-        .edit()
-        .putLong(KEY_LAST_CHECK_MS, System.currentTimeMillis())
-        .apply()
-}
-
 fun shouldCheckForUpdates(context: Context, currentVersion: String): Boolean {
     if (isShowLatestReleaseForTestingEnabled(context, currentVersion)) {
         return true
     }
     val prefs = context.getSharedPreferences(UPDATE_PREFS, Context.MODE_PRIVATE)
+    if (prefs.getString(KEY_LAST_CHECK_VERSION, null) !=
+        resolveUpdateCurrentVersionForTesting(context, currentVersion)
+    ) return true
     val lastCheckMs = prefs.getLong(KEY_LAST_CHECK_MS, 0L)
     return System.currentTimeMillis() - lastCheckMs >= CHECK_INTERVAL_MS
 }
@@ -259,7 +256,7 @@ private fun compareUpdateInfo(left: AppUpdateInfo, right: AppUpdateInfo): Int {
     return compareReleaseVersions(left.tagName, left.isPrerelease, right.tagName, right.isPrerelease)
 }
 
-private fun isNewerRelease(remoteTag: String, currentVersion: String, remoteIsPrerelease: Boolean): Boolean {
+internal fun isNewerRelease(remoteTag: String, currentVersion: String, remoteIsPrerelease: Boolean): Boolean {
     return compareReleaseVersions(remoteTag, remoteIsPrerelease, currentVersion, false) > 0
 }
 
