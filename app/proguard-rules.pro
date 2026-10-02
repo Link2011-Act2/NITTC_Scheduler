@@ -3,3 +3,6 @@
 -keep class * extends androidx.work.InputMerger {
     public <init>();
 }
+
+# ダウンロードする固定済みネイティブライブラリのJNI名とコールバック名を維持する。
+-keep class org.nehuatl.llamacpp.** { *; }

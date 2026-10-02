@@ -993,4 +993,17 @@
     <string name="sync_wifi_no_logs">まだログはありません。</string>
     <string name="settings_value_unset">未設定</string>
     <string name="settings_optional_time_hint">未入力でもそのまま使えます</string>
+    <string name="ai_runtime_title">AIエンジン</string>
+    <string name="ai_runtime_checking">AIエンジンを確認しています。</string>
+    <string name="ai_runtime_description">AI機能には、端末に対応したAIエンジンの追加ダウンロードが必要です（展開後 約6MB）。モデルは別途ダウンロードしてください。取得後はオフラインで利用できます。</string>
+    <string name="ai_runtime_bundled">同梱のAIエンジンを利用できます。外部版を取得すると、次回起動時から取得済みのエンジンを優先します。</string>
+    <string name="ai_runtime_downloaded">AIエンジンを取得済みです。オフラインで利用できます。</string>
+    <string name="ai_runtime_unsupported">AI機能はARM64・x86_64の64bit環境に対応しています。この端末では利用できません。</string>
+    <string name="ai_runtime_required">AI画面でAIエンジンをダウンロードしてから、もう一度お試しください。</string>
+    <string name="ai_runtime_load_failed">AIエンジンを読み込めませんでした。アプリを再起動してお試しください。</string>
+    <string name="ai_runtime_unpublished">対応するAIエンジンが配布先に見つかりません。公開後にもう一度お試しください。</string>
+    <string name="ai_runtime_download_failed">AIエンジンの取得・検証に失敗しました。通信状況と空き容量を確認して、もう一度お試しください。</string>
+    <string name="ai_runtime_download">AIエンジンをダウンロード</string>
+    <string name="ai_runtime_retry">AIエンジンの取得を再試行</string>
+    <string name="ai_runtime_progress">AIエンジンを取得中：%1$d%%</string>
 </resources>

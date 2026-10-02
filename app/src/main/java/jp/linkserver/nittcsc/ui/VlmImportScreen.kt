@@ -32,6 +32,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.work.ExistingWorkPolicy
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -42,6 +43,7 @@ import jp.linkserver.nittcsc.logic.LessonAutocompleteOptions
 import jp.linkserver.nittcsc.logic.TimetableTerm
 import jp.linkserver.nittcsc.logic.academicYearForDate
 import jp.linkserver.nittcsc.viewmodel.SchedulerUiState
+import jp.linkserver.nittcsc.viewmodel.AiRuntimeViewModel
 import jp.linkserver.nittcsc.ui.components.AppLoadingIndicator
 import jp.linkserver.nittcsc.ui.components.AppProgressIndicator
 import kotlinx.coroutines.Job
@@ -289,9 +291,12 @@ fun VlmImportScreen(
     existingLessons: Map<LessonKey, LessonEntity> = emptyMap(),
     existingDayTypeMap: Map<java.time.LocalDate, jp.linkserver.nittcsc.data.DayType> = emptyMap(),
     state: SchedulerUiState? = null,
-    downloadViewModel: VlmDownloadViewModel = viewModel()
+    downloadViewModel: VlmDownloadViewModel = viewModel(),
+    runtimeViewModel: AiRuntimeViewModel = viewModel()
 ) {
     val context = LocalContext.current
+    val runtimeState by runtimeViewModel.state.collectAsStateWithLifecycle()
+    val runtimeRequiredMessage = stringResource(R.string.ai_runtime_required)
     val currentLessonAutocompleteOptions by rememberUpdatedState(lessonAutocompleteOptions)
     val downloadManager = remember { ModelDownloadManager(context) }
     val coroutineScope = rememberCoroutineScope()
@@ -366,6 +371,10 @@ fun VlmImportScreen(
     }
 
     fun parseImage(uri: Uri, isAbTable: Boolean) {
+        if (!runtimeState.canInfer) {
+            inferenceResult = runtimeRequiredMessage
+            return
+        }
         val modelToUse = activeModelFile ?: recognizedModels.firstOrNull()?.let { File(context.filesDir, "models/$it") }
         if (modelToUse == null) {
             inferenceResult = "エラー: ローカルモデルが選択されていません。モデルをダウンロードしてください。"
@@ -568,6 +577,9 @@ fun VlmImportScreen(
                 modifier = Modifier.fillMaxSize().padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+            item(key = "ai-runtime") {
+                AiRuntimeCard(runtimeState, runtimeViewModel::download, runtimeViewModel::cancelDownload)
+            }
             if (downloadedModelFiles.isNotEmpty()) {
                 item {
                     Card(
@@ -714,6 +726,7 @@ fun VlmImportScreen(
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Button(
                                     modifier = Modifier.weight(1f),
+                                    enabled = runtimeState.canInfer && !isParsing,
                                     onClick = { 
                                         isPendingAbMode = false 
                                         showSelectionDialog = true
@@ -725,6 +738,7 @@ fun VlmImportScreen(
                                 }
                                 Button(
                                     modifier = Modifier.weight(1f),
+                                    enabled = runtimeState.canInfer && !isParsing,
                                     onClick = { 
                                         isPendingAbMode = true
                                         showSelectionDialog = true

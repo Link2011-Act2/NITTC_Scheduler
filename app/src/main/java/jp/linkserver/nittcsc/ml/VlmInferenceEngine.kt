@@ -244,6 +244,7 @@ class VlmInferenceEngine(private val context: Context) {
         imageUri: Uri?,
         onStatusUpdate: (String) -> Unit
     ): String {
+        AiRuntimeManager(context).prepareForInference()
         currentInferenceJob = currentCoroutineContext()[Job]
         val events = MutableSharedFlow<LlamaHelper.LLMEvent>(extraBufferCapacity = 256)
         val scope = CoroutineScope(Dispatchers.IO)

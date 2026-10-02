@@ -2,6 +2,7 @@ package jp.linkserver.nittcsc.update
 
 import android.content.Context
 import org.json.JSONArray
+import jp.linkserver.nittcsc.logic.isAiRuntimeReleaseTag
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
@@ -196,7 +197,7 @@ private fun parseReleaseResponse(response: String): List<GitHubRelease> {
             val release = json.optJSONObject(index) ?: continue
             if (release.optBoolean("draft", false)) continue
             val tagName = release.optString("tag_name").ifBlank { release.optString("name") }
-            if (tagName.isBlank()) continue
+            if (tagName.isBlank() || isAiRuntimeReleaseTag(tagName)) continue
             val assetsJson = release.optJSONArray("assets")
             val assets = buildList {
                 if (assetsJson != null) {
