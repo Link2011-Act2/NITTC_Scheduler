@@ -498,6 +498,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
     var showUpdatePrompt by rememberSaveable { mutableStateOf(false) }
     var showOssLicenses by rememberSaveable { mutableStateOf(false) }
     var showLessonSearch by rememberSaveable { mutableStateOf(false) }
+    var showQrShare by rememberSaveable { mutableStateOf(false) }
     var requestedOutputDayEpochDay by rememberSaveable { mutableStateOf<Long?>(null) }
     var requestedOutputSlotIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     var showTaskPlanCalendar by rememberSaveable { mutableStateOf(false) }
@@ -1643,6 +1644,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
         lessonChangeEditor != null -> "lessonChange"
         selectedExamPeriod != null -> "examTimetableEditor"
         showExamTimetablePeriods -> "examTimetablePeriods"
+        showQrShare && InternalFeatureFlags.QR_SHARE_BETA -> "qrShare"
         showLessonSearch -> "lessonSearch"
         showTaskPlanCalendar -> "taskPlanCalendar"
         else -> "main"
@@ -1799,6 +1801,9 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                             onBack = { lessonChangeEditor = null }
                         )
                     }
+                }
+                "qrShare" -> {
+                    QrShareScreen(state = uiState, viewModel = viewModel, onBack = { showQrShare = false })
                 }
                 "lessonSearch" -> {
                     LessonSearchScreen(
@@ -2379,6 +2384,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                                             requestedOutputSlotIndex = null
                                         },
                                         onOpenLessonSearch = { showLessonSearch = true },
+                                        onOpenQrShare = { showQrShare = true },
                                         onSaveLessonOverride = viewModel::saveLessonOverride,
                                         onClearLessonOverride = viewModel::clearLessonOverride,
                                         onUpdateHolidaySpecialLabel = ::applyHolidaySpecialLabel,
@@ -3497,6 +3503,7 @@ private fun OutputScreen(
     requestedSlotIndex: Int?,
     onRequestedSlotHandled: () -> Unit,
     onOpenLessonSearch: () -> Unit,
+    onOpenQrShare: () -> Unit,
     onSaveLessonOverride: (LocalDate, Int, DayType) -> Unit,
     onClearLessonOverride: (LocalDate) -> Unit,
     onUpdateHolidaySpecialLabel: (LocalDate, HolidaySpecialLabel?) -> Unit,
@@ -3730,6 +3737,10 @@ private fun OutputScreen(
                         MaterialTheme.colorScheme.surfaceContainerLow
                     }
                 ) {
+                    BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val stackQrActions = InternalFeatureFlags.QR_SHARE_BETA &&
+                        (maxWidth < 400.dp || LocalDensity.current.fontScale > 1.2f)
+                    Column {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -3852,14 +3863,15 @@ private fun OutputScreen(
                                 IconButton(onClick = { onPickDate(dateNavigationBase.plusDays(shiftUnit)) }) { Text(">") }
                             }
                         }
-                        IconButton(
-                            onClick = onOpenLessonSearch
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Search,
-                                contentDescription = stringResource(R.string.cd_search_timetable)
-                            )
-                        }
+                        if (!stackQrActions) QrShareToolbarActions(onOpenQrShare, onOpenLessonSearch)
+                    }
+                    if (stackQrActions) Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        QrShareToolbarActions(onOpenQrShare, onOpenLessonSearch)
+                    }
+                    }
                     }
                 }
                 }

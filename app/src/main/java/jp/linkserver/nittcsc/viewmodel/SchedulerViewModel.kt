@@ -50,6 +50,7 @@ import jp.linkserver.nittcsc.update.AppUpdateInfo
 import jp.linkserver.nittcsc.update.AppUpdateRepository
 import jp.linkserver.nittcsc.update.AppUpdateState
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -950,6 +951,18 @@ class SchedulerViewModel(
     }
 
     suspend fun exportAllData(): String = repository.exportAllData()
+
+    suspend fun exportQrShare(selection: jp.linkserver.nittcsc.data.QrShareSelection) =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { repository.exportQrShare(selection) }
+
+    suspend fun importQrShare(context: android.content.Context, payload: jp.linkserver.nittcsc.data.QrSharePayload): Boolean {
+        val appContext = context.applicationContext
+        // 保存後のキャンセル・再登録は画面を離れても完了させる。
+        return viewModelScope.async(kotlinx.coroutines.Dispatchers.IO) {
+            val replaced = repository.importQrShare(payload)
+            jp.linkserver.nittcsc.qr.updateQrShareIntegrations(appContext, repository, replaced)
+        }.await()
+    }
 
     suspend fun completeInitialSetup(draft: InitialSetupDraft) = repository.completeInitialSetup(draft)
 

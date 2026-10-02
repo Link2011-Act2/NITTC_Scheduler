@@ -446,6 +446,15 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20250517")
+
+    // QR共有はモデルのダウンロードなしでオフライン動作する。
+    implementation("com.google.zxing:core:3.5.4")
+    implementation("androidx.camera:camera-camera2:1.4.2")
+    implementation("androidx.camera:camera-lifecycle:1.4.2")
+    implementation("androidx.camera:camera-view:1.4.2")
+    implementation("com.squareup:gifencoder:0.10.1")
+    implementation("com.github.bumptech.glide:gifdecoder:4.16.0")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     androidTestImplementation(platform("androidx.compose:compose-bom:2026.06.00"))

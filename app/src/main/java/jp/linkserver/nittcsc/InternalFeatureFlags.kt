@@ -1,6 +1,9 @@
 package jp.linkserver.nittcsc
 
 object InternalFeatureFlags {
+    // QRによる一方向のデータ共有（Beta）。保存状態に関係なく入口と処理を無効化できる。
+    const val QR_SHARE_BETA = true
+
     // falseにすると設定項目を隠し、保存済みの選択に関係なく標準Material 3へ戻す。
     const val MATERIAL_3_EXPRESSIVE = false
 
