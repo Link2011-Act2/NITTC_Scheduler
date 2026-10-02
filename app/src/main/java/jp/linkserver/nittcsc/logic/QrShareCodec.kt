@@ -14,7 +14,8 @@ class QrShareException(val failure: QrShareFailure) : IllegalArgumentException(f
 /** 同期プロトコルとは独立した、一方向のQR転送形式。 */
 object QrShareCodec {
     const val VERSION = 1
-    const val SCREEN_CHUNK_BYTES = 600
+    const val SCREEN_CHUNK_BYTES = 200
+    const val GIF_CHUNK_BYTES = 600
     const val IMAGE_CHUNK_BYTES = 1600
     const val MAX_PARTS = 128
     const val MAX_COMPRESSED_BYTES = 64 * 1024
@@ -22,7 +23,8 @@ object QrShareCodec {
     private const val PREFIX = "SKTTP/QR"
 
     data class Transfer(val compressed: ByteArray, val id: String, val digest: String) {
-        fun frames(chunkBytes: Int = SCREEN_CHUNK_BYTES): List<String> {
+        /** 画像・GIF用。カメラに見せる画面はcameraFrames()を使う。 */
+        fun frames(chunkBytes: Int = GIF_CHUNK_BYTES): List<String> {
             require(chunkBytes in 100..IMAGE_CHUNK_BYTES)
             val count = (compressed.size + chunkBytes - 1) / chunkBytes
             if (count !in 1..MAX_PARTS) throw QrShareException(QrShareFailure.TOO_LARGE)
@@ -30,6 +32,12 @@ object QrShareCodec {
                 val bytes = compressed.copyOfRange(index * chunkBytes, minOf((index + 1) * chunkBytes, compressed.size))
                 "$PREFIX:$VERSION:$id:$digest:$count:$index:${Base64.getEncoder().encodeToString(bytes)}"
             }
+        }
+
+        /** 小さいQRを優先する。既存の受信側も読める128枚以内に収める。 */
+        fun cameraFrames(): List<String> {
+            val minimumChunkBytes = (compressed.size + MAX_PARTS - 1) / MAX_PARTS
+            return frames(maxOf(SCREEN_CHUNK_BYTES, minimumChunkBytes))
         }
     }
 
@@ -39,7 +47,7 @@ object QrShareCodec {
         val compressed = ByteArrayOutputStream().also { out ->
             GZIPOutputStream(out).use { it.write(bytes) }
         }.toByteArray()
-        if (compressed.size > minOf(MAX_COMPRESSED_BYTES, SCREEN_CHUNK_BYTES * MAX_PARTS)) {
+        if (compressed.size > MAX_COMPRESSED_BYTES) {
             throw QrShareException(QrShareFailure.TOO_LARGE)
         }
         return Transfer(compressed, UUID.randomUUID().toString().replace("-", ""), hash(compressed))

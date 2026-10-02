@@ -6,7 +6,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -35,22 +34,25 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import jp.linkserver.nittcsc.InternalFeatureFlags
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.QrShareJson
 import jp.linkserver.nittcsc.data.QrSharePayload
+import jp.linkserver.nittcsc.data.QrShareSection
 import jp.linkserver.nittcsc.logic.QrShareCodec
 import jp.linkserver.nittcsc.logic.QrShareException
 import jp.linkserver.nittcsc.logic.QrShareFailure
@@ -65,8 +67,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private enum class QrPage { HOME, SELECT, DISPLAY, SCAN }
-
-private data class QrDisplayFrame(val index: Int, val bitmap: android.graphics.Bitmap)
 
 @Composable
 internal fun QrShareToolbarActions(onShare: () -> Unit, onSearch: () -> Unit) {
@@ -97,20 +97,31 @@ fun QrShareScreen(state: SchedulerUiState, viewModel: SchedulerViewModel, onBack
     val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     var page by remember { mutableStateOf(QrPage.HOME) }
+    var pickerSection by remember { mutableStateOf<QrShareSection?>(null) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var payload by remember { mutableStateOf<QrSharePayload?>(null) }
-    var frames by remember { mutableStateOf(emptyList<String>()) }
+    var sharedImage by remember(payload) { mutableStateOf<Pair<String, QrShareMedia.SharedImage>?>(null) }
+    var frames by remember { mutableStateOf(emptyList<ImageBitmap>()) }
     var imageDialog by remember { mutableStateOf(false) }
+    var imageProgress by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var classLabel by remember { mutableStateOf("") }
     fun back() {
         if (busy) return
         error = null
-        if (page == QrPage.HOME) onBack() else page = QrPage.HOME
+        if (pickerSection != null) pickerSection = null
+        else if (page == QrPage.HOME) onBack() else page = QrPage.HOME
     }
     BackHandler { back() }
+    if (page == QrPage.SCAN) {
+        QrShareScanner(state, viewModel, onBusyChanged = { busy = it }, onBack = ::back)
+        return
+    }
     Scaffold(topBar = {
-        TopAppBar(title = { Text(stringResource(R.string.qr_title)) }, navigationIcon = {
+        TopAppBar(title = {
+            Text(pickerSection?.let { stringResource(R.string.qr_pick_title, stringResource(it.labelRes())) }
+                ?: stringResource(R.string.qr_title), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }, navigationIcon = {
             IconButton(onClick = ::back, enabled = !busy) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.qr_back))
             }
@@ -125,23 +136,30 @@ fun QrShareScreen(state: SchedulerUiState, viewModel: SchedulerViewModel, onBack
                     Button(onClick = { page = QrPage.SELECT }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.qr_share)) }
                     Button(onClick = { page = QrPage.SCAN }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.qr_read)) }
                 }
-                QrPage.SELECT -> QrShareSelectionScreen(state, busy) { selection ->
+                QrPage.SELECT -> QrShareSelectionScreen(
+                    state = state, busy = busy, picker = pickerSection,
+                    onPick = { pickerSection = it }, onPickDone = { pickerSection = null },
+                    modifier = Modifier.weight(1f)
+                ) { selection ->
                     busy = true
                     error = null
                     scope.launch {
                         try {
                             val data = viewModel.exportQrShare(selection)
-                            val encoded = withContext(Dispatchers.Default) { QrShareCodec.create(QrShareJson.encode(data)).frames() }
+                            val images = withContext(Dispatchers.Default) {
+                                val encoded = QrShareCodec.create(QrShareJson.encode(data)).cameraFrames()
+                                QrShareMedia.displayBitmaps(encoded).map { it.asImageBitmap() }
+                            }
                             payload = data
-                            frames = encoded
+                            frames = images
                             page = QrPage.DISPLAY
                         } catch (e: CancellationException) { throw e }
                         catch (e: Exception) { error = qrFailureMessage(resources, e) }
                         finally { busy = false }
                     }
                 }
-                QrPage.DISPLAY -> QrShareDisplay(frames, busy, onShareImage = { imageDialog = true }, onSelect = { page = QrPage.SELECT })
-                QrPage.SCAN -> QrShareScanner(state, viewModel, onBusyChanged = { busy = it })
+                QrPage.DISPLAY -> QrShareDisplay(frames, busy, onShareImage = { imageDialog = true })
+                QrPage.SCAN -> Unit
             }
         }
     }
@@ -153,16 +171,25 @@ fun QrShareScreen(state: SchedulerUiState, viewModel: SchedulerViewModel, onBack
                 Text(stringResource(R.string.qr_image_description))
                 OutlinedTextField(value = classLabel, onValueChange = { classLabel = it.take(60).replace("\n", "").replace("\r", "") },
                     label = { Text(stringResource(R.string.qr_class_label)) }, placeholder = { Text(stringResource(R.string.qr_class_hint)) }, singleLine = true, enabled = !busy)
+                if (busy) {
+                    CircularProgressIndicator()
+                    imageProgress?.let { Text(stringResource(R.string.qr_image_progress, it.first, it.second)) }
+                }
             }
         },
         confirmButton = {
             TextButton(enabled = classLabel.isNotBlank() && !busy, onClick = {
                 val data = payload ?: return@TextButton
                 busy = true
+                imageProgress = null
                 error = null
                 scope.launch {
                     try {
-                        val shared = QrShareMedia.createImage(context, data, classLabel)
+                        val label = classLabel.trim()
+                        val shared = sharedImage?.takeIf { it.first == label }?.second
+                            ?: QrShareMedia.createImage(context, data, label) { current, total ->
+                                withContext(Dispatchers.Main) { imageProgress = current to total }
+                            }.also { sharedImage = label to it }
                         val intent = Intent(Intent.ACTION_SEND).apply {
                             type = shared.mimeType
                             putExtra(Intent.EXTRA_STREAM, shared.uri)
@@ -182,9 +209,8 @@ fun QrShareScreen(state: SchedulerUiState, viewModel: SchedulerViewModel, onBack
 }
 
 @Composable
-private fun QrShareDisplay(frames: List<String>, busy: Boolean, onShareImage: () -> Unit, onSelect: () -> Unit) {
+private fun QrShareDisplay(frames: List<ImageBitmap>, busy: Boolean, onShareImage: () -> Unit) {
     var index by remember(frames) { mutableIntStateOf(0) }
-    var playing by remember(frames) { mutableStateOf(true) }
     val view = LocalView.current
     DisposableEffect(view) {
         val previous = view.keepScreenOn
@@ -192,32 +218,22 @@ private fun QrShareDisplay(frames: List<String>, busy: Boolean, onShareImage: ()
         onDispose { view.keepScreenOn = previous }
     }
     val frame = frames.getOrNull(index)
-    val displayed by produceState<QrDisplayFrame?>(null, frame, index) {
-        // 次のQRの生成中も現在の画像を維持し、画像と枚数を同時に切り替える。
-        if (frame != null) value = withContext(Dispatchers.Default) { QrDisplayFrame(index, QrShareMedia.qrBitmap(frame)) }
-    }
-    LaunchedEffect(frames, playing, busy, displayed) {
-        val current = displayed
-        if (frames.size > 1 && playing && !busy && current != null) {
-            // 描画完了後に次へ進む。遅い端末でも生成中のQRを連続でキャンセルしない。
-            delay(QrImageEncoding.FRAME_INTERVAL_MS)
-            index = (current.index + 1) % frames.size
+    LaunchedEffect(frames, busy) {
+        if (frames.size > 1 && !busy) {
+            // 生成済み画像を繰り返し表示する。再生中は画像生成を行わない。
+            while (true) {
+                delay(QrImageEncoding.SCREEN_FRAME_INTERVAL_MS)
+                index = (index + 1) % frames.size
+            }
         }
     }
-    val displayedIndex = displayed?.index ?: index
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(stringResource(R.string.qr_display_description))
         Box(Modifier.fillMaxWidth().aspectRatio(1f), contentAlignment = Alignment.Center) {
-            displayed?.let { Image(it.bitmap.asImageBitmap(), contentDescription = stringResource(R.string.qr_part_number, it.index + 1, frames.size), modifier = Modifier.fillMaxSize()) }
+            frame?.let { Image(it, contentDescription = stringResource(R.string.qr_part_number, index + 1, frames.size), modifier = Modifier.fillMaxSize(), filterQuality = FilterQuality.None) }
                 ?: CircularProgressIndicator()
         }
-        Text(stringResource(R.string.qr_part_number, displayedIndex + 1, frames.size), style = MaterialTheme.typography.titleMedium)
-        if (frames.size > 1) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { playing = false; index = (index + frames.size - 1) % frames.size }, enabled = !busy) { Text(stringResource(R.string.qr_previous)) }
-            TextButton(onClick = { playing = !playing }, enabled = !busy) { Text(stringResource(if (playing) R.string.qr_pause else R.string.qr_play)) }
-            TextButton(onClick = { playing = false; index = (index + 1) % frames.size }, enabled = !busy) { Text(stringResource(R.string.qr_next)) }
-        }
+        Text(stringResource(R.string.qr_part_number, index + 1, frames.size), style = MaterialTheme.typography.titleMedium)
         Button(onClick = onShareImage, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.qr_image_share)) }
-        TextButton(onClick = onSelect, enabled = !busy) { Text(stringResource(R.string.qr_change_selection)) }
     }
 }

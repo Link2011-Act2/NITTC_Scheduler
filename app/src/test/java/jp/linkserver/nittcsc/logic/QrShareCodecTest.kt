@@ -8,6 +8,32 @@ import java.util.Random
 import java.util.zip.GZIPOutputStream
 
 class QrShareCodecTest {
+    @Test fun cameraFramesUseSmallChunksAndRoundTripOutOfOrder() {
+        val json = Base64.getEncoder().encodeToString(ByteArray(2100).also { Random(27).nextBytes(it) })
+        val transfer = QrShareCodec.create(json)
+        val frames = transfer.cameraFrames()
+        assertTrue(frames.size > transfer.frames(QrShareCodec.GIF_CHUNK_BYTES).size)
+        assertTrue(frames.all { QrShareCodec.parse(it).bytes.size <= QrShareCodec.SCREEN_CHUNK_BYTES })
+        assertEquals(600, QrShareCodec.parse(transfer.frames().first()).bytes.size)
+        val collector = QrShareCollector()
+        var result: String? = null
+        frames.reversed().forEach { collector.add(it)?.let { data -> result = data } }
+        assertEquals(json, result)
+    }
+
+    @Test fun largeCameraTransfersKeepExistingCapacityAndPartLimit() {
+        val json = Base64.getEncoder().encodeToString(ByteArray(56000).also { Random(31).nextBytes(it) })
+        val transfer = QrShareCodec.create(json)
+        assertTrue(transfer.compressed.size > QrShareCodec.SCREEN_CHUNK_BYTES * QrShareCodec.MAX_PARTS)
+        val frames = transfer.cameraFrames()
+        assertTrue(frames.size <= QrShareCodec.MAX_PARTS)
+        assertTrue(frames.all { QrShareCodec.parse(it).bytes.size <= 512 })
+        val collector = QrShareCollector()
+        var result: String? = null
+        frames.shuffled(kotlin.random.Random(38)).forEach { collector.add(it)?.let { data -> result = data } }
+        assertEquals(json, result)
+    }
+
     @Test fun readsEveryPartInAnyOrderAndIgnoresDuplicates() {
         val json = buildString { repeat(4000) { append("授業メモ${Random(it.toLong()).nextLong()}") } }
         val frames = QrShareCodec.create(json).frames()

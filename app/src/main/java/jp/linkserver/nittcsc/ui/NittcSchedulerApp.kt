@@ -3737,14 +3737,10 @@ private fun OutputScreen(
                         MaterialTheme.colorScheme.surfaceContainerLow
                     }
                 ) {
-                    BoxWithConstraints(Modifier.fillMaxWidth()) {
-                    val stackQrActions = InternalFeatureFlags.QR_SHARE_BETA &&
-                        (maxWidth < 400.dp || LocalDensity.current.fontScale > 1.2f)
-                    Column {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                            .padding(horizontal = 4.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
@@ -3804,74 +3800,32 @@ private fun OutputScreen(
                                 }
                             }
                         }
-                        Box(
-                            modifier = Modifier.weight(1f),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                IconButton(onClick = { onPickDate(dateNavigationBase.minusDays(shiftUnit)) }) { Text("<") }
-                                if (displayMode == OutputDisplayMode.DAY) {
-                                    val selectedDayTypeEntity = dayTypeEntityForDate(selectedDate)
-                                    val selectedExamName = if (isExamScheduleDate(selectedDate)) {
-                                        state.examDaySchedules[selectedDate]
-                                            ?.examName
-                                            ?.trim()
-                                            ?.takeIf { it.isNotBlank() }
-                                    } else {
-                                        null
-                                    }
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier.combinedClickable(
-                                            onClick = { showResultDatePicker = true },
-                                            onLongClick = {
-                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                onPickDate(today)
-                                            }
-                                        )
-                                    ) {
-                                        Text(selectedDate.format(dateFormatter), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                        Text(
-                                            "${stringResource(dayOfWeekRes(selectedDate.dayOfWeek))} / ${
-                                                selectedExamName ?: dayTypeDisplayText(
-                                                    dayType,
-                                                    selectedDayTypeEntity?.overrideLessonDayOfWeek,
-                                                    selectedDayTypeEntity?.holidaySpecialLabel
-                                                )
-                                            }",
-                                            style = MaterialTheme.typography.labelSmall
-                                        )
-                                    }
-                                } else {
-                                    val shortFmt = remember { java.time.format.DateTimeFormatter.ofPattern("MM/dd") }
-                                    Text(
-                                        "${weekDates.first().format(shortFmt)}-${weekDates.last().format(shortFmt)}",
-                                        modifier = Modifier.combinedClickable(
-                                            onClick = {},
-                                        onLongClick = {
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            onPickDate(today)
-                                        }
-                                    ),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.Bold
+                        val selectedDayTypeEntity = dayTypeEntityForDate(selectedDate)
+                        val selectedExamName = if (isExamScheduleDate(selectedDate)) {
+                            state.examDaySchedules[selectedDate]?.examName?.trim()?.takeIf { it.isNotBlank() }
+                        } else null
+                        val shortFmt = remember { DateTimeFormatter.ofPattern("MM/dd") }
+                        TimetableDateNavigation(
+                            dateLabel = if (displayMode == OutputDisplayMode.DAY) selectedDate.format(dateFormatter)
+                                else "${weekDates.first().format(shortFmt)}-${weekDates.last().format(shortFmt)}",
+                            detailLabel = if (displayMode == OutputDisplayMode.DAY) {
+                                "${stringResource(dayOfWeekRes(selectedDate.dayOfWeek))} / ${
+                                    selectedExamName ?: dayTypeDisplayText(
+                                        dayType, selectedDayTypeEntity?.overrideLessonDayOfWeek,
+                                        selectedDayTypeEntity?.holidaySpecialLabel
                                     )
-                                }
-                                IconButton(onClick = { onPickDate(dateNavigationBase.plusDays(shiftUnit)) }) { Text(">") }
-                            }
-                        }
-                        if (!stackQrActions) QrShareToolbarActions(onOpenQrShare, onOpenLessonSearch)
-                    }
-                    if (stackQrActions) Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        QrShareToolbarActions(onOpenQrShare, onOpenLessonSearch)
-                    }
-                    }
+                                }"
+                            } else null,
+                            onPrevious = { onPickDate(dateNavigationBase.minusDays(shiftUnit)) },
+                            onNext = { onPickDate(dateNavigationBase.plusDays(shiftUnit)) },
+                            onClick = { if (displayMode == OutputDisplayMode.DAY) showResultDatePicker = true },
+                            onLongClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onPickDate(today)
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                        Row { QrShareToolbarActions(onOpenQrShare, onOpenLessonSearch) }
                     }
                 }
                 }
