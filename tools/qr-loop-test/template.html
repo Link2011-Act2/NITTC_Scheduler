@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SKTTP/QR · 128枚の送信テスト</title>
+<style>
+  :root { color-scheme: light; font-family: system-ui, "Segoe UI", sans-serif; color: #172b27; background: #eef4f1; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; }
+  main { max-width: 1120px; margin: auto; display: grid; grid-template-columns: minmax(280px, 1fr) 340px; gap: 28px; align-items: center; min-height: calc(100dvh - 48px); }
+  .preview { background: white; border-radius: 32px; padding: 24px; text-align: center; box-shadow: 0 8px 32px #163c2810; }
+  .qr-stage { min-height: 280px; display: grid; place-items: center; }
+  img { display: block; width: min(100%, 560px); height: auto; image-rendering: pixelated; }
+  .counter { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; margin: 14px 0 4px; }
+  .muted { color: #52655e; font-size: 14px; line-height: 1.65; }
+  .eyebrow { color: #326957; letter-spacing: .12em; font-size: 12px; font-weight: 800; }
+  h1 { font-size: 32px; line-height: 1.25; letter-spacing: -.04em; margin: 12px 0; }
+  h2 { font-size: 16px; margin: 24px 0 10px; }
+  .badge { display: inline-block; border-radius: 24px; background: #d4eadd; padding: 7px 12px; font-size: 13px; font-weight: 650; }
+  .speeds { display: flex; gap: 3px; }
+  .speeds label { flex: 1; position: relative; }
+  .speeds input { position: absolute; opacity: 0; }
+  .speeds span { display: block; background: #dbe6df; padding: 12px 0; text-align: center; cursor: pointer; font-size: 13px; transition: background .22s, color .22s, border-radius .22s; border-radius: 5px; }
+  .speeds label:first-child span { border-radius: 24px 5px 5px 24px; }
+  .speeds label:last-child span { border-radius: 5px 24px 24px 5px; }
+  .speeds input:checked + span { background: #24634f; color: white; border-radius: 24px; }
+  .speeds input[value="50"]:checked + span { background: #a63235; }
+  .speeds input:focus-visible + span { outline: 3px solid #193f31; outline-offset: 3px; }
+  #timing { min-height: 22px; margin: 9px 0; }
+  .actions { display: flex; gap: 8px; margin-top: 18px; }
+  button { border: 0; border-radius: 24px; padding: 12px 16px; background: #dbe6df; color: inherit; cursor: pointer; font: inherit; font-size: 14px; }
+  button:focus-visible, input:focus-visible { outline: 3px solid #24634f; outline-offset: 2px; }
+  #pause { flex: 1; background: #24634f; color: white; }
+  .start { display: flex; align-items: center; gap: 10px; margin: 20px 0; font-size: 14px; }
+  input[type=number] { width: 76px; border: 1px solid #a4b5ab; border-radius: 12px; padding: 9px; font: inherit; }
+  .notice { background: #fff0d1; color: #644c18; border-radius: 16px; padding: 12px 14px; font-size: 13px; line-height: 1.7; }
+  details { margin-top: 20px; font-size: 12px; overflow-wrap: anywhere; }
+  summary { cursor: pointer; }
+  #metadata { white-space: pre-wrap; line-height: 1.7; }
+  @media (max-width: 780px) { body { padding: 16px; } main { grid-template-columns: 1fr; gap: 20px; min-height: auto; } .preview { padding: 16px; border-radius: 24px; } h1 { font-size: 26px; } .qr-stage { min-height: 0; } }
+</style>
+<main>
+  <section class="preview" aria-label="送信QR">
+    <div class="qr-stage"><img id="qr" alt="SKTTP/QR テスト断片"></div>
+    <div class="counter"><span id="index">1</span><span class="muted"> / 128枚</span></div>
+    <div class="muted" id="status">繰り返し送信中</div>
+  </section>
+  <section>
+    <div class="eyebrow">SKTTP/QR · TRANSMISSION TEST</div>
+    <h1>128枚を、<br>何度でも。</h1>
+    <span class="badge">128 fragments × 200 bytes</span>
+    <p class="muted">NITTC Schedulerの「読み取る」を向けてください。128枚すべて表示したら、1枚目に戻って延々と繰り返します。</p>
+    <h2>送信する速度</h2>
+    <div class="speeds" role="radiogroup" aria-label="送信する速度">
+      <label><input type="radio" name="speed" value="200"><span>安定</span></label>
+      <label><input type="radio" name="speed" value="125" checked><span>標準</span></label>
+      <label><input type="radio" name="speed" value="65"><span>高速</span></label>
+      <label><input type="radio" name="speed" value="50"><span>超高速</span></label>
+    </div>
+    <p class="muted" id="timing"></p>
+    <div class="actions"><button id="pause">一時停止</button><button id="restart">1枚目に戻る</button></div>
+    <label class="start">この番号から表示 <input id="start" type="number" min="1" max="128" value="1"><button id="jump">移動</button></label>
+    <p class="notice">内容はテスト用の授業メモ2件です。受信確認だけの場合、アプリの上書き確認では<strong>「キャンセル」</strong>を選んでください。</p>
+    <p class="muted">画像はすべて生成済み。ネット接続不要です。ブラウザを手前に表示してください。背面タブでは再生を停止します。</p>
+    <details><summary>テストデータの情報</summary><p id="metadata"></p></details>
+  </section>
+</main>
+<script>
+  const data = /*__TEST_DATA__*/;
+  const qr = document.querySelector('#qr');
+  const indexText = document.querySelector('#index');
+  const statusText = document.querySelector('#status');
+  const pauseButton = document.querySelector('#pause');
+  let index = 0, interval = 125, paused = false, last = performance.now();
+  // Decode once; switching never regenerates QR images or repeatedly decodes data URLs.
+  const images = data.images.map(src => { const image = new Image(); image.src = src; return image; });
+  function show() {
+    qr.src = images[index].src;
+    qr.alt = `SKTTP/QR テスト断片 ${index + 1} / 128`;
+    indexText.textContent = index + 1;
+  }
+  function timing() {
+    document.querySelector('#timing').textContent = `${interval}ms / 枚 · ${(1000 / interval).toFixed(2)}枚 / 秒 · 1周 ${(128 * interval / 1000).toFixed(2)}秒`;
+  }
+  function tick(now) {
+    if (!paused && !document.hidden && now - last >= interval) {
+      // Do not skip fragments when the browser drops a frame.
+      index = (index + 1) % 128;
+      show();
+      last = now - ((now - last) % interval);
+    }
+    requestAnimationFrame(tick);
+  }
+  document.querySelectorAll('input[name=speed]').forEach(input => input.addEventListener('change', () => {
+    interval = Number(input.value); last = performance.now(); timing();
+  }));
+  pauseButton.addEventListener('click', () => {
+    paused = !paused; last = performance.now();
+    pauseButton.textContent = paused ? '再開' : '一時停止';
+    statusText.textContent = paused ? '一時停止中' : '繰り返し送信中';
+  });
+  document.querySelector('#restart').addEventListener('click', () => { index = 0; last = performance.now(); show(); });
+  document.querySelector('#jump').addEventListener('click', () => {
+    const input = document.querySelector('#start');
+    if (!input.reportValidity() || !Number.isInteger(Number(input.value))) return;
+    index = Number(input.value) - 1; last = performance.now(); show();
+  });
+  document.addEventListener('visibilitychange', () => { last = performance.now(); });
+  document.querySelector('#metadata').textContent = `SKTTP/QR v1\n各断片: 200B（Base64・ヘッダーを除く）\n圧縮データ: ${data.compressedBytes.toLocaleString()}B\nJSON: ${data.jsonBytes.toLocaleString()}B\n誤り訂正: M / 余白: 4マス\nID: ${data.transferId}\nSHA-256: ${data.digest}`;
+  Promise.all(images.map(image => image.decode())).then(() => { show(); timing(); last = performance.now(); requestAnimationFrame(tick); })
+    .catch(() => { statusText.textContent = '画像を読み込めませんでした。ページを開き直してください。'; });
+</script>
+</html>

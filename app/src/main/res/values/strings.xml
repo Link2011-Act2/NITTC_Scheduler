@@ -1019,6 +1019,7 @@
     <string name="qr_first">前期の時間割</string>
     <string name="qr_second">後期の時間割</string>
     <string name="qr_cancellations">休講</string>
+    <string name="qr_cancellations_and_changes">休講・授業変更</string>
     <string name="qr_changes">授業変更</string>
     <string name="qr_days">A/B表</string>
     <string name="qr_notes">授業メモ</string>
@@ -1081,7 +1082,7 @@
     <string name="qr_import_partial">データは取り込みましたが、通知・カレンダーなどの更新に一部失敗しました。</string>
     <string name="qr_error_version">このQRは対応していない形式のバージョンです。アプリを更新してから読み取ってください。</string>
     <string name="qr_error_large">データが大きすぎます。共有する項目や件数を減らしてください。</string>
-    <string name="qr_error_different">別の共有データ、または分割数の異なるQRです。切り替える場合は「新しく読み取る」を選んでください。</string>
+    <string name="qr_error_different">別のデータが入ったQRです。切り替える場合は「新しく読み取る」を押してください</string>
     <string name="qr_error_damaged">QRのデータが破損しています。読み取り直してください。</string>
     <string name="qr_error_settings">後期開始日の設定が送信側と異なります。設定を合わせてから取り込んでください。</string>
     <string name="qr_error_invalid">有効な共有QRを読み取れませんでした。QRやファイルを確認してください。</string>

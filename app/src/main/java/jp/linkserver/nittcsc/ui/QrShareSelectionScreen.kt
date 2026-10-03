@@ -94,7 +94,8 @@ internal fun QrShareSelectionScreen(
     var year by remember { mutableIntStateOf(settings?.activeAcademicYear?.takeIf { it > 0 } ?: academicYearForDate(today)) }
     val years = remember(state.lessons, year) { (state.lessons.keys.map { it.academicYear } + year).distinct().sortedDescending() }
     val currentTerm = timetableTermForDate(today, settings?.enableSemesterTimetables ?: true, settings?.secondTermStartMonth ?: 10, settings?.secondTermStartDay ?: 1)
-    var selected by remember { mutableStateOf(setOf(if (currentTerm.name == "FIRST") QrShareSection.FIRST else QrShareSection.SECOND, QrShareSection.DAY_TYPES)) }
+    var selected by remember { mutableStateOf(setOf(if (currentTerm.name == "FIRST") QrShareSection.FIRST else QrShareSection.SECOND,
+        QrShareSection.DAY_TYPES, QrShareSection.CANCELLATIONS, QrShareSection.CHANGES)) }
     var selectedNotes by remember { mutableStateOf(emptySet<String>()) }
     var selectedPlans by remember { mutableStateOf(emptySet<String>()) }
     var selectedTasks by remember { mutableStateOf(emptySet<String>()) }
@@ -130,21 +131,26 @@ internal fun QrShareSelectionScreen(
                 years.forEach { option -> FilterChip(selected = year == option, onClick = { if (!busy) year = option }, label = { Text(stringResource(R.string.qr_image_year, option)) }) }
             }
         }
-        items(QrShareSection.entries, key = { it.name }) { section ->
+        items(QrShareSection.entries.filterNot { it == QrShareSection.CHANGES }, key = { it.name }) { section ->
+            // 選択画面では一括操作し、転送データでは既存の2項目を維持する。
+            val sections = if (section == QrShareSection.CANCELLATIONS)
+                setOf(QrShareSection.CANCELLATIONS, QrShareSection.CHANGES) else setOf(section)
+            val checked = effectiveSections.containsAll(sections)
             val personal = section in setOf(QrShareSection.NOTES, QrShareSection.PLANS, QrShareSection.TASKS)
             Row(
                 Modifier.fillMaxWidth().clickable(enabled = !busy) {
                     if (personal) { selected += section; onPick(section) }
-                    else selected = if (section in selected) selected - section else selected + section
+                    else selected = if (checked) selected - sections else selected + sections
                 }.padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
             ) {
-                Checkbox(checked = section in effectiveSections, onCheckedChange = { checked ->
-                    selected = if (checked) selected + section else selected - section
-                    if (personal && checked) onPick(section)
+                Checkbox(checked = checked, onCheckedChange = { newChecked ->
+                    selected = if (newChecked) selected + sections else selected - sections
+                    if (personal && newChecked) onPick(section)
                 }, enabled = !busy)
                 Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
-                    Text(stringResource(section.labelRes()))
+                    Text(stringResource(if (section == QrShareSection.CANCELLATIONS)
+                        R.string.qr_cancellations_and_changes else section.labelRes()))
                     Text(stringResource(when (section) {
                         QrShareSection.DAY_TYPES -> R.string.qr_days_scope
                         QrShareSection.NOTES, QrShareSection.PLANS, QrShareSection.TASKS -> R.string.qr_personal_scope

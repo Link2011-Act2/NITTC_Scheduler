@@ -22,11 +22,10 @@ plugins {
     id("com.google.devtools.ksp") version "2.3.6"
 }
 
-// 実機で外部ロードを確認するまでは同梱版を既定にする。
-// 軽量APKの検証: -PbundleAiRuntime=false
+// AIランタイムは必要時に取得する。同梱版のビルド: -PbundleAiRuntime=true
 val bundleAiRuntime = providers.gradleProperty("bundleAiRuntime").map {
     it.toBooleanStrict()
-}.orElse(true).get()
+}.orElse(false).get()
 val llamaNativeArtifacts = configurations.create("llamaNativeArtifacts") {
     isCanBeConsumed = false
     isTransitive = false
