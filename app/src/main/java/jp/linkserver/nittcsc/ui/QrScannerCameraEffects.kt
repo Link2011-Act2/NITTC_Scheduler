@@ -219,7 +219,7 @@ internal class QrScannerCameraEffects(context: Context) : View(context) {
         val strength = (1f - p) * sin(p * Math.PI).toFloat()
         paint.color = withAlpha(primary, strength * 0.22f)
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth = (8f + 24f * p) * resources.displayMetrics.density
+        paint.strokeWidth = minOf(width, height) * 0.75f
         canvas.drawCircle(centerX, centerY, radius, paint)
         paint.style = Paint.Style.FILL
         repeat(48) { i ->
@@ -315,7 +315,8 @@ private class CameraRipple33 {
                 float2 delta = p - center;
                 float d = length(delta);
                 float radius = progress * length(resolution);
-                float width = mix(12.0, 48.0, progress);
+                // ガウス分布の半値幅を、画面短辺の約75％にする。
+                float width = min(resolution.x, resolution.y) * 0.45;
                 float band = exp(-pow((d-radius)/width, 2.0));
                 float decay = (1.0-progress) * smoothstep(0.0, 0.12, progress);
                 float sparkle = step(0.985, noise(floor(p/3.0) + floor(progress*40.0))) * band * decay;

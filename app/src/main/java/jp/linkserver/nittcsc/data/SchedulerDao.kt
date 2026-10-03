@@ -37,6 +37,9 @@ interface SchedulerDao {
     @Query("DELETE FROM day_types")
     suspend fun deleteAllDayTypes()
 
+    @Query("DELETE FROM day_types WHERE date >= :startDate AND date <= :endDate")
+    suspend fun deleteDayTypesInRange(startDate: LocalDate, endDate: LocalDate)
+
     @Query("DELETE FROM day_types WHERE date < :startDate OR date > :endDate")
     suspend fun deleteDayTypesOutsideRange(startDate: LocalDate, endDate: LocalDate)
 

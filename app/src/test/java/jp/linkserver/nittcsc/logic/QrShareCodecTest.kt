@@ -166,6 +166,16 @@ class QrShareCodecTest {
         }
     }
 
+    @Test fun acceptsVersionTwoFramesAfterScopedVersionThreeUpgrade() {
+        val text = "version two ".repeat(1000)
+        val collector = QrShareCollector()
+        var received: String? = null
+        QrShareCodec.create(text).frames(100).map {
+            it.replace("SKTTP/QR:${QrShareCodec.VERSION}:", "SKTTP/QR:2:")
+        }.forEach { collector.add(it)?.let { json -> received = json } }
+        assertEquals(text, received)
+    }
+
     @Test fun rejectsBrokenChecksum() {
         val fields = QrShareCodec.create("hello").frames().single().split(':').toMutableList()
         fields[3] = "0".repeat(64)

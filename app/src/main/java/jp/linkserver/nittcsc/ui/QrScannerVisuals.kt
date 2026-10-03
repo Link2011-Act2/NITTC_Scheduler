@@ -156,7 +156,7 @@ internal fun QrScannerVisuals(state: QrScannerVisualState, preview: PreviewView?
                     coroutineScope {
                         launch { stage.animateTo(2f, tween(300)); pulse.animateTo(1.08f, tween(100)); pulse.animateTo(1f, spring(0.75f, 600f)) }
                         launch { delay(130); check.animateTo(1.15f, tween(140)); check.animateTo(1f, spring(0.65f, 700f)) }
-                        if (completed) launch { ripple.snapTo(0f); ripple.animateTo(1f, tween(850)) }
+                        if (completed) launch { ripple.snapTo(0f); ripple.animateTo(1f, tween(1_000)) }
                     }
                 }
             } else {

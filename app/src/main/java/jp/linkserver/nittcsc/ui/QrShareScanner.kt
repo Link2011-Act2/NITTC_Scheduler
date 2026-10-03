@@ -149,7 +149,7 @@ internal fun QrShareScanner(state: SchedulerUiState, viewModel: SchedulerViewMod
     LaunchedEffect(pending) {
         completionShown = false
         if (pending != null) {
-            delay(if (ValueAnimator.areAnimatorsEnabled()) 1_200L else 160L)
+            delay(if (ValueAnimator.areAnimatorsEnabled()) 1_350L else 160L)
             completionShown = true
         }
     }

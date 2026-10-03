@@ -49,9 +49,11 @@ internal fun qrResolveSharedItems(
 }
 
 internal fun qrCheckScheduleCompatibility(data: QrSharePayload, settings: SettingsEntity) {
-    if (data.sections.none { it == QrShareSection.FIRST || it == QrShareSection.SECOND }) return
+    val hasTimetable = data.sections.any { it == QrShareSection.FIRST || it == QrShareSection.SECOND }
+    val scopedDays = data.qrDayTypesRange() != null
+    if (!hasTimetable && !scopedDays) return
     if (settings.secondTermStartMonth != data.secondTermStartMonth || settings.secondTermStartDay != data.secondTermStartDay ||
-        settings.qrScheduleTimes() != data.scheduleTimes) {
+        (hasTimetable && settings.qrScheduleTimes() != data.scheduleTimes)) {
         throw QrShareException(QrShareFailure.SETTINGS)
     }
 }

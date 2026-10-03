@@ -38,6 +38,16 @@ class QrScheduleCompatibilityTest {
         assertEquals(settings.qrScheduleTimes(), settings.copy(departureMinute = 0).qrScheduleTimes())
     }
 
+    @Test fun scopedAbOnlyChecksSemesterStartWithoutRequiringClockSettings() {
+        val ab = payload().copy(sections = setOf(QrShareSection.DAY_TYPES), scheduleTimes = null)
+        qrCheckScheduleCompatibility(ab, settings)
+        qrCheckScheduleCompatibility(ab, settings.copy(periodDurationMin = 50))
+        for (scope in QrDayTypesScope.entries) {
+            failure(QrShareFailure.SETTINGS) { qrCheckScheduleCompatibility(ab.copy(dayTypesScope = scope, secondTermStartDay = 2), settings) }
+        }
+        qrCheckScheduleCompatibility(ab.copy(formatVersion = 2, secondTermStartDay = 2), settings)
+    }
+
     @Test fun resolvesPortableReferenceToReceiverIdAndIgnoresSenderId() {
         val source = lesson(999)
         val local = lesson(42)

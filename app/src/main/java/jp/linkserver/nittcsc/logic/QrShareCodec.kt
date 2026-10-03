@@ -13,7 +13,7 @@ class QrShareException(val failure: QrShareFailure) : IllegalArgumentException(f
 
 /** 同期プロトコルとは独立した、一方向のQR転送形式。 */
 object QrShareCodec {
-    const val VERSION = 2
+    const val VERSION = 3
     const val LEGACY_VERSION = 1
     const val MIN_CHUNK_BYTES = 100
     const val SCREEN_CHUNK_BYTES = 200

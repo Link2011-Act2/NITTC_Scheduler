@@ -6,6 +6,9 @@ import jp.linkserver.nittcsc.logic.QrShareFailure
 import jp.linkserver.nittcsc.logic.TimetableTerm
 import jp.linkserver.nittcsc.logic.academicYearForDate
 import jp.linkserver.nittcsc.logic.validSecondTermStart
+import jp.linkserver.nittcsc.logic.QrDayTypesScope
+import jp.linkserver.nittcsc.logic.qrDayTypesRange
+import jp.linkserver.nittcsc.logic.overlaps
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDate
@@ -19,7 +22,8 @@ data class QrShareSelection(
     val sections: Set<QrShareSection>,
     val noteKeys: Set<Pair<LocalDate, Int>> = emptySet(),
     val planIds: Set<Long> = emptySet(),
-    val taskIds: Set<Long> = emptySet()
+    val taskIds: Set<Long> = emptySet(),
+    val dayTypesScope: QrDayTypesScope = QrDayTypesScope.YEAR
 )
 
 /** 端末固有IDとリマインダー設定は配布せず、授業の紐付けは位置・内容で復元する。 */
@@ -72,7 +76,8 @@ data class QrSharePayload(
     val examDays: List<DayTypeEntity> = emptyList(),
     val examDaySchedules: List<ExamDayScheduleEntity> = emptyList(),
     val examLessons: List<ExamLessonEntity> = emptyList(),
-    val formatVersion: Int = QrShareCodec.VERSION
+    val formatVersion: Int = QrShareCodec.VERSION,
+    val dayTypesScope: QrDayTypesScope = QrDayTypesScope.YEAR
 ) {
     fun count(section: QrShareSection): Int = when (section) {
         QrShareSection.FIRST -> lessons.count { it.timetableTerm == TimetableTerm.FIRST }
@@ -113,6 +118,7 @@ object QrShareJson {
         if (QrShareSection.CANCELLATIONS in payload.sections) root.put("cancellations", rows(payload.cancellations) { listOf(it.date.toString(), it.slotIndex) })
         if (QrShareSection.CHANGES in payload.sections) root.put("changes", rows(payload.changes) { listOf(it.date.toString(), it.slotIndex, it.subject, it.teacher, it.location) })
         if (QrShareSection.DAY_TYPES in payload.sections) {
+            if (payload.formatVersion >= 3) root.put("daysScope", payload.dayTypesScope.name)
             root.put("days", rows(payload.dayTypes) { listOf(it.date.toString(), it.dayType.name, it.overrideLessonDayOfWeek, it.overrideLessonDayType?.name, it.holidaySpecialLabel?.name) })
             root.put("breaks", rows(payload.longBreaks) { listOf(it.name, it.startDate.toString(), it.endDate.toString()) })
         }
@@ -150,6 +156,11 @@ object QrShareJson {
             require(sections.size == sectionNames.length())
             require(version >= 2 || QrShareSection.EXAMS !in sections)
             val allowed = mutableSetOf("format", "version", "year", "label", "created", "semesterStart", "sections")
+            val daysScope = if (version >= 3 && QrShareSection.DAY_TYPES in sections) {
+                allowed += "daysScope"
+                QrDayTypesScope.valueOf(root.getString("daysScope"))
+            } else QrDayTypesScope.YEAR
+            val daysRange = if (version >= 3) qrDayTypesRange(year, daysScope, month, day) else null
             fun selected(section: QrShareSection, key: String, size: Int): List<JSONArray> {
                 if (section !in sections) return emptyList()
                 allowed += key
@@ -188,10 +199,12 @@ object QrShareJson {
                 require(overrideType != DayType.HOLIDAY && ((overrideDow == null) == (overrideType == null)))
                 val special = it.optionalText(4, 40)?.let(HolidaySpecialLabel::valueOf)
                 require(special == null || type == DayType.HOLIDAY)
-                DayTypeEntity(it.date(0), type, overrideDow, overrideType, special)
+                DayTypeEntity(it.date(0).also { d -> require(daysRange == null || d in daysRange) }, type, overrideDow, overrideType, special)
             }.also { require(it.map { d -> d.date }.distinct().size == it.size) }
             val breaks = selected(QrShareSection.DAY_TYPES, "breaks", 3).map {
-                LongBreakEntity(name = it.text(0, 1000), startDate = it.date(1), endDate = it.date(2)).also { b -> require(b.startDate <= b.endDate) }
+                LongBreakEntity(name = it.text(0, 1000), startDate = it.date(1), endDate = it.date(2)).also { b ->
+                    require(b.startDate <= b.endDate && (daysRange == null || b.overlaps(daysRange)))
+                }
             }
             val notes = selected(QrShareSection.NOTES, "notes", 3).map {
                 LessonNoteEntity(it.date(0), it.slot(1), it.text(2, 32000))
@@ -215,12 +228,12 @@ object QrShareJson {
             }.also { require(it.map { row -> row.date to row.slotIndex }.distinct().size == it.size) }
             val scheduleDates = examSchedules.map { it.date }.toSet()
             require(examLessons.all { it.date in scheduleDates })
-            if (QrShareSection.DAY_TYPES in sections) require(examDays.all { examDay ->
+            if (QrShareSection.DAY_TYPES in sections) require(examDays.filter { daysRange == null || it.date in daysRange }.all { examDay ->
                 days.any { it.date == examDay.date && it.dayType == DayType.HOLIDAY && it.holidaySpecialLabel == examDay.holidaySpecialLabel }
             })
             require(root.keys().asSequence().all { it in allowed })
             return QrSharePayload(year, sections, month, day, label, created, lessons, cancellations, changes, days, breaks, notes, plans, tasks,
-                times, examDays, examSchedules, examLessons, version)
+                times, examDays, examSchedules, examLessons, version, daysScope)
         } catch (e: QrShareException) {
             throw e
         } catch (_: Exception) {

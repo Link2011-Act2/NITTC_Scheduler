@@ -13,6 +13,9 @@ import jp.linkserver.nittcsc.logic.qrLessonReference
 import jp.linkserver.nittcsc.logic.qrResolveSharedItems
 import jp.linkserver.nittcsc.logic.qrShareMerge
 import jp.linkserver.nittcsc.logic.qrTimetableReplacement
+import jp.linkserver.nittcsc.logic.qrDayTypesRange
+import jp.linkserver.nittcsc.logic.qrReplaceLongBreaks
+import jp.linkserver.nittcsc.logic.overlaps
 
 internal class QrShareTransfer(private val repository: SchedulerRepository, private val db: AppDatabase) {
     private val dao = db.schedulerDao()
@@ -22,6 +25,8 @@ internal class QrShareTransfer(private val repository: SchedulerRepository, priv
         require(selection.sections.isNotEmpty() && selection.academicYear in 2000..2200)
         val settings = checkNotNull(dao.getSettings())
         val sections = selection.sections
+        val daysRange = qrDayTypesRange(selection.academicYear, selection.dayTypesScope,
+            settings.secondTermStartMonth, settings.secondTermStartDay)
         val allLessons = dao.getLessonsOnce()
         val lessonsById = allLessons.associateBy { it.id }
         fun referenceFor(id: Long?): QrLessonReference? = id?.let {
@@ -30,6 +35,7 @@ internal class QrShareTransfer(private val repository: SchedulerRepository, priv
         QrSharePayload(
             academicYear = selection.academicYear, sections = sections,
             secondTermStartMonth = settings.secondTermStartMonth, secondTermStartDay = settings.secondTermStartDay,
+            dayTypesScope = selection.dayTypesScope,
             scheduleTimes = if (QrShareSection.FIRST in sections || QrShareSection.SECOND in sections) settings.qrScheduleTimes() else null,
             lessons = allLessons.filter {
                 it.academicYear == selection.academicYear &&
@@ -37,8 +43,8 @@ internal class QrShareTransfer(private val repository: SchedulerRepository, priv
             },
             cancellations = if (QrShareSection.CANCELLATIONS in sections) dao.getCancelledLessonsOnce().filter { academicYearForDate(it.date) == selection.academicYear } else emptyList(),
             changes = if (QrShareSection.CHANGES in sections) dao.getChangedLessonsOnce().filter { academicYearForDate(it.date) == selection.academicYear } else emptyList(),
-            dayTypes = if (QrShareSection.DAY_TYPES in sections) dao.getDayTypesOnce() else emptyList(),
-            longBreaks = if (QrShareSection.DAY_TYPES in sections) dao.getLongBreaksOnce() else emptyList(),
+            dayTypes = if (QrShareSection.DAY_TYPES in sections) dao.getDayTypesOnce().filter { it.date in daysRange } else emptyList(),
+            longBreaks = if (QrShareSection.DAY_TYPES in sections) dao.getLongBreaksOnce().filter { it.overlaps(daysRange) } else emptyList(),
             notes = if (QrShareSection.NOTES in sections) dao.getLessonNotesOnce().filter { (it.date to it.slotIndex) in selection.noteKeys } else emptyList(),
             plans = if (QrShareSection.PLANS in sections) dao.getPlansOnce().filter { it.id in selection.planIds }.map {
                 QrSharedItem(it.subject, it.teacher, it.title, it.description, it.dueDate, it.dueHour, it.dueMinute, it.isCompleted, it.completedDate, it.createdDate, it.priority, it.useTeacherMatching, referenceFor(it.lessonId))
@@ -97,10 +103,20 @@ internal class QrShareTransfer(private val repository: SchedulerRepository, priv
             touched += SchedulerRepository.DATASET_CHANGED_LESSONS
         }
         if (QrShareSection.DAY_TYPES in data.sections) {
-            dao.deleteAllDayTypes()
+            val range = data.qrDayTypesRange()
+            if (range == null) dao.deleteAllDayTypes()
+            else dao.deleteDayTypesInRange(range.start, range.endInclusive)
             dao.upsertDayTypes(data.dayTypes)
-            dao.deleteAllLongBreaks()
-            data.longBreaks.forEach { dao.upsertLongBreak(it.copy(id = 0)) }
+            if (range == null) {
+                dao.deleteAllLongBreaks()
+                data.longBreaks.forEach { dao.upsertLongBreak(it.copy(id = 0)) }
+            } else {
+                val existing = dao.getLongBreaksOnce()
+                val next = qrReplaceLongBreaks(existing, data.longBreaks, range)
+                val retainedIds = next.map { it.id }.toSet()
+                existing.filter { it.id !in retainedIds }.forEach { dao.deleteLongBreak(it) }
+                next.filter { it.id == 0L }.forEach { dao.upsertLongBreak(it) }
+            }
             touched += SchedulerRepository.DATASET_DAY_TYPES
             touched += SchedulerRepository.DATASET_LONG_BREAKS
         }

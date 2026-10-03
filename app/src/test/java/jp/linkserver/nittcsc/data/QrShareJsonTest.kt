@@ -4,6 +4,8 @@ import jp.linkserver.nittcsc.logic.QrShareException
 import jp.linkserver.nittcsc.logic.TimetableTerm
 import jp.linkserver.nittcsc.logic.qrShareMerge
 import jp.linkserver.nittcsc.logic.qrLessonReference
+import jp.linkserver.nittcsc.logic.QrDayTypesScope
+import jp.linkserver.nittcsc.logic.qrDayTypesRange
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
@@ -97,7 +99,7 @@ class QrShareJsonTest {
 
     @Test fun includesClockSettingsOnlyWithRegularTimetable() {
         val root = JSONObject(QrShareJson.encode(payload()))
-        assertEquals(2, root.getInt("version"))
+        assertEquals(3, root.getInt("version"))
         assertEquals(payload().scheduleTimes, QrShareJson.decode(root.toString()).scheduleTimes)
         root.remove("scheduleTimes")
         invalid(root)
@@ -174,5 +176,38 @@ class QrShareJsonTest {
 
     private fun invalid(root: JSONObject) {
         try { QrShareJson.decode(root.toString()); fail("Expected invalid payload") } catch (_: QrShareException) { }
+    }
+
+    @Test fun scopedAbRoundTripRejectsMissingScopeOtherSemesterAndUnrelatedBreaks() {
+        val ab = payload().copy(sections = setOf(QrShareSection.DAY_TYPES), dayTypesScope = QrDayTypesScope.SECOND,
+            longBreaks = listOf(LongBreakEntity(name = "春休み", startDate = LocalDate.of(2027, 3, 20), endDate = LocalDate.of(2027, 4, 10))))
+        val read = QrShareJson.decode(QrShareJson.encode(ab))
+        assertEquals(QrDayTypesScope.SECOND, read.dayTypesScope)
+        assertEquals(ab.longBreaks, read.longBreaks)
+        val missing = JSONObject(QrShareJson.encode(ab))
+        missing.remove("daysScope")
+        invalid(missing)
+        invalid(JSONObject(QrShareJson.encode(ab)).put("daysScope", "FIRST"))
+        val unrelated = ab.copy(longBreaks = listOf(LongBreakEntity(name = "前年度", startDate = date.minusYears(1), endDate = date.minusYears(1))))
+        invalid(JSONObject(QrShareJson.encode(unrelated)))
+        invalid(JSONObject(QrShareJson.encode(ab.copy(dayTypes = listOf(DayTypeEntity(date.plusYears(1), DayType.A))))))
+    }
+
+    @Test fun legacyAbKeepsAllYearMeaningAndRoundTripsVersionOneAndTwo() {
+        for (version in listOf(1, 2)) {
+            val old = payload().copy(formatVersion = version, sections = setOf(QrShareSection.DAY_TYPES),
+                dayTypes = listOf(DayTypeEntity(date.minusYears(1), DayType.B)))
+            val root = JSONObject(QrShareJson.encode(old))
+            assertFalse(root.has("daysScope"))
+            val read = QrShareJson.decode(root.toString())
+            assertNull(read.qrDayTypesRange())
+            assertEquals(old.dayTypes, read.dayTypes)
+        }
+    }
+
+    @Test fun examsOutsideSharedSemesterDoNotRequireAbRowsForOtherSemester() {
+        val data = examPayload().copy(sections = setOf(QrShareSection.EXAMS, QrShareSection.DAY_TYPES),
+            dayTypesScope = QrDayTypesScope.FIRST, dayTypes = emptyList())
+        assertEquals(data.examDays, QrShareJson.decode(QrShareJson.encode(data)).examDays)
     }
 }
