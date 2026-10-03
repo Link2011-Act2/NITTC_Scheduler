@@ -122,7 +122,7 @@ internal fun QrFragmentDotIndicator(
         val badgeWidth = minOf(badgeSize.width.toFloat(), contentWidth)
         val badgeMaxWidth = with(density) { badgeWidth.toDp() }
         Box(Modifier.align(Alignment.CenterEnd).width(with(density) { contentWidth.toDp() } + panelPadding * 2)
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f), MaterialTheme.shapes.large)
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.60f), MaterialTheme.shapes.large)
             .padding(panelPadding).height(contentHeight)) {
             window.indices.forEachIndexed { position, index ->
                 val row = position / layout.columns

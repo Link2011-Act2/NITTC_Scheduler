@@ -6,23 +6,25 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,19 +54,15 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import jp.linkserver.nittcsc.InternalFeatureFlags
-import jp.linkserver.nittcsc.BuildConfig
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.QrShareJson
 import jp.linkserver.nittcsc.data.QrSharePayload
 import jp.linkserver.nittcsc.data.QrShareSection
 import jp.linkserver.nittcsc.logic.QrShareCodec
-import jp.linkserver.nittcsc.logic.QrDisplaySettings
+import jp.linkserver.nittcsc.logic.QrDisplaySpeed
 import jp.linkserver.nittcsc.logic.QrShareException
 import jp.linkserver.nittcsc.logic.QrShareFailure
 import jp.linkserver.nittcsc.qr.QrShareMedia
-import jp.linkserver.nittcsc.qr.loadQrDisplayDebugSettings
-import jp.linkserver.nittcsc.qr.saveQrDisplayDebugSettings
-import jp.linkserver.nittcsc.update.isIntDevBuild
 import jp.linkserver.nittcsc.viewmodel.SchedulerUiState
 import jp.linkserver.nittcsc.viewmodel.SchedulerViewModel
 import kotlinx.coroutines.CancellationException
@@ -103,9 +101,7 @@ fun QrShareScreen(state: SchedulerUiState, viewModel: SchedulerViewModel, onBack
     val context = LocalContext.current
     val resources = LocalResources.current
     val scope = rememberCoroutineScope()
-    val isIntDev = remember { isIntDevBuild(BuildConfig.VERSION_NAME) }
-    var displaySettings by remember(context) { mutableStateOf(loadQrDisplayDebugSettings(context)) }
-    var displaySettingsDialog by remember { mutableStateOf(false) }
+    var displaySpeed by remember { mutableStateOf(QrDisplaySpeed.STANDARD) }
     var page by remember { mutableStateOf(QrPage.HOME) }
     var pickerSection by remember { mutableStateOf<QrShareSection?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -118,7 +114,6 @@ fun QrShareScreen(state: SchedulerUiState, viewModel: SchedulerViewModel, onBack
     var classLabel by remember { mutableStateOf("") }
     fun back() {
         if (busy) return
-        displaySettingsDialog = false
         error = null
         if (pickerSection != null) pickerSection = null
         else if (page == QrPage.HOME) onBack() else page = QrPage.HOME
@@ -128,12 +123,7 @@ fun QrShareScreen(state: SchedulerUiState, viewModel: SchedulerViewModel, onBack
         QrShareScanner(state, viewModel, onBusyChanged = { busy = it }, onBack = ::back)
         return
     }
-    Scaffold(floatingActionButton = {
-        if (isIntDev && page == QrPage.DISPLAY) FilledTonalIconButton(
-            enabled = !busy && !imageDialog,
-            onClick = { error = null; displaySettingsDialog = true }, modifier = Modifier.size(56.dp)
-        ) { Icon(Icons.Outlined.Settings, contentDescription = stringResource(R.string.qr_display_settings)) }
-    }, topBar = {
+    Scaffold(topBar = {
         TopAppBar(title = {
             Text(pickerSection?.let { stringResource(R.string.qr_pick_title, stringResource(it.labelRes())) }
                 ?: stringResource(R.string.qr_title), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -162,7 +152,7 @@ fun QrShareScreen(state: SchedulerUiState, viewModel: SchedulerViewModel, onBack
                     scope.launch {
                         try {
                             val data = viewModel.exportQrShare(selection)
-                            val images = createQrDisplayFrames(data, displaySettings.chunkBytes)
+                            val images = createQrDisplayFrames(data)
                             payload = data
                             frames = images
                             page = QrPage.DISPLAY
@@ -171,35 +161,12 @@ fun QrShareScreen(state: SchedulerUiState, viewModel: SchedulerViewModel, onBack
                         finally { busy = false }
                     }
                 }
-                QrPage.DISPLAY -> QrShareDisplay(frames, busy || displaySettingsDialog,
-                    displaySettings.frameIntervalMs, isIntDev, onShareImage = { imageDialog = true })
+                QrPage.DISPLAY -> QrShareDisplay(frames, busy, displaySpeed,
+                    onSpeedChange = { displaySpeed = it }, onShareImage = { imageDialog = true })
                 QrPage.SCAN -> Unit
             }
         }
     }
-    if (isIntDev && page == QrPage.DISPLAY && displaySettingsDialog) QrDisplaySettingsDialog(
-        displaySettings, busy, error, onDismiss = { displaySettingsDialog = false }, onApply = { updated ->
-            if (!busy) {
-                val data = payload
-                if (data != null) {
-                    busy = true
-                    error = null
-                    scope.launch {
-                        try {
-                            // 速度だけの変更では生成済み画像をそのまま使う。
-                            val images = if (updated.chunkBytes != displaySettings.chunkBytes) createQrDisplayFrames(data, updated.chunkBytes) else frames
-                            saveQrDisplayDebugSettings(context, updated)
-                            frames = images
-                            displaySettings = updated
-                            displaySettingsDialog = false
-                        } catch (e: CancellationException) { throw e }
-                        catch (e: Exception) { error = qrFailureMessage(resources, e) }
-                        finally { busy = false }
-                    }
-                }
-            }
-        }
-    )
     if (imageDialog) AlertDialog(
         onDismissRequest = { if (!busy) imageDialog = false },
         title = { Text(stringResource(R.string.qr_image_share)) },
@@ -246,8 +213,8 @@ fun QrShareScreen(state: SchedulerUiState, viewModel: SchedulerViewModel, onBack
 }
 
 @Composable
-private fun QrShareDisplay(frames: List<ImageBitmap>, busy: Boolean, frameIntervalMs: Long,
-    reserveSettingsSpace: Boolean, onShareImage: () -> Unit) {
+private fun QrShareDisplay(frames: List<ImageBitmap>, busy: Boolean, speed: QrDisplaySpeed,
+    onSpeedChange: (QrDisplaySpeed) -> Unit, onShareImage: () -> Unit) {
     var index by remember(frames) { mutableIntStateOf(0) }
     val view = LocalView.current
     DisposableEffect(view) {
@@ -256,17 +223,16 @@ private fun QrShareDisplay(frames: List<ImageBitmap>, busy: Boolean, frameInterv
         onDispose { view.keepScreenOn = previous }
     }
     val frame = frames.getOrNull(index)
-    LaunchedEffect(frames, busy, frameIntervalMs) {
+    LaunchedEffect(frames, busy, speed) {
         if (frames.size > 1 && !busy) {
             // 生成済み画像を繰り返し表示する。再生中は画像生成を行わない。
             while (true) {
-                delay(frameIntervalMs)
+                delay(speed.frameIntervalMs)
                 index = (index + 1) % frames.size
             }
         }
     }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp)
-        .padding(bottom = if (reserveSettingsSpace) 80.dp else 0.dp),
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(stringResource(R.string.qr_display_description))
         Box(Modifier.fillMaxWidth().aspectRatio(1f), contentAlignment = Alignment.Center) {
@@ -274,12 +240,22 @@ private fun QrShareDisplay(frames: List<ImageBitmap>, busy: Boolean, frameInterv
                 ?: CircularProgressIndicator()
         }
         Text(stringResource(R.string.qr_part_number, index + 1, frames.size), style = MaterialTheme.typography.titleMedium)
-        Button(onClick = onShareImage, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.qr_image_share)) }
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.qr_display_speed), style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.qr_display_speed_description),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            QrDisplaySpeedSelector(speed, enabled = !busy, onSpeedChange = onSpeedChange)
+        }
+        Button(onClick = onShareImage, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+            Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+            Text(stringResource(R.string.qr_image_share))
+        }
     }
 }
 
-private suspend fun createQrDisplayFrames(payload: QrSharePayload, chunkBytes: Int): List<ImageBitmap> =
+private suspend fun createQrDisplayFrames(payload: QrSharePayload): List<ImageBitmap> =
     withContext(Dispatchers.Default) {
-        val encoded = QrShareCodec.create(QrShareJson.encode(payload)).cameraFrames(chunkBytes)
+        val encoded = QrShareCodec.create(QrShareJson.encode(payload)).cameraFrames()
         QrShareMedia.displayBitmaps(encoded).map { it.asImageBitmap() }
     }

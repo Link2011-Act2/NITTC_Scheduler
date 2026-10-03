@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -78,6 +79,7 @@ import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.ToggleFloatingActionButton
 import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.ToggleButtonDefaults
+import androidx.compose.material3.ToggleButtonColors
 import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -92,6 +94,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import jp.linkserver.nittcsc.data.UiDesignMode
 import jp.linkserver.nittcsc.ui.theme.ExpressiveFabShape
 import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
@@ -582,7 +585,12 @@ fun AppConnectedButtonGroup(
     options: List<String>,
     selectedIndex: Int,
     onSelectedIndexChange: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    colorsForIndex: ((Int) -> ToggleButtonColors)? = null,
+    contentPadding: PaddingValues? = null,
+    iconSize: Dp = ToggleButtonDefaults.IconSize,
+    iconSpacing: Dp = ToggleButtonDefaults.IconSpacing
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -594,6 +602,9 @@ fun AppConnectedButtonGroup(
             ToggleButton(
                 checked = selected,
                 onCheckedChange = { onSelectedIndexChange(index) },
+                enabled = enabled,
+                colors = colorsForIndex?.invoke(index) ?: ToggleButtonDefaults.toggleButtonColors(),
+                contentPadding = contentPadding ?: ButtonDefaults.contentPaddingFor(ButtonDefaults.MinHeight),
                 shapes = when (index) {
                     0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
                     options.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
@@ -629,9 +640,9 @@ fun AppConnectedButtonGroup(
                         Icon(
                             imageVector = Icons.Filled.Check,
                             contentDescription = null,
-                            modifier = Modifier.size(ToggleButtonDefaults.IconSize)
+                            modifier = Modifier.size(iconSize)
                         )
-                        Spacer(modifier = Modifier.width(ToggleButtonDefaults.IconSpacing))
+                        Spacer(modifier = Modifier.width(iconSpacing))
                     }
                 }
                 Text(option, maxLines = 1)

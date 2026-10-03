@@ -97,7 +97,6 @@ internal fun QrScannerVisuals(state: QrScannerVisualState, preview: PreviewView?
     val primary = MaterialTheme.colorScheme.primary
     val scrim = MaterialTheme.colorScheme.scrim
     val onPrimary = MaterialTheme.colorScheme.onPrimary
-    val surface = MaterialTheme.colorScheme.surface
     val labelBackground = MaterialTheme.colorScheme.surfaceContainerHigh
     val stage = remember { Animatable(0f) }
     val pulse = remember { Animatable(1f) }
@@ -187,10 +186,8 @@ internal fun QrScannerVisuals(state: QrScannerVisualState, preview: PreviewView?
                 fill.color = primary.copy(alpha = successAmount * 0.96f).toArgb()
                 canvas.drawPath(path, fill)
             }
-            stroke.strokeWidth = 6.dp.toPx()
-            stroke.color = surface.copy(alpha = 0.5f).toArgb()
-            canvas.drawPath(path, stroke)
-            stroke.strokeWidth = 3.dp.toPx()
+            // 外周は1本だけ描き、進捗も同じ太さで上塗りする。
+            stroke.strokeWidth = 4.dp.toPx()
             stroke.color = primary.copy(alpha = 0.3f).toArgb()
             canvas.drawPath(path, stroke)
             if (progress > 0f) {
@@ -203,7 +200,6 @@ internal fun QrScannerVisuals(state: QrScannerVisualState, preview: PreviewView?
                 measure.getSegment(start, minOf(end, length), progressPath, true)
                 if (end > length) measure.getSegment(0f, end - length, progressPath, true)
                 stroke.color = primary.toArgb()
-                stroke.strokeWidth = 4.dp.toPx()
                 canvas.drawPath(progressPath, stroke)
             }
         }
