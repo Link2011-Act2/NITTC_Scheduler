@@ -5,6 +5,18 @@ import kotlin.math.hypot
 
 internal data class QrScanTarget(val x: Float, val y: Float, val width: Float, val height: Float, val angle: Float)
 
+/** 中央へ戻る0度も、現在の角度から最も近い同じ向きとして扱う。 */
+internal class QrScannerRotation {
+    private var target = 0f
+
+    fun follow(angle: Float): Float {
+        if (!angle.isFinite()) return target
+        val delta = (((angle - target) % 360f + 540f) % 360f) - 180f
+        target += delta
+        return target
+    }
+}
+
 /** CameraXでプレビュー座標へ変換済みの四隅を扱う。角度は±180度の境界で飛ばさない。 */
 internal class QrScannerTracker {
     private var filtered: QrScanTarget? = null

@@ -14,6 +14,7 @@ class QrShareException(val failure: QrShareFailure) : IllegalArgumentException(f
 /** 同期プロトコルとは独立した、一方向のQR転送形式。 */
 object QrShareCodec {
     const val VERSION = 1
+    const val MIN_CHUNK_BYTES = 100
     const val SCREEN_CHUNK_BYTES = 200
     const val GIF_CHUNK_BYTES = 600
     const val IMAGE_CHUNK_BYTES = 1600
@@ -25,7 +26,7 @@ object QrShareCodec {
     data class Transfer(val compressed: ByteArray, val id: String, val digest: String) {
         /** 画像・GIF用。カメラに見せる画面はcameraFrames()を使う。 */
         fun frames(chunkBytes: Int = GIF_CHUNK_BYTES): List<String> {
-            require(chunkBytes in 100..IMAGE_CHUNK_BYTES)
+            require(chunkBytes in MIN_CHUNK_BYTES..IMAGE_CHUNK_BYTES)
             val count = (compressed.size + chunkBytes - 1) / chunkBytes
             if (count !in 1..MAX_PARTS) throw QrShareException(QrShareFailure.TOO_LARGE)
             return (0 until count).map { index ->
@@ -35,9 +36,10 @@ object QrShareCodec {
         }
 
         /** 小さいQRを優先する。既存の受信側も読める128枚以内に収める。 */
-        fun cameraFrames(): List<String> {
+        fun cameraFrames(chunkBytes: Int = SCREEN_CHUNK_BYTES): List<String> {
+            require(chunkBytes in MIN_CHUNK_BYTES..IMAGE_CHUNK_BYTES)
             val minimumChunkBytes = (compressed.size + MAX_PARTS - 1) / MAX_PARTS
-            return frames(maxOf(SCREEN_CHUNK_BYTES, minimumChunkBytes))
+            return frames(maxOf(chunkBytes, minimumChunkBytes))
         }
     }
 
@@ -89,6 +91,10 @@ class QrShareCollector {
         private set
     private val parts = mutableMapOf<Int, ByteArray>()
     val received: Int get() = parts.size
+    /** 表示用の不変スナップショット。番号はプロトコルと同じ0始まり。 */
+    val receivedFragmentIndices: Set<Int> get() = parts.keys.toSet()
+    var lastReceivedIndex: Int? = null
+        private set
     val missing: List<Int> get() = (0 until total).filter { it !in parts }.map { it + 1 }
 
     fun add(text: String): String? {
@@ -107,6 +113,7 @@ class QrShareCollector {
         digest = part.digest
         total = part.count
         parts[part.index] = part.bytes
+        lastReceivedIndex = part.index
         if (received != total) return null
         try {
             val bytes = ByteArrayOutputStream().also { out -> (0 until total).forEach { out.write(parts.getValue(it)) } }.toByteArray()

@@ -3,6 +3,7 @@ package jp.linkserver.nittcsc.qr
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
 import com.google.zxing.LuminanceSource
+import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.ReaderException
 import com.google.zxing.Result
 import com.google.zxing.common.HybridBinarizer
@@ -23,12 +24,21 @@ internal class QrCameraDecoder {
     private val hints = mapOf(DecodeHintType.TRY_HARDER to true)
     private var tracked: QrRegion? = null
     private var misses = 0
+    private var recoveryRotation = 1
+    private var rotationBuffer = ByteArray(0)
 
     fun read(source: LuminanceSource): QrCameraDetection? {
         val full = QrRegion(0, 0, source.width, source.height)
         val preferred = tracked?.takeIf { it.left + it.width <= source.width && it.top + it.height <= source.height } ?: full
         var result = decode(source, preferred)
-        if (result == null && preferred != full) result = decode(source, full)
+        if (result == null) {
+            // 大きい映像全体は1フレーム1方向に制限。小さい追跡領域だけ同じフレームで全方向を試す。
+            val attempts = if (preferred != full && preferred.width.toLong() * preferred.height <= 512 * 512) 3 else 1
+            result = decodeRotated(source, preferred, attempts)
+        }
+        if (result == null && preferred != full) {
+            result = decode(source, full) ?: decodeRotated(source, full, 1)
+        }
         if (result == null && misses % 3 == 2) result = decode(source.invert(), full)
         if (result == null) {
             if (++misses >= 5) tracked = null
@@ -51,10 +61,54 @@ internal class QrCameraDecoder {
         return result
     }
 
-    private fun decode(source: LuminanceSource, region: QrRegion): QrCameraDetection? = try {
-        val crop = source.crop(region.left, region.top, region.width, region.height)
+    private fun decode(source: LuminanceSource, region: QrRegion): QrCameraDetection? =
+        decodeRegion(source.crop(region.left, region.top, region.width, region.height), region, 0)
+
+    private fun decodeRotated(source: LuminanceSource, region: QrRegion, attempts: Int): QrCameraDetection? {
+        val pixels = source.crop(region.left, region.top, region.width, region.height).matrix
+        val start = recoveryRotation
+        repeat(attempts) { index ->
+            val turns = (start - 1 + index) % 3 + 1
+            val rotated = rotateLuminance(pixels, region.width, region.height, turns)
+            decodeRegion(rotated, region, turns)?.let {
+                recoveryRotation = turns
+                return it
+            }
+        }
+        recoveryRotation = start % 3 + 1
+        return null
+    }
+
+    private fun rotateLuminance(pixels: ByteArray, width: Int, height: Int, turns: Int): LuminanceSource {
+        val size = width * height
+        if (rotationBuffer.size < size) rotationBuffer = ByteArray(size)
+        when (turns) {
+            1 -> for (y in 0 until height) for (x in 0 until width) {
+                rotationBuffer[(width - 1 - x) * height + y] = pixels[y * width + x]
+            }
+            2 -> for (i in 0 until size) rotationBuffer[size - 1 - i] = pixels[i]
+            3 -> for (y in 0 until height) for (x in 0 until width) {
+                rotationBuffer[x * height + height - 1 - y] = pixels[y * width + x]
+            }
+        }
+        val rotatedWidth = if (turns == 2) width else height
+        val rotatedHeight = if (turns == 2) height else width
+        return PlanarYUVLuminanceSource(rotationBuffer, rotatedWidth, rotatedHeight,
+            0, 0, rotatedWidth, rotatedHeight, false)
+    }
+
+    private fun decodeRegion(crop: LuminanceSource, region: QrRegion, turns: Int): QrCameraDetection? = try {
         val result = reader.decode(BinaryBitmap(HybridBinarizer(crop)), hints)
-        QrCameraDetection(result.text, corners(result).map { QrPoint(it.x + region.left, it.y + region.top) })
+        // 90/270度では幅と高さも入れ替わる。回転とcropを戻してからCameraXへ渡す。
+        QrCameraDetection(result.text, corners(result).map {
+            val point = when (turns) {
+                1 -> QrPoint(region.width - 1f - it.y, it.x)
+                2 -> QrPoint(region.width - 1f - it.x, region.height - 1f - it.y)
+                3 -> QrPoint(it.y, region.height - 1f - it.x)
+                else -> it
+            }
+            QrPoint(point.x + region.left, point.y + region.top)
+        })
     } catch (_: ReaderException) {
         null
     } finally {

@@ -18,9 +18,11 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
@@ -58,6 +60,7 @@ import androidx.graphics.shapes.toPath
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.logic.QrScanTarget
 import jp.linkserver.nittcsc.logic.QrScannerPhase
+import jp.linkserver.nittcsc.logic.QrScannerRotation
 import jp.linkserver.nittcsc.logic.QrScannerVisualState
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -71,12 +74,24 @@ internal fun QrScannerVisuals(state: QrScannerVisualState, preview: PreviewView?
     val density = LocalDensity.current
     val effects = remember(context) { QrScannerCameraEffects(context) }
     val morph = remember { Morph(MaterialShapes.Cookie4Sided, MaterialShapes.Cookie9Sided) }
+    val progressStartFraction = remember(morph) {
+        val reference = PathMeasure(morph.toPath(1f), true)
+        val point = FloatArray(2)
+        var start = 0f
+        var top = Float.MAX_VALUE
+        repeat(128) { i ->
+            val fraction = i / 128f
+            reference.getPosTan(reference.length * fraction, point, null)
+            if (point[1] < top) { top = point[1]; start = fraction }
+        }
+        start
+    }
+    val rotation = remember { QrScannerRotation() }
     val successMorph = remember { Morph(MaterialShapes.Cookie9Sided, MaterialShapes.Sunny) }
     val path = remember { Path() }
     val progressPath = remember { Path() }
     val measure = remember { PathMeasure() }
     val matrix = remember { Matrix() }
-    val position = remember { FloatArray(2) }
     val stroke = remember { Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND } }
     val fill = remember { Paint(Paint.ANTI_ALIAS_FLAG) }
     val primary = MaterialTheme.colorScheme.primary
@@ -88,9 +103,25 @@ internal fun QrScannerVisuals(state: QrScannerVisualState, preview: PreviewView?
     val pulse = remember { Animatable(1f) }
     val check = remember { Animatable(0f) }
     val ripple = remember { Animatable(-1f) }
+    val completionBlur = remember { Animatable(0f) }
     val reducedMotion = remember { !ValueAnimator.areAnimatorsEnabled() }
     val completed = state.phase == QrScannerPhase.Completed
+    LaunchedEffect(completed, active) {
+        if (!completed || !active) completionBlur.snapTo(0f)
+        else if (reducedMotion) completionBlur.snapTo(1f)
+        else completionBlur.animateTo(1f, tween(400))
+    }
     val tracking = state.target != null
+    val hasReceived = state.received > 0
+    var showReceivingHint by remember { mutableStateOf(false) }
+    // 受信済み枚数の増加や重複検出では延長せず、最初の1枚から一度だけ表示する。
+    LaunchedEffect(hasReceived, state.total) {
+        showReceivingHint = hasReceived && state.total >= 3
+        if (showReceivingHint) {
+            delay(1_500L)
+            showReceivingHint = false
+        }
+    }
     var frozen by remember { mutableStateOf<QrScanTarget?>(null) }
     var successStarted by remember { mutableStateOf(false) }
     BoxWithConstraints(modifier.fillMaxSize()) {
@@ -103,7 +134,7 @@ internal fun QrScannerVisuals(state: QrScannerVisualState, preview: PreviewView?
         val y by animateFloatAsState(target.y, motion, label = "qrY")
         val w by animateFloatAsState(target.width, motion, label = "qrWidth")
         val h by animateFloatAsState(target.height, motion, label = "qrHeight")
-        val angle by animateFloatAsState(target.angle, motion, label = "qrAngle")
+        val angle by animateFloatAsState(rotation.follow(target.angle), motion, label = "qrAngle")
         val progress by animateFloatAsState(state.progress, tween(160), label = "qrProgress")
         LaunchedEffect(completed, tracking, active) {
             if (!active) { ripple.snapTo(-1f); return@LaunchedEffect }
@@ -148,7 +179,8 @@ internal fun QrScannerVisuals(state: QrScannerVisualState, preview: PreviewView?
             geometryKey = 31 * geometryKey + angle.toBits()
             geometryKey = 31 * geometryKey + x.toBits()
             geometryKey = 31 * geometryKey + y.toBits()
-            effects.updateWindow(path, geometryKey, if (active) ripple.value else -1f, x, y)
+            effects.updateWindow(path, geometryKey, if (active) ripple.value else -1f,
+                if (completed && active) completionBlur.value else 0f, x, y)
             val canvas = drawContext.canvas.nativeCanvas
             val successAmount = (stage.value - 1f).coerceIn(0f, 1f)
             if (successAmount > 0f) {
@@ -161,17 +193,11 @@ internal fun QrScannerVisuals(state: QrScannerVisualState, preview: PreviewView?
             stroke.strokeWidth = 3.dp.toPx()
             stroke.color = primary.copy(alpha = 0.3f).toArgb()
             canvas.drawPath(path, stroke)
-            if (progress > 0f && stage.value > 0.05f) {
+            if (progress > 0f) {
                 measure.setPath(path, true)
                 val length = measure.length
-                var start = 0f
-                var top = Float.MAX_VALUE
-                // 画面上の12時方向に近い外周位置から始める。回転中も上側を保つ。
-                repeat(64) { i ->
-                    val distance = i * length / 64f
-                    measure.getPosTan(distance, position, null)
-                    if (position[1] < top) { top = position[1]; start = distance }
-                }
+                // Shape上の開始位置を固定し、回転・Morph中も同じ外周部分に追従させる。
+                val start = length * progressStartFraction
                 progressPath.rewind()
                 val end = start + length * progress
                 measure.getSegment(start, minOf(end, length), progressPath, true)
@@ -181,7 +207,7 @@ internal fun QrScannerVisuals(state: QrScannerVisualState, preview: PreviewView?
                 canvas.drawPath(progressPath, stroke)
             }
         }
-        AnimatedVisibility(visible = !completed && (tracking || state.received > 0), enter = fadeIn(), exit = fadeOut(),
+        AnimatedVisibility(visible = !completed && tracking, enter = fadeIn(), exit = fadeOut(),
             modifier = Modifier.fillMaxWidth().offset {
                 IntOffset((x - screenWidth / 2f).roundToInt(),
                     (y + maxOf(w, h) / 2f + with(density) { 12.dp.toPx() }).coerceIn(0f, (screenHeight - with(density) { 150.dp.toPx() }).coerceAtLeast(0f)).roundToInt())
@@ -193,7 +219,17 @@ internal fun QrScannerVisuals(state: QrScannerVisualState, preview: PreviewView?
                         AnimatedContent(targetState = (state.progress * 100).roundToInt(), transitionSpec = {
                             (fadeIn(tween(120)) + slideInVertically(tween(120)) { it / 5 }) togetherWith fadeOut(tween(100))
                         }, label = "qrPercent") { percent -> Text(stringResource(R.string.qr_scan_percent, percent), style = MaterialTheme.typography.headlineMedium, color = primary) }
-                        if (state.total > 0) Text(stringResource(R.string.qr_part_number, state.received, state.total), style = MaterialTheme.typography.labelMedium, color = primary)
+                        if (state.total > 0) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(stringResource(R.string.qr_part_number, state.received, state.total),
+                                    style = MaterialTheme.typography.labelMedium, color = primary)
+                                AnimatedVisibility(visible = showReceivingHint, modifier = Modifier.weight(1f, fill = false),
+                                    enter = fadeIn(tween(100)), exit = fadeOut(tween(100))) {
+                                    Text(stringResource(R.string.qr_scan_keep_aimed), style = MaterialTheme.typography.labelMedium,
+                                        color = primary, maxLines = 2)
+                                }
+                            }
+                        }
                     }
                 }
             }

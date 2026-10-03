@@ -6,6 +6,24 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 class QrScannerTrackingTest {
+    @Test fun returnsToIdleWithoutUndoingAccumulatedTurns() {
+        val rotation = QrScannerRotation()
+        for (degrees in 0..810 step 30) assertEquals(degrees.toFloat(), rotation.follow(degrees.toFloat()), 0.001f)
+        // 810度から0度へ810度逆回転せず、同じ向きの720度へ90度だけ戻る。
+        assertEquals(720f, rotation.follow(0f), 0.001f)
+        assertEquals(720f, rotation.follow(0f), 0.001f)
+        assertEquals(899f, rotation.follow(179f), 0.001f)
+        assertEquals(901f, rotation.follow(-179f), 0.001f)
+    }
+
+    @Test fun returnsFromCounterclockwiseTurnsAndIgnoresInvalidAngles() {
+        val rotation = QrScannerRotation()
+        for (degrees in 0 downTo -810 step 30) assertEquals(degrees.toFloat(), rotation.follow(degrees.toFloat()), 0.001f)
+        assertEquals(-720f, rotation.follow(0f), 0.001f)
+        assertEquals(-720f, rotation.follow(Float.NaN), 0.001f)
+        assertEquals(-720f, rotation.follow(Float.POSITIVE_INFINITY), 0.001f)
+    }
+
     private fun corners(x: Float, y: Float, angle: Float = 0f): FloatArray {
         val rad = Math.toRadians(angle.toDouble())
         val c = cos(rad).toFloat(); val s = sin(rad).toFloat()

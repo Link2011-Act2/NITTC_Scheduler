@@ -8,6 +8,80 @@ import java.util.Random
 import java.util.zip.GZIPOutputStream
 
 class QrShareCodecTest {
+    @Test fun configurableCameraChunksRoundTripThroughExistingCollector() {
+        val json = Base64.getEncoder().encodeToString(ByteArray(2100).also { Random(117).nextBytes(it) })
+        val transfer = QrShareCodec.create(json)
+        for (chunkBytes in listOf(100, 200, 600, 1600)) {
+            val frames = transfer.cameraFrames(chunkBytes)
+            assertEquals(chunkBytes, QrShareCodec.parse(frames.first()).bytes.size)
+            assertTrue(frames.all { QrShareCodec.parse(it).bytes.size <= chunkBytes })
+            val collector = QrShareCollector()
+            var result: String? = null
+            for (frame in frames.reversed()) {
+                collector.add(frame)?.let { result = it }
+                assertNull(collector.add(frame))
+            }
+            assertEquals("chunkBytes=$chunkBytes", json, result)
+        }
+        assertEquals(transfer.cameraFrames(), transfer.cameraFrames(QrShareCodec.SCREEN_CHUNK_BYTES))
+    }
+
+    @Test fun smallerRequestedChunksStillRespectTheExistingPartLimit() {
+        val json = Base64.getEncoder().encodeToString(ByteArray(56000).also { Random(113).nextBytes(it) })
+        val transfer = QrShareCodec.create(json)
+        val frames = transfer.cameraFrames(QrShareCodec.MIN_CHUNK_BYTES)
+        assertTrue(frames.size <= QrShareCodec.MAX_PARTS)
+        assertEquals((transfer.compressed.size + QrShareCodec.MAX_PARTS - 1) / QrShareCodec.MAX_PARTS,
+            QrShareCodec.parse(frames.first()).bytes.size)
+        val collector = QrShareCollector()
+        var result: String? = null
+        frames.reversed().forEach { collector.add(it)?.let { value -> result = value } }
+        assertEquals(json, result)
+    }
+
+    @Test fun rejectsUnsupportedCameraChunkSizesInsteadOfSilentlyChangingThem() {
+        val transfer = QrShareCodec.create("hello")
+        for (chunkBytes in listOf(-1, 0, 99, 1601, Int.MAX_VALUE)) {
+            try { transfer.cameraFrames(chunkBytes); fail("chunkBytes=$chunkBytes") }
+            catch (_: IllegalArgumentException) { }
+        }
+    }
+
+    @Test fun exposesActualIndicesAndUniqueReceiptWithoutChangingDuplicateState() {
+        val json = Base64.getEncoder().encodeToString(ByteArray(2100).also { Random(91).nextBytes(it) })
+        val frames = QrShareCodec.create(json).cameraFrames()
+        assertTrue(frames.size >= 8)
+        val collector = QrShareCollector()
+        assertTrue(collector.receivedFragmentIndices.isEmpty())
+        assertNull(collector.lastReceivedIndex)
+        collector.add(frames[5])
+        val firstSnapshot = collector.receivedFragmentIndices
+        assertEquals(setOf(5), firstSnapshot)
+        assertEquals(5, collector.lastReceivedIndex)
+        collector.add(frames[6]); collector.add(frames[7]); collector.add(frames[0])
+        assertEquals(setOf(0, 5, 6, 7), collector.receivedFragmentIndices)
+        assertEquals(setOf(5), firstSnapshot) // 過去のUI snapshotが内部Mapの更新で変わらない。
+        assertEquals(0, collector.lastReceivedIndex)
+        collector.add(frames[5])
+        assertEquals(setOf(0, 5, 6, 7), collector.receivedFragmentIndices)
+        assertEquals(0, collector.lastReceivedIndex)
+        assertEquals(4, collector.received)
+        var result: String? = null
+        frames.forEach { collector.add(it)?.let { data -> result = data } }
+        assertEquals(json, result)
+        assertEquals((frames.indices).toSet(), collector.receivedFragmentIndices)
+    }
+
+    @Test fun rejectedDifferentTransferDoesNotChangeDotSnapshot() {
+        val a = QrShareCodec.create("a").cameraFrames().single()
+        val b = QrShareCodec.create("b").cameraFrames().single()
+        val collector = QrShareCollector()
+        collector.add(a)
+        failure(QrShareFailure.DIFFERENT_TRANSFER) { collector.add(b) }
+        assertEquals(setOf(0), collector.receivedFragmentIndices)
+        assertEquals(0, collector.lastReceivedIndex)
+    }
+
     @Test fun cameraFramesUseSmallChunksAndRoundTripOutOfOrder() {
         val json = Base64.getEncoder().encodeToString(ByteArray(2100).also { Random(27).nextBytes(it) })
         val transfer = QrShareCodec.create(json)

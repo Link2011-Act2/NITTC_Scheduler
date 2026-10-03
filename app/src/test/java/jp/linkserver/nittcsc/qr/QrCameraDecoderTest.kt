@@ -57,6 +57,48 @@ class QrCameraDecoderTest {
         assertEquals(frame, result?.text)
     }
 
+    @Test fun recoversSmallBlurredQrAtQuarterTurnsOnRectangularFrames() {
+        val payload = ByteArray(200).also { Random(42).nextBytes(it) }
+        val text = "SKTTP/QR:1:${"a".repeat(32)}:${"b".repeat(64)}:8:1:${Base64.getEncoder().encodeToString(payload)}"
+        val size = 180
+        var width = size + 73
+        var height = size + 41
+        val clean = IntArray(width * height) { 220 }
+        val qr = QrImageEncoding.pixels(text, size)
+        for (y in 0 until size) for (x in 0 until size) {
+            clean[(y + 19) * width + x + 27] = if (qr[y * size + x] == -1) 220 else 40
+        }
+        val random = Random(18)
+        var pixels = IntArray(clean.size) { i ->
+            val x = i % width
+            val y = i / width
+            val value = ((-1..1).sumOf { dx -> clean[y * width + (x + dx).coerceIn(0, width - 1)] } / 3 +
+                random.nextInt(21) - 10).coerceIn(0, 255)
+            0xff000000.toInt() or (value shl 16) or (value shl 8) or value
+        }
+        val reference = QrCameraDecoder().read(RGBLuminanceSource(width, height, pixels))!!
+        var expectedCorners = reference.corners
+        val trackingDecoder = QrCameraDecoder()
+        repeat(4) { turn ->
+            // 未検出時の回転再解析は1フレーム1方向に制限する。
+            val decoder = QrCameraDecoder()
+            var result: QrCameraDetection? = null
+            repeat(3) { decoder.read(RGBLuminanceSource(width, height, pixels))?.let { result = it } }
+            assertEquals("rotation=$turn", text, result?.text)
+            result!!.corners.zip(expectedCorners).forEach { (actual, expected) ->
+                assertEquals(expected.x, actual.x, 6f)
+                assertEquals(expected.y, actual.y, 6f)
+            }
+            val trackedResult = trackingDecoder.read(RGBLuminanceSource(width, height, pixels))
+            assertEquals("tracking rotation=$turn", text, trackedResult?.text)
+            val oldWidth = width
+            pixels = IntArray(pixels.size) { i -> pixels[(i % height) * width + width - 1 - i / height] }
+            expectedCorners = expectedCorners.map { QrPoint(it.y, oldWidth - 1f - it.x) }
+            width = height
+            height = oldWidth
+        }
+    }
+
     @Test fun readsQrOutsideCentralGuideWithoutWaitingForAnotherFrame() {
         val decoder = QrCameraDecoder()
         val width = 768

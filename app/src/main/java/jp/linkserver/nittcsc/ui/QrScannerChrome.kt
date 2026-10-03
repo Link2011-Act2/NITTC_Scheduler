@@ -8,6 +8,7 @@ import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.PhotoLibrary
@@ -32,6 +34,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -53,6 +56,9 @@ internal fun QrScannerChrome(
     visual: QrScannerVisualState,
     preview: PreviewView?,
     active: Boolean,
+    fragmentSession: Any,
+    receivedFragmentIndices: Set<Int>,
+    fragmentReceiptTimes: Map<Int, Long>,
     hasPermission: Boolean,
     cameraError: Boolean,
     loading: Boolean,
@@ -78,8 +84,20 @@ internal fun QrScannerChrome(
             IconButton(onClick = onBack, enabled = backEnabled) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.qr_back), tint = colors.onSurface)
             }
-            Text(stringResource(R.string.qr_title), style = MaterialTheme.typography.titleLarge,
-                color = colors.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            BoxWithConstraints(Modifier.weight(1f)) {
+                val titleMaxWidth = if (visual.total > 0) maxWidth * 0.65f else maxWidth
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.qr_title), style = MaterialTheme.typography.titleLarge,
+                        color = colors.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = titleMaxWidth))
+                    if (visual.total > 0) {
+                        key(fragmentSession) {
+                            QrFragmentDotIndicator(visual.total, receivedFragmentIndices, fragmentReceiptTimes, active,
+                                visual.phase == QrScannerPhase.Completed, Modifier.weight(1f).padding(start = 8.dp))
+                        }
+                    }
+                }
+            }
         }
         if ((!hasPermission || cameraError) && visual.phase != QrScannerPhase.Completed) {
             Column(Modifier.align(Alignment.Center).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally,

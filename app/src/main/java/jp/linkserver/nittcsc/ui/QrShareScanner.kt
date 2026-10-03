@@ -76,6 +76,9 @@ internal fun QrShareScanner(state: SchedulerUiState, viewModel: SchedulerViewMod
     var collector by remember { mutableStateOf(QrShareCollector()) }
     var received by remember { mutableIntStateOf(0) }
     var total by remember { mutableIntStateOf(0) }
+    var receivedFragmentIndices by remember { mutableStateOf(emptySet<Int>()) }
+    // pulseの時刻だけを保持する。uniqueかどうかはCollectorの受信数で判定する。
+    var fragmentReceiptTimes by remember { mutableStateOf(emptyMap<Int, Long>()) }
     var pending by remember { mutableStateOf<QrSharePayload?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var success by remember { mutableStateOf<String?>(null) }
@@ -101,13 +104,18 @@ internal fun QrShareScanner(state: SchedulerUiState, viewModel: SchedulerViewMod
     fun reset() {
         collector = QrShareCollector()
         received = 0; total = 0; pending = null; error = null; success = null
+        receivedFragmentIndices = emptySet(); fragmentReceiptTimes = emptyMap()
         target = null; tracker = QrScannerTracker(); detectedAt = 0L; completionShown = false
     }
     suspend fun accept(text: String): Boolean {
         return try {
             val session = collector
             val data = withContext(Dispatchers.Default) { session.add(text)?.let(QrShareJson::decode) }
-            if (session.received > received) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            if (session.received > received) {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                receivedFragmentIndices = session.receivedFragmentIndices
+                session.lastReceivedIndex?.let { fragmentReceiptTimes = fragmentReceiptTimes + (it to SystemClock.elapsedRealtime()) }
+            }
             received = session.received; total = session.total
             if (data != null) pending = data
             error = null
@@ -117,6 +125,7 @@ internal fun QrShareScanner(state: SchedulerUiState, viewModel: SchedulerViewMod
             error = qrFailureMessage(resources, e)
             if ((e as? QrShareException)?.failure != QrShareFailure.DIFFERENT_TRANSFER) {
                 collector = QrShareCollector(); received = 0; total = 0
+                receivedFragmentIndices = emptySet(); fragmentReceiptTimes = emptyMap()
             }
             false
         }
@@ -161,6 +170,7 @@ internal fun QrShareScanner(state: SchedulerUiState, viewModel: SchedulerViewMod
         else -> QrScannerPhase.Idle
     }, target, received, total)
     QrScannerChrome(visual = visual, preview = preview, active = active,
+        fragmentSession = collector, receivedFragmentIndices = receivedFragmentIndices, fragmentReceiptTimes = fragmentReceiptTimes,
         hasPermission = hasCameraPermission, cameraError = cameraError,
         loading = readingFile || importing,
         // 認識の猶予期間も無効化を保ち、フレームごとの復号終了で点滅させない。
