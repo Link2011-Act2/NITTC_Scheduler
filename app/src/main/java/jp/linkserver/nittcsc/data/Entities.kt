@@ -64,6 +64,7 @@ data class SettingsEntity(
     val enableAbTimetable: Boolean = true,
     val initialSetupCompleted: Boolean = true,
     val useDrawerNavigation: Boolean = false,
+    val showSyncButton: Boolean = false,
     val addTasksToCalendar: Boolean = false,
     val showCurrentTimeMarker: Boolean = false,
     val arrivalHour: Int = 8,

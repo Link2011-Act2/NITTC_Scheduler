@@ -16,7 +16,7 @@ internal class SchedulerDataTransfer(
     private val dao: SchedulerDao = db.schedulerDao()
 
     private companion object {
-        const val CURRENT_EXPORT_VERSION = 16
+        const val CURRENT_EXPORT_VERSION = 17
         const val MIN_SUPPORTED_IMPORT_VERSION = 1
         const val DATASET_TASKS = SchedulerRepository.DATASET_TASKS
         const val DATASET_PLANS = SchedulerRepository.DATASET_PLANS
@@ -75,6 +75,7 @@ internal class SchedulerDataTransfer(
                 s.put("secondTermStartMonth", settings.secondTermStartMonth)
                 s.put("secondTermStartDay", settings.secondTermStartDay)
                 s.put("useDrawerNavigation", settings.useDrawerNavigation)
+                s.put("showSyncButton", settings.showSyncButton)
                 s.put("addTasksToCalendar", settings.addTasksToCalendar)
                 s.put("showCurrentTimeMarker", settings.showCurrentTimeMarker)
                 s.put("arrivalHour", settings.arrivalHour)
@@ -764,6 +765,7 @@ internal class SchedulerDataTransfer(
                 secondTermStartMonth = if (validSecondTermStart) importedSecondTermMonth else 10,
                 secondTermStartDay = if (validSecondTermStart) importedSecondTermDay else 1,
                 useDrawerNavigation = s.optBoolean("useDrawerNavigation", false),
+                showSyncButton = s.optBoolean("showSyncButton", false),
                 addTasksToCalendar = s.optBoolean("addTasksToCalendar", false),
                 showCurrentTimeMarker = s.optBoolean("showCurrentTimeMarker", false),
                 arrivalHour = s.optInt("arrivalHour", 8),

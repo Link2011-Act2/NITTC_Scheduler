@@ -123,6 +123,51 @@ class QrShareImportSheetTest {
     }
 
     @Test
+    fun pickerNavigationKeepsSelectedDataAndSemesterChoices() {
+        val picker = mutableStateOf<QrShareSection?>(null)
+        var generated: QrShareSelection? = null
+        val day = LocalDate.of(2026, 10, 3)
+        val state = SchedulerUiState(initialized = true,
+            settings = SettingsEntity(termStart = day, termEnd = day.plusMonths(1), activeAcademicYear = 2026,
+                enableSemesterTimetables = false),
+            lessonNotes = listOf(LessonNoteEntity(day, 0, "遷移後も保持するメモ")))
+        composeRule.setContent {
+            AppTheme(UiDesignMode.MATERIAL_3_EXPRESSIVE, darkTheme = false, dynamicColor = true) {
+                QrShareSelectionScreen(state, false, picker.value, { picker.value = it }, { picker.value = null },
+                    onGenerate = { generated = it })
+            }
+        }
+        fun row(id: Int) {
+            composeRule.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(label(id)))
+        }
+        row(R.string.qr_first_days)
+        composeRule.onNodeWithText(label(R.string.qr_first_days)).performClick().assertIsOff()
+        row(R.string.qr_second_days)
+        composeRule.onNodeWithText(label(R.string.qr_second_days)).performClick().assertIsOn()
+        row(R.string.qr_notes)
+        composeRule.onNodeWithText(label(R.string.qr_notes)).performClick()
+        composeRule.onNodeWithText(label(R.string.qr_select_all)).performClick()
+        composeRule.onNodeWithText(label(R.string.qr_done)).performClick()
+        row(R.string.qr_first_days)
+        composeRule.onNodeWithText(label(R.string.qr_first_days)).assertIsOff()
+        row(R.string.qr_second_days)
+        composeRule.onNodeWithText(label(R.string.qr_second_days)).assertIsOn()
+        row(R.string.qr_notes)
+        composeRule.onNodeWithText(label(R.string.qr_notes)).performClick()
+        composeRule.onNodeWithText(context.getString(R.string.qr_selected_count, 1)).assertIsDisplayed()
+        Espresso.pressBack()
+        row(R.string.qr_generate)
+        composeRule.onNodeWithText(label(R.string.qr_generate)).performClick()
+        composeRule.runOnIdle {
+            val selection = requireNotNull(generated)
+            assertEquals(setOf(day to 0), selection.noteKeys)
+            assertEquals(QrDayTypesScope.SECOND, selection.dayTypesScope)
+            assertTrue(QrShareSection.NOTES in selection.sections)
+            assertTrue(QrShareSection.FIRST in selection.sections)
+        }
+    }
+
+    @Test
     fun detailsReturnToSummaryAndConfirmWithoutMemoReplacements() {
         var confirmed: Set<LessonNoteEntity>? = null
         val data = fixture()

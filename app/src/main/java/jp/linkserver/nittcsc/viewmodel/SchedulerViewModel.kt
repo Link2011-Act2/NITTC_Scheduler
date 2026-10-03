@@ -618,6 +618,10 @@ class SchedulerViewModel(
         launchRepositoryUpdate { repository.toggleDrawerNavigation(enabled) }
     }
 
+    fun toggleShowSyncButton(enabled: Boolean) {
+        launchRepositoryUpdate { repository.toggleShowSyncButton(enabled) }
+    }
+
     fun toggleSemesterTimetables(enabled: Boolean) {
         launchRepositoryUpdate { repository.toggleSemesterTimetables(enabled) }
     }

@@ -7,12 +7,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -52,9 +54,9 @@ import jp.linkserver.nittcsc.data.QrShareSelection
 import jp.linkserver.nittcsc.logic.academicYearForDate
 import jp.linkserver.nittcsc.logic.timetableTermForDate
 import jp.linkserver.nittcsc.logic.QrDayTypesScope
-import jp.linkserver.nittcsc.logic.qrDayTypesRange
 import jp.linkserver.nittcsc.logic.qrShareAcademicYears
 import jp.linkserver.nittcsc.logic.TimetableTerm
+import jp.linkserver.nittcsc.ui.components.AppSettingsGroup
 import jp.linkserver.nittcsc.viewmodel.SchedulerUiState
 import java.time.LocalDate
 
@@ -94,16 +96,12 @@ private data class QrPickItem(
 
 private data class QrShareChoice(val section: QrShareSection, val daysScope: QrDayTypesScope? = null)
 
-private val qrShareChoices = listOf(
-    QrShareChoice(QrShareSection.FIRST),
-    QrShareChoice(QrShareSection.DAY_TYPES, QrDayTypesScope.FIRST),
-    QrShareChoice(QrShareSection.SECOND),
-    QrShareChoice(QrShareSection.DAY_TYPES, QrDayTypesScope.SECOND),
-    QrShareChoice(QrShareSection.CANCELLATIONS),
-    QrShareChoice(QrShareSection.NOTES),
-    QrShareChoice(QrShareSection.PLANS),
-    QrShareChoice(QrShareSection.TASKS),
-    QrShareChoice(QrShareSection.EXAMS)
+private val qrShareChoiceGroups = listOf(
+    listOf(QrShareChoice(QrShareSection.FIRST), QrShareChoice(QrShareSection.DAY_TYPES, QrDayTypesScope.FIRST)),
+    listOf(QrShareChoice(QrShareSection.SECOND), QrShareChoice(QrShareSection.DAY_TYPES, QrDayTypesScope.SECOND)),
+    listOf(QrShareChoice(QrShareSection.CANCELLATIONS)),
+    listOf(QrShareChoice(QrShareSection.NOTES), QrShareChoice(QrShareSection.PLANS), QrShareChoice(QrShareSection.TASKS)),
+    listOf(QrShareChoice(QrShareSection.EXAMS))
 )
 
 @Composable
@@ -141,87 +139,97 @@ internal fun QrShareSelectionScreen(
         QrShareSection.TASKS -> selectedTasks
         else -> emptySet()
     }
-    if (picker != null) {
-        val entries = when (picker) { QrShareSection.NOTES -> noteItems; QrShareSection.PLANS -> planItems; else -> taskItems }
-        fun finishPicker() {
-            if (keys(picker).isEmpty()) selected -= picker
-            onPickDone()
-        }
-        BackHandler(onBack = ::finishPicker)
-        QrShareItemPickerScreen(picker, entries, keys(picker), state.settings?.showWeekdayOnDates ?: false, onChange = { choice ->
-            when (picker) { QrShareSection.NOTES -> selectedNotes = choice; QrShareSection.PLANS -> selectedPlans = choice; else -> selectedTasks = choice }
-        }, onDone = ::finishPicker, modifier = modifier)
-        return
-    }
     val effectiveSections = selected.filter { section ->
         section !in setOf(QrShareSection.NOTES, QrShareSection.PLANS, QrShareSection.TASKS) || keys(section).isNotEmpty()
     }.toSet() + if (selectedDays.isNotEmpty()) setOf(QrShareSection.DAY_TYPES) else emptySet()
     val daysScope = if (selectedDays.size == 2) QrDayTypesScope.YEAR else selectedDays.singleOrNull() ?: QrDayTypesScope.YEAR
     val valid = effectiveSections.isNotEmpty()
-    LazyColumn(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item {
-            Text(stringResource(R.string.qr_select_description), modifier = Modifier.padding(16.dp))
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                years.forEach { option -> FilterChip(selected = year == option, onClick = { if (!busy) year = option }, label = { Text(stringResource(R.string.qr_image_year, option)) }) }
+    val selecting = !busy && picker == null
+    QrShareNavigation(picker, isReturning = { it == null }, modifier = modifier.fillMaxWidth()) { visiblePicker ->
+        if (visiblePicker != null) {
+            val entries = when (visiblePicker) { QrShareSection.NOTES -> noteItems; QrShareSection.PLANS -> planItems; else -> taskItems }
+            fun finishPicker() {
+                if (picker == visiblePicker && !busy) {
+                    if (keys(visiblePicker).isEmpty()) selected -= visiblePicker
+                    onPickDone()
+                }
             }
-        }
-        items(qrShareChoices, key = { "${it.section.name}/${it.daysScope?.name.orEmpty()}" }) { choice ->
-            val section = choice.section
-            // 選択画面では一括操作し、転送データでは既存の2項目を維持する。
-            val sections = if (section == QrShareSection.CANCELLATIONS)
-                setOf(QrShareSection.CANCELLATIONS, QrShareSection.CHANGES) else setOf(section)
-            val checked = choice.daysScope?.let { it in selectedDays } ?: effectiveSections.containsAll(sections)
-            val personal = section in setOf(QrShareSection.NOTES, QrShareSection.PLANS, QrShareSection.TASKS)
-            fun changeSelection(newChecked: Boolean) {
-                val scope = choice.daysScope
-                if (scope != null) selectedDays = if (newChecked) selectedDays + scope else selectedDays - scope
-                else selected = if (newChecked) selected + sections else selected - sections
-                if (personal && newChecked) onPick(section)
-            }
-            val interaction = if (personal) Modifier.clickable(enabled = !busy, role = Role.Button) {
-                selected += section; onPick(section)
-            } else Modifier.toggleable(value = checked, enabled = !busy, role = Role.Checkbox, onValueChange = ::changeSelection)
-            Row(
-                Modifier.fillMaxWidth().then(interaction).padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-            ) {
-                Checkbox(checked = checked, onCheckedChange = if (personal) ::changeSelection else null, enabled = !busy)
-                Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
-                    Text(stringResource(when (choice.daysScope) {
-                        QrDayTypesScope.FIRST -> R.string.qr_first_days
-                        QrDayTypesScope.SECOND -> R.string.qr_second_days
-                        else -> if (section == QrShareSection.CANCELLATIONS) R.string.qr_cancellations_and_changes else section.labelRes()
-                    }))
-                    Text(stringResource(when (section) {
-                        QrShareSection.DAY_TYPES -> R.string.qr_days_semester_scope
-                        QrShareSection.FIRST, QrShareSection.SECOND -> R.string.qr_timetable_scope
-                        QrShareSection.EXAMS -> R.string.qr_exams_scope
-                        QrShareSection.NOTES, QrShareSection.PLANS, QrShareSection.TASKS -> R.string.qr_personal_scope
-                        else -> R.string.qr_year_scope
-                    }), style = MaterialTheme.typography.bodySmall)
-                    choice.daysScope?.let { scope ->
-                        val range = qrDayTypesRange(year, scope, settings?.secondTermStartMonth ?: 10, settings?.secondTermStartDay ?: 1)
-                        Text(stringResource(R.string.qr_days_range, range.start.toString(), range.endInclusive.toString()),
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            BackHandler(enabled = picker == visiblePicker && !busy, onBack = ::finishPicker)
+            QrShareItemPickerScreen(visiblePicker, entries, keys(visiblePicker), state.settings?.showWeekdayOnDates ?: false, onChange = { choice ->
+                if (picker == visiblePicker && !busy) {
+                    when (visiblePicker) { QrShareSection.NOTES -> selectedNotes = choice; QrShareSection.PLANS -> selectedPlans = choice; else -> selectedTasks = choice }
+                }
+            }, onDone = ::finishPicker, modifier = Modifier.fillMaxSize())
+        } else {
+            LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item {
+                    Text(stringResource(R.string.qr_select_description), modifier = Modifier.padding(16.dp))
+                    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        years.forEach { option -> FilterChip(selected = year == option, onClick = { if (selecting) year = option }, label = { Text(stringResource(R.string.qr_image_year, option)) }) }
                     }
                 }
-                if (personal) TextButton(onClick = { selected += section; onPick(section) }, enabled = !busy) {
-                    Text(stringResource(R.string.qr_pick_count, keys(section).size))
+                items(qrShareChoiceGroups, key = { it.first().section.name }) { choices ->
+                    AppSettingsGroup(Modifier.padding(horizontal = 16.dp), connectedRows = true) {
+                        choices.forEach { choice ->
+                            item("${choice.section.name}/${choice.daysScope?.name.orEmpty()}") {
+                                val section = choice.section
+                                // 選択画面では一括操作し、転送データでは既存の2項目を維持する。
+                                val sections = if (section == QrShareSection.CANCELLATIONS)
+                                    setOf(QrShareSection.CANCELLATIONS, QrShareSection.CHANGES) else setOf(section)
+                                val checked = choice.daysScope?.let { it in selectedDays } ?: effectiveSections.containsAll(sections)
+                                val personal = section in setOf(QrShareSection.NOTES, QrShareSection.PLANS, QrShareSection.TASKS)
+                                fun changeSelection(newChecked: Boolean) {
+                                    val scope = choice.daysScope
+                                    if (scope != null) selectedDays = if (newChecked) selectedDays + scope else selectedDays - scope
+                                    else selected = if (newChecked) selected + sections else selected - sections
+                                    if (personal && newChecked) onPick(section)
+                                }
+                                val interaction = if (personal) Modifier.clickable(enabled = selecting, role = Role.Button) {
+                                    selected += section; onPick(section)
+                                } else Modifier.toggleable(value = checked, enabled = selecting, role = Role.Checkbox, onValueChange = ::changeSelection)
+                                Row(
+                                    Modifier.fillMaxWidth().then(interaction).padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                                ) {
+                                    Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                                        Checkbox(checked = checked, onCheckedChange = if (personal) ::changeSelection else null, enabled = selecting)
+                                    }
+                                    Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                                        Text(stringResource(when (choice.daysScope) {
+                                            QrDayTypesScope.FIRST -> R.string.qr_first_days
+                                            QrDayTypesScope.SECOND -> R.string.qr_second_days
+                                            else -> if (section == QrShareSection.CANCELLATIONS) R.string.qr_cancellations_and_changes else section.labelRes()
+                                        }))
+                                        Text(stringResource(when (section) {
+                                            QrShareSection.DAY_TYPES -> R.string.qr_days_semester_scope
+                                            QrShareSection.FIRST, QrShareSection.SECOND -> R.string.qr_timetable_scope
+                                            QrShareSection.EXAMS -> R.string.qr_exams_scope
+                                            QrShareSection.NOTES, QrShareSection.PLANS, QrShareSection.TASKS -> R.string.qr_personal_scope
+                                            else -> R.string.qr_year_scope
+                                        }), style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    if (personal) TextButton(onClick = { selected += section; onPick(section) }, enabled = selecting) {
+                                        Text(stringResource(R.string.qr_pick_count, keys(section).size))
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-            }
-        }
-        item {
-            Text(stringResource(R.string.qr_reminder_notice), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(16.dp))
-            Button(onClick = {
-                onGenerate(QrShareSelection(
-                    year, effectiveSections,
-                    noteKeys = state.lessonNotes.filter { "${it.date}/${it.slotIndex}" in selectedNotes }.map { it.date to it.slotIndex }.toSet(),
-                    planIds = state.plans.filter { it.id.toString() in selectedPlans }.map { it.id }.toSet(),
-                    taskIds = state.tasks.filter { it.id.toString() in selectedTasks }.map { it.id }.toSet(),
-                    dayTypesScope = daysScope
-                ))
-            }, enabled = valid && !busy, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                Text(stringResource(R.string.qr_generate))
+                item {
+                    Text(stringResource(R.string.qr_reminder_notice), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(16.dp))
+                    Button(onClick = {
+                        onGenerate(QrShareSelection(
+                            year, effectiveSections,
+                            noteKeys = state.lessonNotes.filter { "${it.date}/${it.slotIndex}" in selectedNotes }.map { it.date to it.slotIndex }.toSet(),
+                            planIds = state.plans.filter { it.id.toString() in selectedPlans }.map { it.id }.toSet(),
+                            taskIds = state.tasks.filter { it.id.toString() in selectedTasks }.map { it.id }.toSet(),
+                            dayTypesScope = daysScope
+                        ))
+                    }, enabled = valid && selecting, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                        Text(stringResource(R.string.qr_generate))
+                    }
+                }
             }
         }
     }

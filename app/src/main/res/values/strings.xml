@@ -555,7 +555,9 @@
     <string name="label_departure_time">下校時刻（空欄で自動）</string>
     <string name="placeholder_time">--</string>
     <string name="btn_save_timetable_settings">時間割設定を保存</string>
-    <string name="section_navigation_settings">ナビゲーション設定</string>
+    <string name="section_navigation_settings">上級者向け機能</string>
+    <string name="label_show_sync_button">他のデバイスと同期ボタンを表示</string>
+    <string name="desc_show_sync_button">上部バーとその他の操作メニューに同期ボタンを表示します。</string>
     <string name="section_display_settings">表示設定</string>
     <string name="label_ui_design">デザイン</string>
     <string name="ui_design_material_3">Material 3</string>
@@ -1012,7 +1014,9 @@
     <string name="ai_runtime_progress">AIエンジンを取得中：%1$d%%</string>
     <string name="qr_title">QR共有（Beta）</string>
     <string name="qr_back">戻る</string>
-    <string name="qr_home_description">時間割やA/B表などを、QRで一方向に共有できます。複数枚のQRは順不同で読み取れます。すべて読み取った後、内容を確認してから取り込みます。</string>
+    <string name="qr_home_description">時間割やA/B表などを、QRで共有できます。</string>
+    <string name="qr_share_action_description">送る項目を選んでQRを表示</string>
+    <string name="qr_read_action_description">QRを読み取り、内容を確認して取り込む</string>
     <string name="qr_share">共有する</string>
     <string name="qr_read">読み取る</string>
     <string name="qr_select_description">送る年度と項目を選んでください。授業メモ・予定・課題は、送るものを個別に選択できます。</string>
@@ -1085,7 +1089,7 @@
     <string name="qr_enable_camera">カメラを許可する</string>
     <string name="qr_camera_error">カメラを開始できませんでした。写真ライブラリからも読み込めます。</string>
     <string name="qr_read_image">画像・GIFから読み込む</string>
-    <string name="qr_import_title">QRを取り込む</string>
+    <string name="qr_import_title">読み取り結果</string>
     <string name="qr_import_source_label">%1$s・</string>
     <string name="qr_import_add">追加する</string>
     <string name="qr_import_replace">置き換える</string>

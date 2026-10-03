@@ -7,6 +7,7 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -24,13 +25,41 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import jp.linkserver.nittcsc.R
+import jp.linkserver.nittcsc.InternalFeatureFlags
 import jp.linkserver.nittcsc.ui.components.AppIconButton
+
+@Composable
+internal fun MainSharingActions(
+    showSyncButton: Boolean,
+    onOpenSync: () -> Unit,
+    onOpenQrShare: () -> Unit,
+    onOpenSettings: () -> Unit
+) {
+    if (showSyncButton) {
+        AppIconButton(onClick = onOpenSync) {
+            Icon(
+                painter = painterResource(R.drawable.sync_desktop),
+                contentDescription = stringResource(R.string.cd_open_local_sync)
+            )
+        }
+    }
+    if (InternalFeatureFlags.QR_SHARE_BETA) {
+        AppIconButton(onClick = onOpenQrShare) {
+            Icon(Icons.Filled.QrCode, contentDescription = stringResource(R.string.qr_title))
+        }
+    }
+    AppIconButton(onClick = onOpenSettings) {
+        Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.cd_settings))
+    }
+}
 
 @Composable
 internal fun MainActionsOverflowMenu(
     showAiImport: Boolean,
+    showSyncButton: Boolean,
     onOpenAiImport: () -> Unit,
     onOpenSync: () -> Unit,
+    onOpenQrShare: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -57,7 +86,7 @@ internal fun MainActionsOverflowMenu(
                     }
                 )
             }
-            DropdownMenuItem(
+            if (showSyncButton) DropdownMenuItem(
                 text = { Text(stringResource(R.string.sync_title_local_sync)) },
                 onClick = {
                     expanded = false
@@ -68,6 +97,16 @@ internal fun MainActionsOverflowMenu(
                         painter = painterResource(R.drawable.sync_desktop),
                         contentDescription = null
                     )
+                }
+            )
+            if (InternalFeatureFlags.QR_SHARE_BETA) DropdownMenuItem(
+                text = { Text(stringResource(R.string.qr_title)) },
+                onClick = {
+                    expanded = false
+                    onOpenQrShare()
+                },
+                leadingIcon = {
+                    Icon(imageVector = Icons.Filled.QrCode, contentDescription = null)
                 }
             )
             DropdownMenuItem(

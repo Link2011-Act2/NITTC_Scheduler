@@ -62,7 +62,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun QrShareScanner(state: SchedulerUiState, viewModel: SchedulerViewModel, onBusyChanged: (Boolean) -> Unit, onBack: () -> Unit) {
+internal fun QrShareScanner(state: SchedulerUiState, viewModel: SchedulerViewModel, onBusyChanged: (Boolean) -> Unit, onBack: () -> Unit, isCurrentPage: Boolean = true) {
     val context = LocalContext.current
     val resources = LocalResources.current
     val haptic = LocalHapticFeedback.current
@@ -88,9 +88,10 @@ internal fun QrShareScanner(state: SchedulerUiState, viewModel: SchedulerViewMod
     var failureShown by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    var active by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
+    var lifecycleActive by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
+    val active = lifecycleActive && isCurrentPage
     DisposableEffect(lifecycle) {
-        val observer = LifecycleEventObserver { _, _ -> active = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) }
+        val observer = LifecycleEventObserver { _, _ -> lifecycleActive = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
@@ -175,8 +176,8 @@ internal fun QrShareScanner(state: SchedulerUiState, viewModel: SchedulerViewMod
         hasPermission = hasCameraPermission, cameraError = cameraError,
         loading = readingFile || importing,
         // 認識の猶予期間も無効化を保ち、フレームごとの復号終了で点滅させない。
-        galleryEnabled = error == null && target == null && !readingFile && !processing && !importing && pending == null,
-        backEnabled = !readingFile && !importing, snackbar = snackbar, onBack = onBack,
+        galleryEnabled = active && error == null && target == null && !readingFile && !processing && !importing && pending == null,
+        backEnabled = isCurrentPage && !readingFile && !importing, snackbar = snackbar, onBack = onBack,
         onPermission = { permission.launch(Manifest.permission.CAMERA) }, onRetryCamera = { cameraError = false },
         onGallery = {
             if (ActivityResultContracts.PickVisualMedia.isPhotoPickerAvailable(context)) {
@@ -193,18 +194,18 @@ internal fun QrShareScanner(state: SchedulerUiState, viewModel: SchedulerViewMod
         }, camera = {
             QrCameraPreview(Modifier.fillMaxSize(), analysisEnabled = active && error == null && !readingFile && !importing && pending == null,
                 onFrame = { text ->
-                    if (error == null && !processing && !readingFile && !importing && pending == null) {
+                    if (active && error == null && !processing && !readingFile && !importing && pending == null) {
                         processing = true
                         scope.launch { try { accept(text) } finally { processing = false } }
                     }
                 }, onDetection = { corners ->
-                    if (error == null && pending == null) {
+                    if (active && error == null && pending == null) {
                         val now = SystemClock.elapsedRealtime()
                         tracker.detect(corners, now)?.let { target = it; detectedAt = now }
                     }
                 }, onPreviewReady = { preview = it }, onError = { cameraError = true })
         })
-    error?.takeIf { failureShown && pending == null && !processing && !readingFile && !importing }?.let { message ->
+    error?.takeIf { isCurrentPage && failureShown && pending == null && !processing && !readingFile && !importing }?.let { message ->
         AlertDialog(
             onDismissRequest = {},
             icon = { Icon(Icons.Rounded.Close, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
@@ -213,7 +214,7 @@ internal fun QrShareScanner(state: SchedulerUiState, viewModel: SchedulerViewMod
             confirmButton = { TextButton(onClick = ::reset) { Text(stringResource(R.string.btn_ok)) } }
         )
     }
-    pending?.takeIf { completionShown }?.let { data ->
+    pending?.takeIf { isCurrentPage && completionShown }?.let { data ->
         QrShareImportDialog(data, state, busy = importing || processing, error = error,
             onDismiss = ::reset, onConfirm = { approvedNotes ->
                 importing = true

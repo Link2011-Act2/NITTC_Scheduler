@@ -1941,6 +1941,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                     onToggleLocalAi = viewModel::toggleLocalAi,
                     onToggleNaturalLanguageTaskAdd = viewModel::toggleNaturalLanguageTaskAdd,
                     onToggleDrawerNavigation = viewModel::toggleDrawerNavigation,
+                    onToggleShowSyncButton = viewModel::toggleShowSyncButton,
                     onOpenSpecialTimetableSettings = { showSpecialTimetableSettings = true },
                     onUpdateSecondTermStart = viewModel::updateSecondTermStart,
                     timetableSettingsPage = timetableSettingsPage,
@@ -2384,7 +2385,6 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                                             requestedOutputSlotIndex = null
                                         },
                                         onOpenLessonSearch = { showLessonSearch = true },
-                                        onOpenQrShare = { showQrShare = true },
                                         onSaveLessonOverride = viewModel::saveLessonOverride,
                                         onClearLessonOverride = viewModel::clearLessonOverride,
                                         onUpdateHolidaySpecialLabel = ::applyHolidaySpecialLabel,
@@ -2676,20 +2676,19 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                                                         Icon(Icons.Filled.AutoFixHigh, contentDescription = stringResource(R.string.cd_ai_import))
                                                     }
                                                 }
-                                                AppIconButton(onClick = { showSync = true }) {
-                                                    Icon(
-                                                        painter = painterResource(R.drawable.sync_desktop),
-                                                        contentDescription = stringResource(R.string.cd_open_local_sync)
-                                                    )
-                                                }
-                                                AppIconButton(onClick = { showSettings = true }) {
-                                                    Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.cd_settings))
-                                                }
+                                                MainSharingActions(
+                                                    showSyncButton = uiState.settings?.showSyncButton ?: false,
+                                                    onOpenSync = { showSync = true },
+                                                    onOpenQrShare = { showQrShare = true },
+                                                    onOpenSettings = { showSettings = true }
+                                                )
                                             } else {
                                                 MainActionsOverflowMenu(
                                                     showAiImport = uiState.settings?.enableLocalAi == true,
+                                                    showSyncButton = uiState.settings?.showSyncButton ?: false,
                                                     onOpenAiImport = { showVlmImport = true },
                                                     onOpenSync = { showSync = true },
+                                                    onOpenQrShare = { showQrShare = true },
                                                     onOpenSettings = { showSettings = true }
                                                 )
                                             }
@@ -3503,7 +3502,6 @@ private fun OutputScreen(
     requestedSlotIndex: Int?,
     onRequestedSlotHandled: () -> Unit,
     onOpenLessonSearch: () -> Unit,
-    onOpenQrShare: () -> Unit,
     onSaveLessonOverride: (LocalDate, Int, DayType) -> Unit,
     onClearLessonOverride: (LocalDate) -> Unit,
     onUpdateHolidaySpecialLabel: (LocalDate, HolidaySpecialLabel?) -> Unit,
@@ -3825,7 +3823,9 @@ private fun OutputScreen(
                             },
                             modifier = Modifier.weight(1f)
                         )
-                        Row { QrShareToolbarActions(onOpenQrShare, onOpenLessonSearch) }
+                        IconButton(onClick = onOpenLessonSearch) {
+                            Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.cd_search_timetable))
+                        }
                     }
                 }
                 }

@@ -125,6 +125,7 @@ fun SettingsScreen(
     onToggleLocalAi: (Boolean) -> Unit,
     onToggleNaturalLanguageTaskAdd: (Boolean) -> Unit = {},
     onToggleDrawerNavigation: (Boolean) -> Unit,
+    onToggleShowSyncButton: (Boolean) -> Unit = {},
     onOpenSpecialTimetableSettings: () -> Unit = {},
     onUpdateSecondTermStart: (Int, Int) -> Unit = { _, _ -> },
     timetableSettingsPage: TimetableSettingsPage? = null,
@@ -169,6 +170,7 @@ fun SettingsScreen(
             onToggleLocalAi = onToggleLocalAi,
             onToggleNaturalLanguageTaskAdd = onToggleNaturalLanguageTaskAdd,
             onToggleDrawerNavigation = onToggleDrawerNavigation,
+            onToggleShowSyncButton = onToggleShowSyncButton,
             onOpenSpecialTimetableSettings = onOpenSpecialTimetableSettings,
             onUpdateSecondTermStart = onUpdateSecondTermStart,
             onUpdateUiDesignMode = onUpdateUiDesignMode,
@@ -784,11 +786,19 @@ fun SettingsScreen(
             }
         }
 
-        // ── ナビゲーション設定 ──────────────────────────────────────────
+        // ── 上級者向け機能 ──────────────────────────────────────────
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             AppSettingsCategory(title = stringResource(R.string.section_navigation_settings))
 
             AppSettingsGroup {
+                item("label_show_sync_button") {
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.label_show_sync_button),
+                        description = stringResource(R.string.desc_show_sync_button),
+                        checked = state.settings?.showSyncButton ?: false,
+                        onCheckedChange = onToggleShowSyncButton
+                    )
+                }
                 item("label_unify_task_plan_view") {
                     SettingsSwitchRow(
                         title = stringResource(R.string.label_unify_task_plan_view),

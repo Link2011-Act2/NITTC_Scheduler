@@ -75,3 +75,68 @@ scoped QR result: passed
 - QR形式・データ保存・取り込み処理は変更せず、既存の学期範囲を選択UIから渡す。実機には更新APKを反映し、共有項目の選択画面を表示した状態にした。
 
 separate semester selection result: passed
+
+## 2026-10-03: QR共有項目の連結カード化
+
+- ユーザー指定で、前期の時間割＋前期のA/B表、後期の時間割＋後期のA/B表、授業メモ＋予定＋課題を、それぞれつながったカードに変更。試験時間割と既存の休講・授業変更は単独カード。
+- M3E版設定と同じAppSettingsGroupを再利用。外側20dp・内側4dpの角丸、行間2dp、surfaceContainerLowを使用。QR共有はテーマにかかわらず連結表示を指定し、設定画面の既定のテーマ別表示は保持。
+- 初回の実画面は通常M3のテーマ設定によって境目なしのカードとなったため、連結表示を指定できる引数を追加して再ビルド・再検証。M3E機能フラグやテーマ設定は変更しない。
+- 最終実機UIテスト14件成功（390dp/文字1倍、320dp/文字1.8倍で各7件）。A/B表・時間割の独立した選択と転送範囲を確認。表示密度・文字倍率の復元を再読み取りで確認。既存のテストを実行し、今回の表示変更に対する新規テストは追加しない。
+- 通常アプリの実画面を目視確認: `out/qr-import-design/10-connected-share-cards-final.png`, `10-connected-share-cards-bottom.png`。授業メモ・予定・課題の連結、単独の試験時間割、スクロール後のQR表示ボタンを確認。拡大文字の証跡: `qr-import-separate-ab-selection-320-1.8.png`。
+- compileDebugKotlin/assembleDebug/assembleDebugAndroidTest/lintDebug成功。新規Lint警告なし。データ・転送形式・選択操作は変更しない。開発用スマホに最終APKを反映し、共有項目の画面を表示した状態にした。
+
+connected share cards result: passed
+
+## 2026-10-03: 共有項目のチェックボックス・文字位置の統一
+
+- 個別選択の授業メモ・予定・課題を基準に全項目の位置を統一。操作可能なCheckboxと、行側で操作を受けるCheckboxの測定幅の差を、共通の48dp領域の中央に配置して解消。
+- 実機の通常アプリで、前期/後期の時間割・A/B表、休講・授業変更、授業メモ・予定・課題、試験時間割の文字開始位置がすべてx=252pxで一致することをUI情報とスクリーンショットで確認。証跡: `out/qr-import-design/11-aligned-share-cards.png`, `11-aligned-share-cards-bottom.png`。
+- 通常390dp/文字1倍、狭幅320dp/文字1.8倍の既存実機UIテスト14件成功。拡大文字でも折り返しと選択操作を確認。表示密度・文字倍率は元の値への復元を再読み取りで確認。
+- compileDebugKotlin/assembleDebug/assembleDebugAndroidTest/lintDebug成功。最終APKを開発用スマホへ反映済み。カード構成・個別選択ボタン・選択処理は保持。
+
+aligned share rows result: passed
+
+## 2026-10-03: A/B表の期間表示の削除
+
+- ユーザー指定により、共有項目の前期・後期A/B表から日付範囲の表示行を削除。タイトルと対象データの説明を残す。
+- compileDebugKotlin/assembleDebug成功。開発用スマホへ反映し、両方の項目で日付範囲が表示されないことをUI情報と実画面で確認。証跡: `out/qr-import-design/12-share-ab-without-range.png`。
+
+AB range label removal result: passed
+
+## 2026-10-03: QR共有の入口をアイコン付き大型ボタンへ変更
+
+- ユーザー指定により、共有・読み取りを縦に並ぶアイコン付きの大型ボタンへ変更。共有アイコンとQRスキャンアイコン、titleLargeの見出し、短い操作説明を使用。画面冒頭の長い説明は1文に短縮。
+- ボタンは横幅いっぱい、最小高さ112dp、角丸24dp。文字倍率に応じて高さを伸ばし、画面はスクロール可能。共有はprimaryContainer、読み取りは標準のtonal button色を使用。アイコンは隣接ラベルと重複する装飾扱い。
+- 実機の幅390dp/文字1倍、幅320dp/文字1.8倍で、2つのボタンの表示とタップを確認。共有→項目選択、読み取り→カメラ、戻る→入口の遷移をそれぞれ確認。画面証跡: `out/qr-import-design/13-qr-home-390-1.0.png`, `13-qr-home-320-1.8.png`。
+- 初回の実機確認スクリプトは、起動直後にUI取得が失敗し、古い画面情報で操作して失敗。取得前に古い一時XMLを削除し、最新画面の取得成功後だけ操作するよう修正して再実行。両構成で全操作成功。表示密度・文字倍率の復元を再読み取りで確認。実DBの取り込み・共有送信は実行していない。
+- 初回Lintは成功したが、ModifierParameter警告を1件検出。Composableのmodifierを最初の省略可能な引数へ移して解消。画面を独立したQrShareHomeScreenへ分離し、最終APKを開発用スマホに反映。
+- 最終compileDebugKotlin/assembleDebug/lintDebug成功。Lintは新規警告なし（0 errors / 201 warnings / 31 hints）。
+
+QR home action buttons result: passed
+
+## 2026-10-03: QR共有の画面遷移アニメーション
+
+- ユーザー指定により、設定画面と同じslideInHorizontally/slideOutHorizontally＋fadeIn/fadeOutを共通のQrShareNavigationへ実装。進むときは右から、戻るときは左から入る既存の設定画面と同じ標準アニメーションを使用。
+- 入口・共有項目・QR表示・カメラの全画面遷移、授業メモ/予定/課題の個別選択、取り込みシートの概要/詳細/メモ選択へ適用。選択値は遷移の外で保持し、退出中の画面からの操作を無効化。個別選択のBackHandlerも表示中のページに限定。
+- カメラは遷移対象内で表示し、退出開始時点でactiveを無効化して解析を停止。アニメーション終了後、既存のDisposableEffectでカメラを解放。退出中のカメラから確認シートや警告を表示しない。
+- 通常390dp/文字1倍と狭幅320dp/文字1.8倍で実機UIテスト16件成功（各8件）。追加した回帰テストで個別選択→完了→再度個別選択→OS戻る後のメモ選択・前後期A/Bの保持と生成データを確認。既存の概要/詳細・メモ承認・取り込み中の操作・ライト/ダークも成功。
+- 通常アプリから、入口→共有項目→授業メモ個別選択→戻る→QR生成/表示→入口、入口→カメラ→戻るの操作を確認。生成QRは送信せず、実DBの取り込みも実行しない。端末の表示密度・文字倍率は元の値へ復元して再読み取りで一致を確認。
+- 遷移途中の実画面を確認: `out/qr-import-design/14-forward-select.png`, `14-forward-picker.png`, `14-back-picker.png`, `14-forward-scan.png`, `14-back-scan.png`。最初の撮影はタップ直後で遷移開始前だったため、200ms待って撮影し直し、横移動とフェードを目視確認。カメラから戻る画像には端末由来のBluetooth通知が重なっているが、アプリの遷移は確認可能。
+- compileDebugKotlin/assembleDebug/assembleDebugAndroidTest/lintDebug成功。Lintは0 errors / 201 warnings / 31 hints（新規警告なし）。Androidテストの非null断言に関する既存の警告2件は実行結果に影響しない。最終APKを開発用スマホへ反映し、入口画面を表示した状態にした。
+
+QR navigation animation result: passed
+
+
+## QR共有導線と同期ボタン表示（2026-10-03）
+
+- 時間割内の操作行からQRを外し、最上部バーを同期 → QR → 設定の順に変更。
+- 時間割以外のタブのその他メニューにも同じ順で配置。QRのBetaフラグを維持。
+- ナビゲーション設定を上級者向け機能に改名し、両設定UIに同期表示スイッチを追加。
+- DB 51→52の移行時のみ、既存のニックネームとパスワード長が設定済みの場合に表示をオンにする。空の自動作成プロフィールは対象外。新規設定はオフ。
+- 起動やプロフィール更新で表示選択を上書きしない。設定はJSONバックアップv17に含め、旧v16ではオフとして読む。QR・端末間同期には含めない。
+- 開発端末A069で実際のDB移行、上部バーの順序、設定からのオン／オフ、課題タブのその他メニューからのQR画面起動を確認。表示状態は検証前のオンに復元。
+- 単体テスト207件成功。通常ビルド・Lint成功（エラー0、既存Warning 201、Hint 31）。
+- 検証途中の :app:compileDebugAndroidTestKotlin はSQL引数配列の型推論で失敗し、arrayOf<Any>で修正。通常設定UIの実機テストは同じ親にある2つのスイッチが一致したため、該当グループの先頭のスイッチを選び、スクロールして操作するよう修正。
+- BuildConfig生成を省くテスト再ビルドは :app:compileDebugKotlin でGradleのTask Provider依存エラーとなったため、通常の生成手順に戻した。
+- 修正後の実機テスト6件成功（移行、バックアップと旧形式、起動時の選択保持、両設定UI、上部／その他メニュー）。320dp幅・文字倍率1.8でもUIテスト4件成功。端末の物理画面サイズと文字倍率1.0へ復元。
+- 最新のアプリAPK／テストAPKの通常生成が成功。テストログは out/qr-import-design/sync-button-normal.txt と sync-button-narrow-large-font.txt に保存（Git対象外）。

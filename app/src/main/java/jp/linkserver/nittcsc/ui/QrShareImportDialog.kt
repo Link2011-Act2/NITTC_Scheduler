@@ -36,7 +36,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -140,14 +139,14 @@ internal fun QrShareImportDialog(
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             // 長文や大きな文字でも本文だけをスクロールし、操作ボタンを常に表示する。
-            key(page) {
-                LazyColumn(Modifier.weight(1f, fill = false), contentPadding = PaddingValues(24.dp),
+            QrShareNavigation(page, isReturning = { it == QrImportPage.Summary }, modifier = Modifier.weight(1f, fill = false)) { visiblePage ->
+                LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(24.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    when (page) {
-                        QrImportPage.Summary -> qrImportSummary(data, merge, selectedReplacements, busy,
+                    when (visiblePage) {
+                        QrImportPage.Summary -> qrImportSummary(data, merge, selectedReplacements, busy || visiblePage != page,
                             onDetails = { page = QrImportPage.Details }, onNotes = { page = QrImportPage.Notes })
                         QrImportPage.Details -> qrImportDetails(data, state, merge, preview?.localCounts.orEmpty())
-                        QrImportPage.Notes -> qrImportNoteChoices(merge?.noteConflicts.orEmpty(), approvedNotes, busy) { note, checked ->
+                        QrImportPage.Notes -> qrImportNoteChoices(merge?.noteConflicts.orEmpty(), approvedNotes, busy || visiblePage != page) { note, checked ->
                             approvedNotes = if (checked) approvedNotes + note else approvedNotes - note
                         }
                     }

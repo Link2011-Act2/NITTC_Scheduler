@@ -134,6 +134,7 @@ internal fun LegacySettingsScreen(
     onToggleLocalAi: (Boolean) -> Unit,
     onToggleNaturalLanguageTaskAdd: (Boolean) -> Unit = {},
     onToggleDrawerNavigation: (Boolean) -> Unit,
+    onToggleShowSyncButton: (Boolean) -> Unit = {},
     onOpenSpecialTimetableSettings: () -> Unit = {},
     onUpdateSecondTermStart: (Int, Int) -> Unit = { _, _ -> },
     onUpdateUiDesignMode: (UiDesignMode) -> Unit = {},
@@ -1530,6 +1531,14 @@ internal fun LegacySettingsScreen(
             AppSettingsCategory(title = stringResource(R.string.section_navigation_settings))
 
             AppSettingsGroup {
+                item("label_show_sync_button") {
+                    LegacySettingsSwitchRow(
+                        title = stringResource(R.string.label_show_sync_button),
+                        description = stringResource(R.string.desc_show_sync_button),
+                        checked = state.settings?.showSyncButton ?: false,
+                        onCheckedChange = onToggleShowSyncButton
+                    )
+                }
                 item("label_unify_task_plan_view") {
                     LegacySettingsSwitchRow(
                         title = stringResource(R.string.label_unify_task_plan_view),

@@ -37,7 +37,7 @@ class SchedulerRepository(
     private val dataTransfer = SchedulerDataTransfer(this, db)
 
     companion object {
-        private const val CURRENT_EXPORT_VERSION = 16
+        private const val CURRENT_EXPORT_VERSION = 17
         private const val MIN_SUPPORTED_IMPORT_VERSION = 1
         private const val MAX_FUTURE_META_DRIFT_MS = 5 * 60 * 1000L
         const val DATASET_TASKS = "tasks"
@@ -446,6 +446,11 @@ class SchedulerRepository(
     suspend fun toggleDrawerNavigation(enabled: Boolean) {
         val current = dao.getSettings() ?: return
         dao.upsertSettings(current.copy(useDrawerNavigation = enabled))
+    }
+
+    suspend fun toggleShowSyncButton(enabled: Boolean) {
+        val current = dao.getSettings() ?: return
+        dao.upsertSettings(current.copy(showSyncButton = enabled))
     }
 
     suspend fun updateUiDesignMode(mode: UiDesignMode) {

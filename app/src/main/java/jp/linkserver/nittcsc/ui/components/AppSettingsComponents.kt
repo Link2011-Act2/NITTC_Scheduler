@@ -183,10 +183,11 @@ fun AppSettingsGroup(
     standardContentPadding: PaddingValues = PaddingValues(0.dp),
     standardSpacing: Dp = 0.dp,
     standardContainerColor: Color = MaterialTheme.colorScheme.surfaceContainer,
+    connectedRows: Boolean = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE,
     content: AppSettingsGroupScope.() -> Unit
 ) {
     val entries = AppSettingsGroupScope().apply(content).items
-    if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+    if (connectedRows) {
         val rows = entries.expressiveItems()
         Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             rows.forEachIndexed { index, entry ->

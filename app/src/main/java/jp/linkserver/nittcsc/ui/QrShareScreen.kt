@@ -17,8 +17,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.QrCode
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -73,16 +71,6 @@ import kotlinx.coroutines.withContext
 
 private enum class QrPage { HOME, SELECT, DISPLAY, SCAN }
 
-@Composable
-internal fun QrShareToolbarActions(onShare: () -> Unit, onSearch: () -> Unit) {
-    if (InternalFeatureFlags.QR_SHARE_BETA) IconButton(onClick = onShare) {
-        Icon(Icons.Filled.QrCode, contentDescription = stringResource(R.string.qr_title))
-    }
-    IconButton(onClick = onSearch) {
-        Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.cd_search_timetable))
-    }
-}
-
 internal fun qrFailureMessage(resources: android.content.res.Resources, exception: Exception): String = resources.getString(
     when ((exception as? QrShareException)?.failure) {
         QrShareFailure.VERSION -> R.string.qr_error_version
@@ -120,51 +108,52 @@ fun QrShareScreen(state: SchedulerUiState, viewModel: SchedulerViewModel, onBack
         else if (page == QrPage.HOME) onBack() else page = QrPage.HOME
     }
     BackHandler { back() }
-    if (page == QrPage.SCAN) {
-        QrShareScanner(state, viewModel, onBusyChanged = { busy = it }, onBack = ::back)
-        return
-    }
-    Scaffold(topBar = {
-        TopAppBar(title = {
-            Text(pickerSection?.let { stringResource(R.string.qr_pick_title, stringResource(it.labelRes())) }
-                ?: stringResource(R.string.qr_title), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }, navigationIcon = {
-            IconButton(onClick = ::back, enabled = !busy) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.qr_back))
-            }
-        })
-    }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp)) }
-            if (busy && page != QrPage.SCAN) CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally).padding(12.dp))
-            when (page) {
-                QrPage.HOME -> Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text(stringResource(R.string.qr_home_description))
-                    Button(onClick = { page = QrPage.SELECT }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.qr_share)) }
-                    Button(onClick = { page = QrPage.SCAN }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.qr_read)) }
-                }
-                QrPage.SELECT -> QrShareSelectionScreen(
-                    state = state, busy = busy, picker = pickerSection,
-                    onPick = { pickerSection = it }, onPickDone = { pickerSection = null },
-                    modifier = Modifier.weight(1f)
-                ) { selection ->
-                    busy = true
-                    error = null
-                    scope.launch {
-                        try {
-                            val data = viewModel.exportQrShare(selection)
-                            val images = createQrDisplayFrames(data)
-                            payload = data
-                            frames = images
-                            page = QrPage.DISPLAY
-                        } catch (e: CancellationException) { throw e }
-                        catch (e: Exception) { error = qrFailureMessage(resources, e) }
-                        finally { busy = false }
+    QrShareNavigation(page, isReturning = { it == QrPage.HOME }, modifier = Modifier.fillMaxSize()) { visiblePage ->
+        val currentPage = page == visiblePage
+        if (visiblePage == QrPage.SCAN) {
+            QrShareScanner(state, viewModel, onBusyChanged = { busy = it }, onBack = ::back, isCurrentPage = currentPage)
+        } else {
+            Scaffold(topBar = {
+                TopAppBar(title = {
+                    Text(pickerSection?.let { stringResource(R.string.qr_pick_title, stringResource(it.labelRes())) }
+                        ?: stringResource(R.string.qr_title), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }, navigationIcon = {
+                    IconButton(onClick = ::back, enabled = !busy && currentPage) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.qr_back))
+                    }
+                })
+            }) { padding ->
+                Column(Modifier.fillMaxSize().padding(padding)) {
+                    error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp)) }
+                    if (busy && page != QrPage.SCAN) CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally).padding(12.dp))
+                    when (visiblePage) {
+                        QrPage.HOME -> QrShareHomeScreen(
+                            onShare = { page = QrPage.SELECT }, onRead = { page = QrPage.SCAN }, enabled = !busy && currentPage
+                        )
+                        QrPage.SELECT -> QrShareSelectionScreen(
+                            state = state, busy = busy || !currentPage, picker = pickerSection,
+                            onPick = { pickerSection = it }, onPickDone = { pickerSection = null },
+                            modifier = Modifier.weight(1f)
+                        ) { selection ->
+                            busy = true
+                            error = null
+                            scope.launch {
+                                try {
+                                    val data = viewModel.exportQrShare(selection)
+                                    val images = createQrDisplayFrames(data)
+                                    payload = data
+                                    frames = images
+                                    page = QrPage.DISPLAY
+                                } catch (e: CancellationException) { throw e }
+                                catch (e: Exception) { error = qrFailureMessage(resources, e) }
+                                finally { busy = false }
+                            }
+                        }
+                        QrPage.DISPLAY -> QrShareDisplay(frames, busy || !currentPage, displaySpeed,
+                            onSpeedChange = { displaySpeed = it }, onShareImage = { imageDialog = true })
+                        QrPage.SCAN -> Unit
                     }
                 }
-                QrPage.DISPLAY -> QrShareDisplay(frames, busy, displaySpeed,
-                    onSpeedChange = { displaySpeed = it }, onShareImage = { imageDialog = true })
-                QrPage.SCAN -> Unit
             }
         }
     }
