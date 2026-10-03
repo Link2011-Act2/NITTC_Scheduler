@@ -23,7 +23,7 @@ def encode(length, count):
     middle = length // 2
     payload = {
         "format": "SKTTP/QR", "version": 1, "year": 2026,
-        "label": f"{count}枚受信テスト", "created": 1790956800000,
+        "label": f"{count}枚受信テスト" if count else "可変バイト数受信テスト", "created": 1790956800000,
         "semesterStart": [10, 1], "sections": ["NOTES"],
         "notes": [
             ["2026-10-03", 0, "QR受信テスト（保存不要）\n" + noise[:middle]],
@@ -102,8 +102,13 @@ for modes in datasets.values():
         offset += size
 assert offset == len(images)
 html = (ROOT / "template.html").read_text(encoding="utf-8")
-html = html.replace("/*__TEST_DATA__*/", json.dumps({"datasets": datasets}, ensure_ascii=False))
+raw, compressed = encode(0, 0)
+html = html.replace("/*__TEST_DATA__*/", json.dumps({"datasets": datasets,
+    "basePayload": {"gzip": base64.b64encode(compressed).decode("ascii"), "jsonBytes": len(raw)}}, ensure_ascii=False))
+encoder = "\n".join(line.rstrip() for line in (ROOT / "vendor/qrcodegen.js").read_text(encoding="utf-8").splitlines())
+html = html.replace("/*__QR_ENCODER__*/", encoder)
+html = html.replace("/*__QR_GENERATOR__*/", (ROOT / "qr-generator.js").read_text(encoding="utf-8"))
 (ROOT / "index.html").write_text(html, encoding="utf-8")
 print(json.dumps({"page": str(ROOT / "index.html"), "counts": [16, 32, 64, 128],
-                  "bytesPerPart": 200, "modes": ["normal", "hash", "duplicate"],
+                  "bytesPerPart": {"default": 200, "min": 100, "max": 1600}, "modes": ["normal", "hash", "duplicate"],
                   "qrRoundTrips": len(images)}, ensure_ascii=False))

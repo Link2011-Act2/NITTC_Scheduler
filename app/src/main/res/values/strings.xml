@@ -1078,7 +1078,7 @@
     <string name="qr_import_title">データを取り込みますか？</string>
     <string name="qr_import_warning">課題・予定・授業メモは重複しないものを追加します。時間割・試験時間割・休講・授業変更・A/B表は以下の範囲を置き換えます。受信データに含まれない種類は変更しません。</string>
     <string name="qr_import_add_count">%1$s：追加%2$d件・重複%3$d件</string>
-    <string name="qr_import_items_scope">科目・担当・タイトル・期限日時が同じ項目は追加せず、既存の内容・完了状態・通知設定を保持します。</string>
+    <string name="qr_import_items_scope">科目・担当・タイトル・期限日時が同じ項目は追加せず、既存の内容・完了状態・通知設定を保持します。対応する授業がないか内容が異なる項目は、授業に紐づけず追加します。</string>
     <string name="qr_import_notes_scope">同じ日付・時限に同じ内容があれば追加しません。内容が異なるメモは、下で選択したものだけ置き換えます。</string>
     <string name="qr_import_note_choices">異なるメモ：置換%1$d件・保持%2$d件</string>
     <string name="qr_import_note_date">%1$s・%2$d限</string>
@@ -1087,6 +1087,7 @@
     <string name="qr_import_note_replace">受信したメモに置き換える（未選択なら現在のメモを保持）</string>
     <string name="qr_import_confirm">取り込む</string>
     <string name="qr_import_result">追加%1$d件・重複%2$d件・メモ置換%3$d件・メモ保持%4$d件</string>
+    <string name="qr_import_unlinked">対応する授業が見つからないか内容が異なるため、課題・予定%1$d件は授業に紐づけず追加しました。</string>
     <string name="qr_import_count">%1$s：現在%2$d件 → 受信%3$d件</string>
     <string name="qr_import_timetable_scope">対象年度の、この学期の時間割をすべて置き換え</string>
     <string name="qr_import_year_scope">対象年度のデータをすべて置き換え</string>
@@ -1099,7 +1100,7 @@
     <string name="qr_error_different">別のデータが入ったQRです。読み取りをやり直すには「OK」を押してください</string>
     <string name="qr_error_damaged">QRのデータが破損しています。読み取り直してください。</string>
     <string name="qr_error_settings">授業時刻または後期開始日が送信側と一致しないか、照合用の時刻情報が不足しています。両端末の設定を合わせ、送信側のアプリを更新してQRを作り直してください。データは取り込んでいません。</string>
-    <string name="qr_error_lesson_reference">課題・予定の紐付け先の授業が見つからないか、授業の内容が異なります。対応する年度・学期の時間割も共有してください。読み取り時のデータは取り込んでいません。</string>
+    <string name="qr_error_lesson_reference">共有する課題・予定の紐付け先の授業が見つかりません。送信側で紐付け先を確認してから、QRを作り直してください。</string>
     <string name="qr_error_invalid">有効な共有QRを読み取れませんでした。QRやファイルを確認してください。</string>
     <string name="qr_error_image">共有画像を作成できませんでした。もう一度お試しください。</string>
 </resources>

@@ -10,7 +10,8 @@ data class QrShareImportSummary(
     val addedTasks: Int, val duplicateTasks: Int,
     val addedPlans: Int, val duplicatePlans: Int,
     val addedNotes: Int, val duplicateNotes: Int,
-    val replacedNotes: Int, val keptNotes: Int
+    val replacedNotes: Int, val keptNotes: Int,
+    val unlinkedItems: Int = 0
 ) {
     val added: Int get() = addedTasks + addedPlans + addedNotes
     val duplicates: Int get() = duplicateTasks + duplicatePlans + duplicateNotes

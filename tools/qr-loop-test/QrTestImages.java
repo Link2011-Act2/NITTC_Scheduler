@@ -13,6 +13,10 @@ import javax.imageio.ImageIO;
 /** Generate the same M / four-module-margin QR codes as QrImageEncoding. */
 class QrTestImages {
     public static void main(String[] args) throws Exception {
+        if (args[0].equals("--verify-symbols")) {
+            verifySymbols(Path.of(args[1]));
+            return;
+        }
         List<String> frames = Files.readAllLines(Path.of(args[0]), StandardCharsets.UTF_8);
         List<String> images = new ArrayList<>();
         for (String frame : frames) {
@@ -47,5 +51,39 @@ class QrTestImages {
         }
         Files.writeString(Path.of(args[1]), "[" + String.join(",", images) + "]", StandardCharsets.UTF_8);
         System.out.println("Verified " + frames.size() + " QR decodes and 200-byte fragments (including intentional error cases).");
+    }
+
+    /** Decode the browser encoder's actual module matrices with the independent ZXing reader. */
+    private static void verifySymbols(Path file) throws Exception {
+        List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+        int cursor = 0, count = 0;
+        while (cursor < lines.size()) {
+            String[] header = lines.get(cursor++).split(" ");
+            String expected = new String(Base64.getDecoder().decode(header[0]), StandardCharsets.UTF_8);
+            int size = Integer.parseInt(header[1]), width = (size + 8) * 4;
+            int[] pixels = new int[width * width];
+            Arrays.fill(pixels, 0xffffffff);
+            for (int y = 0; y < size; y++) {
+                String row = lines.get(cursor++);
+                if (row.length() != size) throw new AssertionError("Invalid row width");
+                for (int x = 0; x < size; x++) if (row.charAt(x) == '1') {
+                    for (int dy = 0; dy < 4; dy++) for (int dx = 0; dx < 4; dx++)
+                        pixels[((y + 4) * 4 + dy) * width + (x + 4) * 4 + dx] = 0xff000000;
+                }
+            }
+            Result result;
+            try {
+                result = new QRCodeReader().decode(new BinaryBitmap(new HybridBinarizer(new RGBLuminanceSource(width, width, pixels))),
+                    Map.of(DecodeHintType.PURE_BARCODE, true));
+            } catch (ReaderException error) {
+                throw new AssertionError("Browser symbol " + (count + 1) + " (" + size + " modules) failed to decode", error);
+            }
+            if (!expected.equals(result.getText())) throw new AssertionError("Browser QR round trip failed");
+            if (!"M".equals(result.getResultMetadata().get(ResultMetadataType.ERROR_CORRECTION_LEVEL)))
+                throw new AssertionError("Expected M correction");
+            count++;
+        }
+        if (count != 48) throw new AssertionError("Expected 48 browser symbols");
+        System.out.println("PASS: 48 browser-generated symbols decoded with ZXing; exact frame text and M correction.");
     }
 }

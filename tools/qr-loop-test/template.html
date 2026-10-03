@@ -33,6 +33,9 @@
   #pause { flex: 1; background: #24634f; color: white; }
   .start { display: flex; align-items: center; gap: 10px; margin: 20px 0; font-size: 14px; }
   input[type=number] { width: 76px; border: 1px solid #a4b5ab; border-radius: 12px; padding: 9px; font: inherit; }
+  .bytes-input { display: flex; align-items: center; gap: 8px; }
+  #bytes { width: 100px; }
+  #bytes-help { margin: 8px 0; }
   select { width: 100%; border: 1px solid #a4b5ab; border-radius: 12px; padding: 10px; font: inherit; background: white; color: inherit; }
   #mode-help { margin: 8px 0; }
   #fault { width: 100%; margin-top: 8px; background: #f6d8d6; color: #842c2c; }
@@ -61,6 +64,13 @@
       <label><input type="radio" name="count" value="64"><span>64枚</span></label>
       <label><input type="radio" name="count" value="128" checked><span>128枚</span></label>
     </div>
+    <h2><label for="bytes">1枚あたりのバイト数</label></h2>
+    <form id="bytes-form" class="bytes-input">
+      <input id="bytes" type="number" min="100" max="1600" step="1" value="200" required aria-describedby="bytes-help capacity-warning"><span>B</span>
+      <button type="submit">適用</button>
+    </form>
+    <p class="muted" id="bytes-help"></p>
+    <p class="notice" id="capacity-warning" role="status" aria-live="polite" hidden></p>
     <h2><label for="mode">送信パターン</label></h2>
     <select id="mode">
       <option value="normal">正常なデータ</option>
@@ -79,49 +89,76 @@
     <p class="muted" id="timing"></p>
     <div class="actions"><button id="pause">一時停止</button><button id="restart">1枚目に戻る</button></div>
     <label class="start">この番号から表示 <input id="start" type="number" min="1" max="128" value="1"><button id="jump">移動</button></label>
-    <p class="notice">枚数・パターン変更時は共有IDが変わります。アプリで<strong>「新しく読み取る」</strong>を選んでからテストしてください。正常データは授業メモ2件です。受信確認後の上書き確認では<strong>「キャンセル」</strong>を選んでください。</p>
-    <p class="muted">画像はすべて生成済み。ネット接続不要です。ブラウザを手前に表示してください。背面タブでは再生を停止します。</p>
+    <p class="notice">枚数・バイト数・パターン変更時は共有IDが変わります。アプリで<strong>「新しく読み取る」</strong>を選んでからテストしてください。正常データは授業メモ2件です。受信確認後の上書き確認では<strong>「キャンセル」</strong>を選んでください。</p>
+    <p class="muted">ネット接続不要です。バイト数の変更時はQRを生成するため、少し時間がかかります。ブラウザを手前に表示してください。背面タブでは再生を停止します。</p>
     <details><summary>テストデータの情報</summary><p id="metadata"></p></details>
   </section>
 </main>
 <script>
+  /*__QR_ENCODER__*/
+  /*__QR_GENERATOR__*/
   const data = /*__TEST_DATA__*/;
   const qr = document.querySelector('#qr');
   const indexText = document.querySelector('#index');
   const statusText = document.querySelector('#status');
   const pauseButton = document.querySelector('#pause');
-  let count = 128, mode = 'normal', position = 0, interval = 125, paused = false, ready = false, last = performance.now();
+  let count = 128, bytesPerPart = 200, mode = 'normal', position = 0, interval = 125, paused = false, ready = false, last = performance.now();
+  let selectedDataset, decodedImages = [], generation = 0;
   const modeHelp = {
     normal: '全枚数を集めると受信・検証に成功します。',
     hash: '全断片に同じ誤ったSHA-256を設定しています。全枚数が揃った時点で破損エラーになり、受信がリセットされます。',
     duplicate: '正常な1枚目の直後に、同じ番号・ID・ハッシュで内容だけが異なる1枚目を送ります。両方を読むと破損エラーになります。確実に試す場合は正常な1枚目で一時停止し、受信後に下のボタンを押してください。'
   };
-  // Decode once; switching never regenerates QR images or repeatedly decodes data URLs.
-  const decodedImages = Object.fromEntries(Object.entries(data.datasets).map(([n, modes]) => [n,
-    Object.fromEntries(Object.entries(modes).map(([key, dataset]) => [key,
-      dataset.images.map(src => { const image = new Image(); image.src = src; return image; })]))]));
-  function dataset() { return data.datasets[count][mode]; }
+  function dataset() { return selectedDataset; }
   function show() {
     const selected = dataset();
     const index = Number(selected.frames[position].split(':')[5]) + 1;
-    qr.src = decodedImages[count][mode][position].src;
+    qr.src = decodedImages[position].src;
     qr.alt = `SKTTP/QR テスト断片 ${index} / ${count}`;
     indexText.textContent = index;
     statusText.textContent = `${paused ? '一時停止中' : '繰り返し送信中'}${mode === 'duplicate' && position === 1 ? ' · 内容改変の1枚目' : ''}`;
   }
   function timing() {
+    if (!dataset()) return;
     document.querySelector('#timing').textContent = `${interval}ms / 枚 · ${(1000 / interval).toFixed(2)}枚 / 秒 · 1周 ${(dataset().frames.length * interval / 1000).toFixed(2)}秒`;
   }
-  function selectDataset() {
+  async function selectDataset() {
+    const current = ++generation;
+    ready = false;
     position = 0; last = performance.now();
+    statusText.textContent = 'QRを準備中…';
+    qr.hidden = true;
+    const bytesInput = document.querySelector('#bytes');
+    bytesInput.value = String(bytesPerPart);
+    document.querySelector('#bytes-help').textContent = '100〜1600B（圧縮データの量。Base64・ヘッダーを除く）。入力値は枚数を変えても保持します。';
+    const capacityWarning = document.querySelector('#capacity-warning');
+    capacityWarning.hidden = count * bytesPerPart <= 65536;
+    capacityWarning.textContent = capacityWarning.hidden ? '' :
+      `全体${(count * bytesPerPart).toLocaleString()}Bで、アプリの受信上限64KiB（65,536B）を超えます。入力値は変更せず、この設定で送信します。受信側では容量超過エラーになる場合があります。`;
     document.querySelector('#total').textContent = count;
-    document.querySelector('#badge').textContent = `${count} fragments × 200 bytes`;
+    document.querySelector('#badge').textContent = `${count} fragments × ${bytesPerPart} bytes`;
     const start = document.querySelector('#start'); start.max = String(count); start.value = '1';
-    document.querySelector('#mode-help').textContent = modeHelp[mode];
+    document.querySelector('#mode-help').textContent = count * bytesPerPart > 65536 && mode !== 'duplicate' ?
+      'この設定は受信上限を超えるため、全枚受信後の検証より前に容量超過エラーになります。' : modeHelp[mode];
     document.querySelector('#fault').hidden = mode !== 'duplicate';
-    const selected = dataset();
-    document.querySelector('#metadata').textContent = `SKTTP/QR v1\n断片数: ${count}\n各断片: 200B（Base64・ヘッダーを除く）\n圧縮データ: ${selected.compressedBytes.toLocaleString()}B\nJSON: ${selected.jsonBytes.toLocaleString()}B\n誤り訂正: M / 余白: 4マス\nID: ${selected.transferId}\nSHA-256: ${selected.digest}`;
-    if (ready) show(); timing();
+    document.querySelector('#metadata').textContent = '';
+    try {
+      const selected = bytesPerPart === 200 ? data.datasets[count][mode] :
+        await qrTestDataset(data.basePayload, count, bytesPerPart, mode, (done, total) => {
+          if (current !== generation) return false;
+          statusText.textContent = `QRを生成中… ${done} / ${total}枚`;
+        });
+      if (current !== generation) return;
+      const images = selected.images.map(src => { const image = new Image(); image.src = src; return image; });
+      await Promise.all(images.map(image => image.decode()));
+      if (current !== generation) return;
+      selectedDataset = selected; decodedImages = images;
+      document.querySelector('#metadata').textContent = `SKTTP/QR v1\n断片数: ${count}\n各断片: ${bytesPerPart}B（Base64・ヘッダーを除く）\n圧縮データ: ${selected.compressedBytes.toLocaleString()}B\nJSON: ${selected.jsonBytes.toLocaleString()}B\n${bytesPerPart === 200 ? '' : '圧縮データにはテスト用のGZIPパディングを含む\n'}誤り訂正: M / 余白: 4マス\nID: ${selected.transferId}\nSHA-256: ${selected.digest}`;
+      ready = true; qr.hidden = false; show(); timing(); last = performance.now();
+    } catch (error) {
+      if (current !== generation) return;
+      statusText.textContent = 'QRを生成できませんでした。ChromeまたはEdgeで開き直してください。';
+    }
   }
   function setPaused(value) {
     paused = value; last = performance.now();
@@ -143,6 +180,13 @@
   document.querySelectorAll('input[name=count]').forEach(input => input.addEventListener('change', () => {
     count = Number(input.value); selectDataset();
   }));
+  document.querySelector('#bytes-form').addEventListener('submit', event => {
+    event.preventDefault();
+    const input = document.querySelector('#bytes'), requested = Number(input.value);
+    if (!input.reportValidity() || !Number.isInteger(requested) || requested < 100 || requested > Number(input.max)) return;
+    if (requested === bytesPerPart) return;
+    bytesPerPart = requested; selectDataset();
+  });
   document.querySelector('#mode').addEventListener('change', event => {
     mode = event.target.value; selectDataset();
   });
@@ -155,6 +199,7 @@
   });
   document.querySelector('#restart').addEventListener('click', () => { position = 0; last = performance.now(); if (ready) show(); });
   document.querySelector('#jump').addEventListener('click', () => {
+    if (!ready) return;
     const input = document.querySelector('#start');
     const requested = Number(input.value);
     if (!input.reportValidity() || !Number.isInteger(requested) || requested < 1 || requested > count) return;
@@ -163,9 +208,6 @@
   });
   document.addEventListener('visibilitychange', () => { last = performance.now(); });
   selectDataset();
-  Promise.all(Object.values(decodedImages).flatMap(modes => Object.values(modes).flat()).map(image => image.decode())).then(() => {
-    ready = true; show(); timing(); last = performance.now(); requestAnimationFrame(tick);
-  })
-    .catch(() => { statusText.textContent = '画像を読み込めませんでした。ページを開き直してください。'; });
+  requestAnimationFrame(tick);
 </script>
 </html>

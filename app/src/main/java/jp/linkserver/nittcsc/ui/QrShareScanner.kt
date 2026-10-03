@@ -226,7 +226,8 @@ internal fun QrShareScanner(state: SchedulerUiState, viewModel: SchedulerViewMod
                         val message = resources.getString(if (result.integrationsFailed) R.string.qr_import_partial else R.string.qr_import_success)
                         success = if (data.sections.any { it == QrShareSection.TASKS || it == QrShareSection.PLANS || it == QrShareSection.NOTES }) {
                             result.summary.let { summary -> message + "\n" + resources.getString(R.string.qr_import_result,
-                                summary.added, summary.duplicates, summary.replacedNotes, summary.keptNotes) }
+                                summary.added, summary.duplicates, summary.replacedNotes, summary.keptNotes) +
+                                if (summary.unlinkedItems > 0) "\n" + resources.getString(R.string.qr_import_unlinked, summary.unlinkedItems) else "" }
                         } else message
                     } catch (e: CancellationException) { throw e }
                     catch (e: Exception) { error = qrFailureMessage(resources, e) }

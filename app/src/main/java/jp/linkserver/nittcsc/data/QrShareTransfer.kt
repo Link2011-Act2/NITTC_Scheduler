@@ -10,7 +10,7 @@ import jp.linkserver.nittcsc.logic.academicYearForDate
 import jp.linkserver.nittcsc.logic.qrCheckScheduleCompatibility
 import jp.linkserver.nittcsc.logic.qrExamDayUpdates
 import jp.linkserver.nittcsc.logic.qrLessonReference
-import jp.linkserver.nittcsc.logic.qrResolveLessonId
+import jp.linkserver.nittcsc.logic.qrResolveSharedItems
 import jp.linkserver.nittcsc.logic.qrShareMerge
 import jp.linkserver.nittcsc.logic.qrTimetableReplacement
 
@@ -124,22 +124,22 @@ internal class QrShareTransfer(private val repository: SchedulerRepository, priv
         val linkedLessons = if ((merge.tasks + merge.plans).any { it.lessonReference != null }) {
             dao.getLessonsOnce().associateBy { it.lessonKey() }
         } else emptyMap()
+        val resolved = qrResolveSharedItems(merge.tasks, merge.plans, linkedLessons)
         if (QrShareSection.TASKS in data.sections) {
-            merge.tasks.forEach { item ->
-                val task = item.asTask().copy(lessonId = qrResolveLessonId(item.lessonReference, linkedLessons))
+            resolved.tasks.forEach { task ->
                 importedTasks += task.copy(id = dao.upsertTask(task))
             }
             if (importedTasks.isNotEmpty()) touched += SchedulerRepository.DATASET_TASKS
         }
         if (QrShareSection.PLANS in data.sections) {
-            merge.plans.forEach { item ->
-                val plan = item.asPlan().copy(lessonId = qrResolveLessonId(item.lessonReference, linkedLessons))
+            resolved.plans.forEach { plan ->
                 importedPlans += plan.copy(id = dao.upsertPlan(plan))
             }
             if (importedPlans.isNotEmpty()) touched += SchedulerRepository.DATASET_PLANS
         }
         if (touched.isNotEmpty()) repository.touchSyncDatasetMeta(*touched.toTypedArray())
-        QrShareImportedData(importedTasks, importedPlans, settings.addTasksToCalendar, merge.summary)
+        QrShareImportedData(importedTasks, importedPlans, settings.addTasksToCalendar,
+            merge.summary.copy(unlinkedItems = resolved.unlinkedItems))
     }
 }
 

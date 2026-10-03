@@ -46,17 +46,51 @@ class QrScheduleCompatibilityTest {
         assertNull(qrResolveLessonId(null, emptyMap()))
     }
 
-    @Test fun rejectsMissingOrChangedLinkedLessonAndWrongPartition() {
+    @Test fun leavesMissingOrChangedLinkedLessonAndWrongPartitionUnlinked() {
         val ref = qrLessonReference(lesson())
-        failure(QrShareFailure.LESSON_REFERENCE) { qrResolveLessonId(ref, emptyMap()) }
+        assertNull(qrResolveLessonId(ref, emptyMap()))
         for (changed in listOf(lesson().copy(weeklySubject = "英語"), lesson().copy(weeklyTeacher = "担当B"),
             lesson().copy(weeklyLocation = "別教室"), lesson().copy(id = 0))) {
-            failure(QrShareFailure.LESSON_REFERENCE) { qrResolveLessonId(ref, mapOf(changed.lessonKey() to changed)) }
+            assertNull(qrResolveLessonId(ref, mapOf(changed.lessonKey() to changed)))
         }
         val otherYear = lesson().copy(academicYear = 2025)
-        failure(QrShareFailure.LESSON_REFERENCE) { qrResolveLessonId(ref, mapOf(otherYear.lessonKey() to otherYear)) }
+        assertNull(qrResolveLessonId(ref, mapOf(otherYear.lessonKey() to otherYear)))
         val otherTerm = lesson().copy(timetableTerm = TimetableTerm.FIRST)
-        failure(QrShareFailure.LESSON_REFERENCE) { qrResolveLessonId(ref, mapOf(otherTerm.lessonKey() to otherTerm)) }
+        assertNull(qrResolveLessonId(ref, mapOf(otherTerm.lessonKey() to otherTerm)))
+    }
+
+    @Test fun preservesTaskAndPlanContentsAndCountsOnlyUnresolvedReferences() {
+        val item = QrSharedItem("数学", "担当A", "レポート", "提出内容", date, 23, 59,
+            true, date, date.minusDays(3), 1, true, qrLessonReference(lesson(999)))
+        val missing = item.copy(title = "別の課題", lessonReference = qrLessonReference(lesson().copy(dayOfWeek = 2)))
+        val legacy = item.copy(title = "旧形式の課題", lessonReference = null)
+        val changed = item.copy(title = "予定", lessonReference = qrLessonReference(lesson().copy(weeklySubject = "英語")))
+        val local = lesson(42)
+        val resolved = qrResolveSharedItems(listOf(item, missing, legacy), listOf(changed), mapOf(local.lessonKey() to local))
+        assertEquals(listOf(42L, null, null), resolved.tasks.map { it.lessonId })
+        assertNull(resolved.plans.single().lessonId)
+        assertEquals(2, resolved.unlinkedItems)
+        val task = resolved.tasks[1]
+        assertEquals(missing.asTask().copy(updatedAt = task.updatedAt), task)
+        val plan = resolved.plans.single()
+        assertEquals(changed.asPlan().copy(updatedAt = plan.updatedAt), plan)
+    }
+
+    @Test fun countsOnlyAddedItemsAndKeepsExistingLinkOnRepeatedImport() {
+        val incoming = QrSharedItem("数学", "担当A", "レポート", "提出内容", date, 23, 59,
+            false, null, date, 0, true, qrLessonReference(lesson()))
+        val existing = incoming.asTask().copy(id = 7, lessonId = 123, description = "自分の追記")
+        val merge = qrShareMerge(listOf(existing), listOf(incoming, incoming.copy(title = "新しい課題")),
+            emptyList(), listOf(incoming, incoming), emptyList(), emptyList())
+        val resolved = qrResolveSharedItems(merge.tasks, merge.plans, emptyMap())
+        assertEquals(2, resolved.unlinkedItems)
+        assertEquals(1, resolved.tasks.size)
+        assertEquals(1, resolved.plans.size)
+        assertEquals(123L, existing.lessonId)
+        assertEquals("自分の追記", existing.description)
+        val repeat = qrShareMerge(listOf(existing) + resolved.tasks, listOf(incoming, incoming.copy(title = "新しい課題")),
+            resolved.plans, listOf(incoming), emptyList(), emptyList())
+        assertEquals(0, qrResolveSharedItems(repeat.tasks, repeat.plans, emptyMap()).unlinkedItems)
     }
 
     @Test fun handlesSeparatorCharactersAndNormalizesBlankLocationsInLessonSignature() {

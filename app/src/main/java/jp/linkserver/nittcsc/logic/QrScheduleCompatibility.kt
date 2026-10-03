@@ -2,10 +2,13 @@ package jp.linkserver.nittcsc.logic
 
 import jp.linkserver.nittcsc.data.DayTypeEntity
 import jp.linkserver.nittcsc.data.LessonEntity
+import jp.linkserver.nittcsc.data.PlanEntity
 import jp.linkserver.nittcsc.data.QrLessonReference
+import jp.linkserver.nittcsc.data.QrSharedItem
 import jp.linkserver.nittcsc.data.QrSharePayload
 import jp.linkserver.nittcsc.data.QrShareSection
 import jp.linkserver.nittcsc.data.SettingsEntity
+import jp.linkserver.nittcsc.data.TaskEntity
 import jp.linkserver.nittcsc.data.qrScheduleTimes
 
 internal fun qrLessonReference(lesson: LessonEntity): QrLessonReference {
@@ -21,9 +24,28 @@ internal fun qrResolveLessonId(reference: QrLessonReference?, lessons: Map<Lesso
     if (reference == null) return null
     val lesson = lessons[LessonKey(reference.academicYear, reference.timetableTerm, reference.dayOfWeek, reference.slotIndex)]
     if (lesson == null || lesson.id <= 0 || qrLessonReference(lesson) != reference) {
-        throw QrShareException(QrShareFailure.LESSON_REFERENCE)
+        return null
     }
     return lesson.id
+}
+
+internal data class QrResolvedShareItems(
+    val tasks: List<TaskEntity>, val plans: List<PlanEntity>, val unlinkedItems: Int
+)
+
+/** 重複を除いた追加項目だけを解決する。復元できない参照は外し、課題・予定の内容は保持する。 */
+internal fun qrResolveSharedItems(
+    tasks: List<QrSharedItem>, plans: List<QrSharedItem>, lessons: Map<LessonKey, LessonEntity>
+): QrResolvedShareItems {
+    var unlinkedItems = 0
+    fun resolve(item: QrSharedItem): Long? {
+        val id = qrResolveLessonId(item.lessonReference, lessons)
+        if (item.lessonReference != null && id == null) unlinkedItems++
+        return id
+    }
+    val resolvedTasks = tasks.map { it.asTask().copy(lessonId = resolve(it)) }
+    val resolvedPlans = plans.map { it.asPlan().copy(lessonId = resolve(it)) }
+    return QrResolvedShareItems(resolvedTasks, resolvedPlans, unlinkedItems)
 }
 
 internal fun qrCheckScheduleCompatibility(data: QrSharePayload, settings: SettingsEntity) {

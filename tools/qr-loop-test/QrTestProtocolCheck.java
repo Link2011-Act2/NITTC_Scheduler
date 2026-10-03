@@ -17,7 +17,22 @@ class QrTestProtocolCheck {
             List<String> frames = lines.subList(cursor, cursor + length);
             cursor += length;
             QrShareCollector collector = new QrShareCollector();
-            if (mode.equals("duplicate")) {
+            if (mode.equals("oversized")) {
+                int receivedBytes = 0;
+                for (String frame : frames) {
+                    receivedBytes += Base64.getDecoder().decode(frame.split(":", 7)[6]).length;
+                    if (receivedBytes > 65536) {
+                        try { collector.add(frame); }
+                        catch (QrShareException error) {
+                            if (error.getFailure() != QrShareFailure.TOO_LARGE) throw new AssertionError("Expected TOO_LARGE", error);
+                            break;
+                        }
+                        throw new AssertionError("Expected capacity rejection");
+                    }
+                    if (collector.add(frame) != null) throw new AssertionError("Oversized case completed unexpectedly");
+                }
+                if (receivedBytes <= 65536) throw new AssertionError("Oversized fixture did not exceed limit");
+            } else if (mode.equals("duplicate")) {
                 collector.add(frames.get(0));
                 expectDamaged(collector, frames.get(1));
             } else if (mode.equals("hash")) {
@@ -38,8 +53,9 @@ class QrTestProtocolCheck {
             }
             cases++;
         }
-        if (cases != 12) throw new AssertionError("Expected 12 cases");
-        System.out.println("PASS: actual app Collector, all 12 cases; successful shuffled/duplicate reception, final SHA-256 rejection, conflicting fragment rejection.");
+        int expectedCases = Integer.parseInt(args[1]);
+        if (cases != expectedCases) throw new AssertionError("Expected " + expectedCases + " cases");
+        System.out.println("PASS: actual app Collector, all " + cases + " cases; successful shuffled/duplicate reception, final SHA-256 rejection, conflicting fragment rejection.");
     }
     private static void expectDamaged(QrShareCollector collector, String frame) {
         try { collector.add(frame); }
