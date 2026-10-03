@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.MaterialTheme
@@ -108,6 +109,8 @@ internal fun QrShareScanner(state: SchedulerUiState, viewModel: SchedulerViewMod
         target = null; tracker = QrScannerTracker(); detectedAt = 0L; completionShown = false
     }
     suspend fun accept(text: String): Boolean {
+        // エラー後のフレームで表示を消さない。GIFの後続解析もここで止める。
+        if (error != null || pending != null) return true
         return try {
             val session = collector
             val data = withContext(Dispatchers.Default) { session.add(text)?.let(QrShareJson::decode) }
@@ -127,11 +130,11 @@ internal fun QrShareScanner(state: SchedulerUiState, viewModel: SchedulerViewMod
                 collector = QrShareCollector(); received = 0; total = 0
                 receivedFragmentIndices = emptySet(); fragmentReceiptTimes = emptyMap()
             }
-            false
+            true
         }
     }
     fun readPickedImage(uri: android.net.Uri?) {
-        if (uri != null && !processing && !readingFile && !importing && pending == null) {
+        if (uri != null && error == null && !processing && !readingFile && !importing && pending == null) {
             readingFile = true
             onBusyChanged(true)
             scope.launch {
@@ -156,10 +159,12 @@ internal fun QrShareScanner(state: SchedulerUiState, viewModel: SchedulerViewMod
             completionShown = true
         }
     }
-    LaunchedEffect(error) {
+    LaunchedEffect(error, processing, readingFile, importing, pending) {
         val message = error ?: return@LaunchedEffect
-        if (pending == null && snackbar.showSnackbar(message, actionLabel = resources.getString(R.string.qr_scan_retry), withDismissAction = true) == SnackbarResult.ActionPerformed &&
-            pending == null && !processing && !readingFile && !importing) reset()
+        // 解析が終了してから操作を出し、再開操作まではエラーを表示し続ける。
+        if (pending != null || processing || readingFile || importing) return@LaunchedEffect
+        if (snackbar.showSnackbar(message, actionLabel = resources.getString(R.string.qr_scan_retry),
+                duration = SnackbarDuration.Indefinite, withDismissAction = false) == SnackbarResult.ActionPerformed) reset()
     }
     LaunchedEffect(success) { success?.let { snackbar.showSnackbar(it) } }
     val visual = QrScannerVisualState(when {
@@ -174,7 +179,7 @@ internal fun QrShareScanner(state: SchedulerUiState, viewModel: SchedulerViewMod
         hasPermission = hasCameraPermission, cameraError = cameraError,
         loading = readingFile || importing,
         // 認識の猶予期間も無効化を保ち、フレームごとの復号終了で点滅させない。
-        galleryEnabled = target == null && !readingFile && !processing && !importing && pending == null,
+        galleryEnabled = error == null && target == null && !readingFile && !processing && !importing && pending == null,
         backEnabled = !readingFile && !importing, snackbar = snackbar, onBack = onBack,
         onPermission = { permission.launch(Manifest.permission.CAMERA) }, onRetryCamera = { cameraError = false },
         onGallery = {
@@ -190,14 +195,14 @@ internal fun QrShareScanner(state: SchedulerUiState, viewModel: SchedulerViewMod
                 }
             }
         }, camera = {
-            QrCameraPreview(Modifier.fillMaxSize(), analysisEnabled = active && !readingFile && !importing && pending == null,
+            QrCameraPreview(Modifier.fillMaxSize(), analysisEnabled = active && error == null && !readingFile && !importing && pending == null,
                 onFrame = { text ->
-                    if (!processing && !readingFile && !importing && pending == null) {
+                    if (error == null && !processing && !readingFile && !importing && pending == null) {
                         processing = true
                         scope.launch { try { accept(text) } finally { processing = false } }
                     }
                 }, onDetection = { corners ->
-                    if (pending == null) {
+                    if (error == null && pending == null) {
                         val now = SystemClock.elapsedRealtime()
                         tracker.detect(corners, now)?.let { target = it; detectedAt = now }
                     }
