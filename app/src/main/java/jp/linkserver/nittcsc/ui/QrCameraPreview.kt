@@ -32,11 +32,9 @@ import androidx.core.view.doOnLayout
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.google.zxing.PlanarYUVLuminanceSource
 import jp.linkserver.nittcsc.logic.QrShareCodec
 import jp.linkserver.nittcsc.qr.QrCameraDecoder
 import jp.linkserver.nittcsc.qr.QrCameraMetering
-import jp.linkserver.nittcsc.qr.copyQrLuminancePlane
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -79,7 +77,6 @@ internal fun QrCameraPreview(
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build()
         val decoder = QrCameraDecoder()
         val transformFactory = ImageProxyTransformFactory()
-        var luminance = ByteArray(0)
         var lastMeteringFrame = 0L
         val lifecycleObserver = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_START || event == Lifecycle.Event.ON_STOP) metering.reset()
@@ -88,13 +85,9 @@ internal fun QrCameraPreview(
         analysis.setAnalyzer(executor) { image ->
             try {
                 if (!disposed.get() && analyzing.get()) {
-                    val plane = image.planes[0]
-                    if (luminance.size != image.width * image.height) luminance = ByteArray(image.width * image.height)
-                    copyQrLuminancePlane(plane.buffer, image.width, image.height, plane.rowStride, plane.pixelStride, luminance)
                     // Previewと同じViewPortだけを読む。解析位置はバッファの元の座標へ戻す。
                     val crop = image.cropRect
-                    val source = PlanarYUVLuminanceSource(luminance, image.width, image.height, crop.left, crop.top, crop.width(), crop.height(), false)
-                    val result = decoder.read(source)
+                    val result = decoder.read(image)
                     val now = SystemClock.elapsedRealtime()
                     if (result != null || now - lastMeteringFrame >= 500L) {
                         lastMeteringFrame = now

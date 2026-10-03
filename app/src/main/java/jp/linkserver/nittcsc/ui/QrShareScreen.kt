@@ -90,6 +90,7 @@ internal fun qrFailureMessage(resources: android.content.res.Resources, exceptio
         QrShareFailure.DIFFERENT_TRANSFER -> R.string.qr_error_different
         QrShareFailure.DAMAGED -> R.string.qr_error_damaged
         QrShareFailure.SETTINGS -> R.string.qr_error_settings
+        QrShareFailure.LESSON_REFERENCE -> R.string.qr_error_lesson_reference
         else -> R.string.qr_error_invalid
     }
 )

@@ -1,14 +1,21 @@
 package jp.linkserver.nittcsc.qr
 
-import com.google.zxing.PlanarYUVLuminanceSource
-import com.google.zxing.RGBLuminanceSource
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Rect
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import jp.linkserver.nittcsc.logic.QrPoint
+import jp.linkserver.nittcsc.logic.QrShareCollector
 import jp.linkserver.nittcsc.logic.QrShareCodec
 import org.junit.Assert.*
 import org.junit.Test
-import java.nio.ByteBuffer
+import org.junit.runner.RunWith
 import java.util.Base64
 import java.util.Random
 
+@RunWith(AndroidJUnit4::class)
 class QrCameraDecoderTest {
     private val frame = QrShareCodec.create(Base64.getEncoder().encodeToString(
         ByteArray(1500).also { Random(42).nextBytes(it) }
@@ -18,7 +25,7 @@ class QrCameraDecoderTest {
         val size = 512
         var pixels = QrImageEncoding.pixels(frame, size)
         repeat(4) {
-            val result = QrCameraDecoder().read(RGBLuminanceSource(size, size, pixels))!!
+            val result = QrCameraDecoder().read(QrTestImage(size, size, pixels))!!
             assertEquals(frame, result.text)
             assertEquals(4, result.corners.size)
             assertTrue(result.corners.all { point -> point.x in 0f..512f && point.y in 0f..512f })
@@ -33,7 +40,7 @@ class QrCameraDecoderTest {
             val qr = QrImageEncoding.pixels(frame, 512)
             val pixels = IntArray(1280 * 960) { -1 }
             for (y in 0 until 512) qr.copyInto(pixels, (y + top) * 1280 + left, y * 512, (y + 1) * 512)
-            val result = decoder.read(RGBLuminanceSource(1280, 960, pixels))!!
+            val result = decoder.read(QrTestImage(1280, 960, pixels))!!
             assertEquals(frame, result.text)
             assertTrue(result.corners.minOf { it.x } in left.toFloat()..(left + 50f))
             assertTrue(result.corners.minOf { it.y } in top.toFloat()..(top + 50f))
@@ -45,16 +52,15 @@ class QrCameraDecoderTest {
     @Test fun readsNoisyLuminanceAndInvertedQr() {
         val random = Random(18)
         val pixels = QrImageEncoding.pixels(frame, 512)
-        val luminance = ByteArray(pixels.size) { i ->
+        val noisy = IntArray(pixels.size) { i ->
             val base = if (pixels[i] == -1) 200 else 40
-            (base + random.nextInt(21) - 10).toByte()
+            val value = base + random.nextInt(21) - 10
+            Color.rgb(value, value, value)
         }
-        val source = PlanarYUVLuminanceSource(luminance, 512, 512, 0, 0, 512, 512, false)
+        val source = QrTestImage(512, 512, noisy)
         assertEquals(frame, QrCameraDecoder().read(source)?.text)
-        val decoder = QrCameraDecoder()
-        var result: QrCameraDetection? = null
-        repeat(3) { decoder.read(source.invert())?.let { result = it } }
-        assertEquals(frame, result?.text)
+        val inverted = IntArray(noisy.size) { i -> val v = 255 - Color.red(noisy[i]); Color.rgb(v,v,v) }
+        assertEquals(frame, QrCameraDecoder().read(QrTestImage(512,512,inverted))?.text)
     }
 
     @Test fun recoversSmallBlurredQrAtQuarterTurnsOnRectangularFrames() {
@@ -76,20 +82,17 @@ class QrCameraDecoderTest {
                 random.nextInt(21) - 10).coerceIn(0, 255)
             0xff000000.toInt() or (value shl 16) or (value shl 8) or value
         }
-        val reference = QrCameraDecoder().read(RGBLuminanceSource(width, height, pixels))!!
+        val reference = QrCameraDecoder().read(QrTestImage(width, height, pixels))!!
         var expectedCorners = reference.corners
         val trackingDecoder = QrCameraDecoder()
         repeat(4) { turn ->
-            // 未検出時の回転再解析は1フレーム1方向に制限する。
-            val decoder = QrCameraDecoder()
-            var result: QrCameraDetection? = null
-            repeat(3) { decoder.read(RGBLuminanceSource(width, height, pixels))?.let { result = it } }
+            val result = QrCameraDecoder().read(QrTestImage(width, height, pixels))
             assertEquals("rotation=$turn", text, result?.text)
             result!!.corners.zip(expectedCorners).forEach { (actual, expected) ->
                 assertEquals(expected.x, actual.x, 6f)
                 assertEquals(expected.y, actual.y, 6f)
             }
-            val trackedResult = trackingDecoder.read(RGBLuminanceSource(width, height, pixels))
+            val trackedResult = trackingDecoder.read(QrTestImage(width, height, pixels))
             assertEquals("tracking rotation=$turn", text, trackedResult?.text)
             val oldWidth = width
             pixels = IntArray(pixels.size) { i -> pixels[(i % height) * width + width - 1 - i / height] }
@@ -106,31 +109,71 @@ class QrCameraDecoderTest {
         val blank = IntArray(width * height) { -1 }
         val qr = QrImageEncoding.pixels(frame, 384)
         for ((left, top) in listOf(20 to 24, 350 to 1110)) {
-            assertNull(decoder.read(RGBLuminanceSource(width, height, blank)))
+            assertNull(decoder.read(QrTestImage(width, height, blank)))
             val pixels = blank.copyOf()
             for (y in 0 until 384) qr.copyInto(pixels, (top + y) * width + left, y * 384, (y + 1) * 384)
-            val result = decoder.read(RGBLuminanceSource(width, height, pixels))!!
+            val result = decoder.read(QrTestImage(width, height, pixels))!!
             assertEquals(frame, result.text)
             assertTrue(result.corners.minOf { it.x } in left.toFloat()..(left + 40f))
             assertTrue(result.corners.minOf { it.y } in top.toFloat()..(top + 40f))
         }
     }
 
-    @Test fun copiesRowsWithPaddingAndNonzeroBufferPosition() {
-        val bytes = ByteArray(24) { 99 }
-        for (y in 0 until 3) for (x in 0 until 5) bytes[3 + y * 8 + x] = (y * 5 + x).toByte()
-        val buffer = ByteBuffer.wrap(bytes).apply { position(3) }
-        val target = ByteArray(15)
-        copyQrLuminancePlane(buffer, 5, 3, 8, 1, target)
-        assertArrayEquals(ByteArray(15) { it.toByte() }, target)
-        assertEquals(3, buffer.position())
+    @Test fun readsSmallQrAtEveryFifteenDegreeAngleInOneFrame() {
+        val text = QrShareCodec.create(Base64.getEncoder().encodeToString(
+            ByteArray(2100).also { Random(52).nextBytes(it) }
+        )).copy(id="a".repeat(32)).cameraFrames().first()
+        val qr = Bitmap.createBitmap(QrImageEncoding.pixels(text,180),180,180,Bitmap.Config.ARGB_8888)
+        try {
+            for (angle in 0 until 360 step 15) {
+                val bitmap = Bitmap.createBitmap(800,600,Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(bitmap)
+                canvas.drawColor(Color.WHITE)
+                canvas.rotate(angle.toFloat(),400f,300f)
+                canvas.drawBitmap(qr,310f,210f,Paint(Paint.FILTER_BITMAP_FLAG))
+                val pixels=IntArray(800*600)
+                bitmap.getPixels(pixels,0,800,0,0,800,600)
+                bitmap.recycle()
+                assertEquals("angle=$angle",text,QrCameraDecoder().read(QrTestImage(800,600,pixels))?.text)
+            }
+        } finally { qr.recycle() }
     }
 
-    @Test fun copiesPixelStrideWithoutIncludingPadding() {
-        val bytes = ByteArray(14) { 99 }
-        for (y in 0 until 2) for (x in 0 until 3) bytes[1 + y * 8 + x * 2] = (y * 3 + x).toByte()
-        val target = ByteArray(6)
-        copyQrLuminancePlane(ByteBuffer.wrap(bytes).apply { position(1) }, 3, 2, 8, 2, target)
-        assertArrayEquals(ByteArray(6) { it.toByte() }, target)
+    @Test fun preservesViewportCoordinatesAndBufferPositionWithEveryCameraOrientation() {
+        val width=768; val height=640
+        val pixels=IntArray(width*height){Color.WHITE}
+        val qr=QrImageEncoding.pixels(frame,384)
+        for(y in 0 until 384) qr.copyInto(pixels,(y+120)*width+180,y*384,(y+1)*384)
+        val viewport=Rect(100,70,700,600)
+        var reference: List<QrPoint>?=null
+        for(rotation in listOf(0,90,180,270)) for(pixelStride in listOf(1,2)) for(direct in listOf(true,false)) {
+            val image=QrTestImage(width,height,pixels,viewport,rotation,pixelStride,direct,7,13)
+            val start=image.planes[0].buffer.position()
+            val result=QrCameraDecoder().read(image)!!
+            assertEquals(frame,result.text)
+            assertEquals(start,image.planes[0].buffer.position())
+            assertFalse(image.closed)
+            assertTrue(result.corners.minOf{it.x} in 80f..120f)
+            assertTrue(result.corners.minOf{it.y} in 50f..90f)
+            if(reference==null) reference=result.corners
+            result.corners.zip(reference).forEach { (actual,expected) ->
+                assertEquals(expected.x,actual.x,1f)
+                assertEquals(expected.y,actual.y,1f)
+            }
+        }
+    }
+
+    @Test fun cameraFragmentsRoundTripAtLowResolution() {
+        val original=Base64.getEncoder().encodeToString(ByteArray(2100).also{Random(52).nextBytes(it)})
+        val frames=QrShareCodec.create(original).copy(id="4".repeat(32)).cameraFrames()
+        val decoder=QrCameraDecoder()
+        val collector=QrShareCollector()
+        var decoded: String?=null
+        for(text in frames.reversed()) {
+            val result=decoder.read(QrTestImage(240,240,QrImageEncoding.pixels(text,240)))!!
+            assertEquals(text,result.text)
+            collector.add(result.text)?.let { decoded=it }
+        }
+        assertEquals(original,decoded)
     }
 }

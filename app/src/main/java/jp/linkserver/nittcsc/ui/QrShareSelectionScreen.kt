@@ -63,6 +63,7 @@ internal fun QrShareSection.labelRes(): Int = when (this) {
     QrShareSection.NOTES -> R.string.qr_notes
     QrShareSection.PLANS -> R.string.qr_plans
     QrShareSection.TASKS -> R.string.qr_tasks
+    QrShareSection.EXAMS -> R.string.qr_exams
 }
 
 private data class QrPickItem(
@@ -92,7 +93,12 @@ internal fun QrShareSelectionScreen(
     val today = LocalDate.now()
     val settings = state.settings
     var year by remember { mutableIntStateOf(settings?.activeAcademicYear?.takeIf { it > 0 } ?: academicYearForDate(today)) }
-    val years = remember(state.lessons, year) { (state.lessons.keys.map { it.academicYear } + year).distinct().sortedDescending() }
+    val years = remember(state.lessons, state.examDaySchedules, state.examLessons, state.dayTypeEntities, year) {
+        (state.lessons.keys.map { it.academicYear } + state.examDaySchedules.keys.map(::academicYearForDate) +
+            state.examLessons.keys.map { academicYearForDate(it.first) } +
+            state.dayTypeEntities.values.filter { it.holidaySpecialLabel?.usesExamTimetable == true }.map { academicYearForDate(it.date) } +
+            year).distinct().sortedDescending()
+    }
     val currentTerm = timetableTermForDate(today, settings?.enableSemesterTimetables ?: true, settings?.secondTermStartMonth ?: 10, settings?.secondTermStartDay ?: 1)
     var selected by remember { mutableStateOf(setOf(if (currentTerm.name == "FIRST") QrShareSection.FIRST else QrShareSection.SECOND,
         QrShareSection.DAY_TYPES, QrShareSection.CANCELLATIONS, QrShareSection.CHANGES)) }
@@ -153,6 +159,8 @@ internal fun QrShareSelectionScreen(
                         R.string.qr_cancellations_and_changes else section.labelRes()))
                     Text(stringResource(when (section) {
                         QrShareSection.DAY_TYPES -> R.string.qr_days_scope
+                        QrShareSection.FIRST, QrShareSection.SECOND -> R.string.qr_timetable_scope
+                        QrShareSection.EXAMS -> R.string.qr_exams_scope
                         QrShareSection.NOTES, QrShareSection.PLANS, QrShareSection.TASKS -> R.string.qr_personal_scope
                         else -> R.string.qr_year_scope
                     }), style = MaterialTheme.typography.bodySmall)

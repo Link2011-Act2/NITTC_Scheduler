@@ -1592,8 +1592,8 @@ class SchedulerRepository(
     suspend fun exportQrShare(selection: QrShareSelection): QrSharePayload =
         QrShareTransfer(this, db).export(selection)
 
-    suspend fun importQrShare(payload: QrSharePayload): QrShareReplacedData =
-        QrShareTransfer(this, db).import(payload)
+    suspend fun importQrShare(payload: QrSharePayload, approvedNoteReplacements: Set<LessonNoteEntity> = emptySet()): QrShareImportedData =
+        QrShareTransfer(this, db).import(payload, approvedNoteReplacements)
 
     suspend fun exportSyncPayload(): org.json.JSONObject = dataTransfer.exportSyncPayload()
 

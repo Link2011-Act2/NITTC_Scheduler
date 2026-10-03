@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">QR読取比較テスト</string>
+    <string name="running">QR読取比較テストを実行中…</string>
+    <string name="complete">QR読取比較テスト完了\n結果をPCで集計できます。</string>
+    <string name="failed">テスト失敗: %1$s</string>
+    <string name="progress">QR読取比較テスト\n%1$d / %2$d\nJava ZXing・ZXing-C++・ML Kit</string>
+</resources>

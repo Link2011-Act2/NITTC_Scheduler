@@ -75,7 +75,7 @@ internal fun QrScannerChrome(
     val colors = MaterialTheme.colorScheme
     Box(Modifier.fillMaxSize().background(colors.surface)) {
         if (hasPermission && !cameraError) camera()
-        if ((hasPermission && !cameraError) || visual.phase == QrScannerPhase.Completed || visual.received > 0)
+        if ((hasPermission && !cameraError) || visual.phase == QrScannerPhase.Completed || visual.phase == QrScannerPhase.Failed || visual.received > 0)
             QrScannerVisuals(visual, preview, active)
         Row(Modifier.fillMaxWidth()
             .background(Brush.verticalGradient(listOf(colors.surface.copy(alpha = 0.78f), colors.surface.copy(alpha = 0f))))
@@ -99,7 +99,7 @@ internal fun QrScannerChrome(
                 }
             }
         }
-        if ((!hasPermission || cameraError) && visual.phase != QrScannerPhase.Completed) {
+        if ((!hasPermission || cameraError) && visual.phase != QrScannerPhase.Completed && visual.phase != QrScannerPhase.Failed) {
             Column(Modifier.align(Alignment.Center).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text(stringResource(if (cameraError) R.string.qr_camera_error else R.string.qr_camera_permission),

@@ -18,14 +18,13 @@ class QrImageEncodingTest {
         val cameraSize = QrImageEncoding.matrix(frames.first()).width
         val gifSize = QrImageEncoding.matrix(transfer.frames(QrShareCodec.GIF_CHUNK_BYTES).first()).width
         assertTrue(cameraSize < gifSize)
-        val decoder = QrCameraDecoder()
         val collector = QrShareCollector()
         var result: String? = null
         for (frame in frames.reversed()) {
             val pixels = QrImageEncoding.pixels(frame, 240)
-            val detected = decoder.read(RGBLuminanceSource(240, 240, pixels))
-            assertEquals(frame, detected?.text)
-            collector.add(detected!!.text)?.let { result = it }
+            val text = QrImageDecoding.read(RGBLuminanceSource(240, 240, pixels)).single()
+            assertEquals(frame, text)
+            collector.add(text)?.let { result = it }
         }
         assertEquals(original, result)
     }
@@ -45,7 +44,7 @@ class QrImageEncodingTest {
                     val y = ((pixel / size + 0.5) * matrix.height / size).toInt()
                     if (matrix[x, y]) 0xff000000.toInt() else 0xffffffff.toInt()
                 }
-                // カメラ読み取りと同じ検出処理で確認する。
+                // 保存画像の読み込み処理で確認する。カメラのC++版は実機テストで検証する。
                 val texts = QrImageDecoding.read(RGBLuminanceSource(size, size, pixels))
                 assertEquals("frame $i at ${size}px", listOf(frames[i]), texts)
                 collector.add(texts.single())?.let { result = it }

@@ -6,6 +6,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PathMeasure
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
@@ -30,6 +31,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
@@ -88,6 +90,7 @@ internal fun QrScannerVisuals(state: QrScannerVisualState, preview: PreviewView?
     }
     val rotation = remember { QrScannerRotation() }
     val successMorph = remember { Morph(MaterialShapes.Cookie9Sided, MaterialShapes.Sunny) }
+    val failureMorph = remember { Morph(MaterialShapes.Cookie9Sided, MaterialShapes.SoftBurst) }
     val path = remember { Path() }
     val progressPath = remember { Path() }
     val measure = remember { PathMeasure() }
@@ -97,6 +100,7 @@ internal fun QrScannerVisuals(state: QrScannerVisualState, preview: PreviewView?
     val primary = MaterialTheme.colorScheme.primary
     val scrim = MaterialTheme.colorScheme.scrim
     val onPrimary = MaterialTheme.colorScheme.onPrimary
+    val onError = MaterialTheme.colorScheme.onError
     val labelBackground = MaterialTheme.colorScheme.surfaceContainerHigh
     val stage = remember { Animatable(0f) }
     val pulse = remember { Animatable(1f) }
@@ -105,6 +109,10 @@ internal fun QrScannerVisuals(state: QrScannerVisualState, preview: PreviewView?
     val completionBlur = remember { Animatable(0f) }
     val reducedMotion = remember { !ValueAnimator.areAnimatorsEnabled() }
     val completed = state.phase == QrScannerPhase.Completed
+    val failed = state.phase == QrScannerPhase.Failed
+    val terminal = completed || failed
+    val outlineColor by animateColorAsState(if (failed) MaterialTheme.colorScheme.error else primary,
+        tween(200), label = "qrOutcomeColor")
     LaunchedEffect(completed, active) {
         if (!completed || !active) completionBlur.snapTo(0f)
         else if (reducedMotion) completionBlur.snapTo(1f)
@@ -122,7 +130,7 @@ internal fun QrScannerVisuals(state: QrScannerVisualState, preview: PreviewView?
         }
     }
     var frozen by remember { mutableStateOf<QrScanTarget?>(null) }
-    var successStarted by remember { mutableStateOf(false) }
+    var terminalStarted by remember { mutableStateOf(false) }
     BoxWithConstraints(modifier.fillMaxSize()) {
         val screenWidth = constraints.maxWidth.toFloat()
         val screenHeight = constraints.maxHeight.toFloat()
@@ -135,22 +143,24 @@ internal fun QrScannerVisuals(state: QrScannerVisualState, preview: PreviewView?
         val h by animateFloatAsState(target.height, motion, label = "qrHeight")
         val angle by animateFloatAsState(rotation.follow(target.angle), motion, label = "qrAngle")
         val progress by animateFloatAsState(state.progress, tween(160), label = "qrProgress")
-        LaunchedEffect(completed, tracking, active) {
+        // 終了演出中は検出の猶予切れで演出を再起動しない。
+        LaunchedEffect(completed, failed, if (terminal) false else tracking, active) {
             if (!active) { ripple.snapTo(-1f); return@LaunchedEffect }
-            if (completed) {
-                if (!successStarted) frozen = QrScanTarget(x, y, w, h, angle)
-                if (reducedMotion || successStarted) { stage.snapTo(2f); check.snapTo(1f); pulse.snapTo(1f) }
+            if (terminal) {
+                if (!terminalStarted) frozen = QrScanTarget(x, y, w, h, angle)
+                if (reducedMotion || terminalStarted) { stage.snapTo(2f); check.snapTo(1f); pulse.snapTo(1f) }
                 else {
-                    successStarted = true
+                    terminalStarted = true
+                    ripple.snapTo(-1f)
                     stage.animateTo(1f, tween(100))
                     coroutineScope {
                         launch { stage.animateTo(2f, tween(300)); pulse.animateTo(1.08f, tween(100)); pulse.animateTo(1f, spring(0.75f, 600f)) }
                         launch { delay(130); check.animateTo(1.15f, tween(140)); check.animateTo(1f, spring(0.65f, 700f)) }
-                        launch { ripple.snapTo(0f); ripple.animateTo(1f, tween(850)) }
+                        if (completed) launch { ripple.snapTo(0f); ripple.animateTo(1f, tween(850)) }
                     }
                 }
             } else {
-                successStarted = false
+                terminalStarted = false
                 frozen = null
                 check.snapTo(0f); pulse.snapTo(1f); ripple.snapTo(-1f)
                 if (reducedMotion) stage.snapTo(if (tracking) 1f else 0f)
@@ -164,7 +174,7 @@ internal fun QrScannerVisuals(state: QrScannerVisualState, preview: PreviewView?
             progressBarRangeInfo = ProgressBarRangeInfo(state.progress, 0f..1f)
         }) {
             if (stage.value <= 1f) morph.toPath(stage.value.coerceIn(0f, 1f), path)
-            else successMorph.toPath((stage.value - 1f).coerceIn(0f, 1f), path)
+            else (if (failed) failureMorph else successMorph).toPath((stage.value - 1f).coerceIn(0f, 1f), path)
             val width = w * pulse.value
             val height = h * pulse.value
             matrix.setScale(width, height)
@@ -178,17 +188,18 @@ internal fun QrScannerVisuals(state: QrScannerVisualState, preview: PreviewView?
             geometryKey = 31 * geometryKey + angle.toBits()
             geometryKey = 31 * geometryKey + x.toBits()
             geometryKey = 31 * geometryKey + y.toBits()
+            geometryKey = 31 * geometryKey + if (failed) 1 else 0
             effects.updateWindow(path, geometryKey, if (active) ripple.value else -1f,
                 if (completed && active) completionBlur.value else 0f, x, y)
             val canvas = drawContext.canvas.nativeCanvas
             val successAmount = (stage.value - 1f).coerceIn(0f, 1f)
             if (successAmount > 0f) {
-                fill.color = primary.copy(alpha = successAmount * 0.96f).toArgb()
+                fill.color = outlineColor.copy(alpha = successAmount * 0.96f).toArgb()
                 canvas.drawPath(path, fill)
             }
             // 外周は1本だけ描き、進捗も同じ太さで上塗りする。
             stroke.strokeWidth = 4.dp.toPx()
-            stroke.color = primary.copy(alpha = 0.3f).toArgb()
+            stroke.color = outlineColor.copy(alpha = if (failed) 1f else 0.3f).toArgb()
             canvas.drawPath(path, stroke)
             if (progress > 0f) {
                 measure.setPath(path, true)
@@ -199,11 +210,11 @@ internal fun QrScannerVisuals(state: QrScannerVisualState, preview: PreviewView?
                 val end = start + length * progress
                 measure.getSegment(start, minOf(end, length), progressPath, true)
                 if (end > length) measure.getSegment(0f, end - length, progressPath, true)
-                stroke.color = primary.toArgb()
+                stroke.color = outlineColor.toArgb()
                 canvas.drawPath(progressPath, stroke)
             }
         }
-        AnimatedVisibility(visible = !completed && tracking, enter = fadeIn(), exit = fadeOut(),
+        AnimatedVisibility(visible = !terminal && tracking, enter = fadeIn(), exit = fadeOut(),
             modifier = Modifier.fillMaxWidth().offset {
                 IntOffset((x - screenWidth / 2f).roundToInt(),
                     (y + maxOf(w, h) / 2f + with(density) { 12.dp.toPx() }).coerceIn(0f, (screenHeight - with(density) { 150.dp.toPx() }).coerceAtLeast(0f)).roundToInt())
@@ -230,11 +241,13 @@ internal fun QrScannerVisuals(state: QrScannerVisualState, preview: PreviewView?
                 }
             }
         }
-        if (completed) {
+        if (terminal) {
             val iconSize = 48.dp
             val iconPx = with(density) { iconSize.toPx() }
             Box(Modifier.offset { IntOffset((x - iconPx / 2f).roundToInt(), (y - iconPx / 2f).roundToInt()) }.size(iconSize)) {
-                Icon(Icons.Rounded.Check, contentDescription = stringResource(R.string.qr_scan_complete), tint = onPrimary,
+                Icon(if (failed) Icons.Rounded.Close else Icons.Rounded.Check,
+                    contentDescription = stringResource(if (failed) R.string.qr_scan_failed else R.string.qr_scan_complete),
+                    tint = if (failed) onError else onPrimary,
                     modifier = Modifier.fillMaxSize().graphicsLayer {
                         alpha = check.value.coerceIn(0f, 1f); scaleX = check.value; scaleY = check.value
                         rotationZ = -8f * (1f - check.value.coerceIn(0f, 1f))

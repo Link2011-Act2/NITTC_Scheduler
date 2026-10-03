@@ -7,13 +7,14 @@ import java.util.UUID
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 
-enum class QrShareFailure { INVALID, VERSION, TOO_LARGE, DIFFERENT_TRANSFER, DAMAGED, SETTINGS }
+enum class QrShareFailure { INVALID, VERSION, TOO_LARGE, DIFFERENT_TRANSFER, DAMAGED, SETTINGS, LESSON_REFERENCE }
 
 class QrShareException(val failure: QrShareFailure) : IllegalArgumentException(failure.name)
 
 /** 同期プロトコルとは独立した、一方向のQR転送形式。 */
 object QrShareCodec {
-    const val VERSION = 1
+    const val VERSION = 2
+    const val LEGACY_VERSION = 1
     const val MIN_CHUNK_BYTES = 100
     const val SCREEN_CHUNK_BYTES = 200
     const val GIF_CHUNK_BYTES = 600
@@ -58,21 +59,22 @@ object QrShareCodec {
     internal fun hash(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
         .digest(bytes).joinToString("") { "%02x".format(it) }
 
-    internal data class Part(val id: String, val digest: String, val count: Int, val index: Int, val bytes: ByteArray)
+    internal data class Part(val version: Int, val id: String, val digest: String, val count: Int, val index: Int, val bytes: ByteArray)
 
     internal fun parse(text: String): Part {
         try {
             if (text.length > 2400) throw QrShareException(QrShareFailure.TOO_LARGE)
             val fields = text.split(':', limit = 7)
             require(fields.size == 7 && fields[0] == PREFIX)
-            if (fields[1] != VERSION.toString()) throw QrShareException(QrShareFailure.VERSION)
+            val version = fields[1].toIntOrNull()
+            if (version == null || version !in LEGACY_VERSION..VERSION) throw QrShareException(QrShareFailure.VERSION)
             require(fields[2].matches(Regex("[0-9a-f]{32}")) && fields[3].matches(Regex("[0-9a-f]{64}")))
             val count = fields[4].toInt()
             val index = fields[5].toInt()
             require(count in 1..MAX_PARTS && index in 0 until count)
             val bytes = Base64.getDecoder().decode(fields[6])
             require(bytes.size in 1..IMAGE_CHUNK_BYTES)
-            return Part(fields[2], fields[3], count, index, bytes)
+            return Part(checkNotNull(version), fields[2], fields[3], count, index, bytes)
         } catch (e: QrShareException) {
             throw e
         } catch (_: Exception) {
@@ -85,6 +87,7 @@ object QrShareCodec {
 
 /** 順不同・重複を許容する。表示用と画像用で分割数が異なるQRは混在させない。 */
 class QrShareCollector {
+    private var version: Int? = null
     private var transferId: String? = null
     private var digest: String? = null
     var total: Int = 0
@@ -99,7 +102,7 @@ class QrShareCollector {
 
     fun add(text: String): String? {
         val part = QrShareCodec.parse(text)
-        if (transferId != null && (transferId != part.id || total != part.count || digest != part.digest)) {
+        if (transferId != null && (version != part.version || transferId != part.id || total != part.count || digest != part.digest)) {
             throw QrShareException(QrShareFailure.DIFFERENT_TRANSFER)
         }
         parts[part.index]?.let {
@@ -109,6 +112,7 @@ class QrShareCollector {
         if (parts.values.sumOf { it.size } + part.bytes.size > QrShareCodec.MAX_COMPRESSED_BYTES) {
             throw QrShareException(QrShareFailure.TOO_LARGE)
         }
+        version = part.version
         transferId = part.id
         digest = part.digest
         total = part.count

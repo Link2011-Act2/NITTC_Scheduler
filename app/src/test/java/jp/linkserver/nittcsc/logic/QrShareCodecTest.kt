@@ -112,7 +112,7 @@ class QrShareCodecTest {
         val json = buildString { repeat(4000) { append("授業メモ${Random(it.toLong()).nextLong()}") } }
         val frames = QrShareCodec.create(json).frames()
         assertTrue(frames.size > 3)
-        assertTrue(frames.first().startsWith("SKTTP/QR:1:"))
+        assertTrue(frames.first().startsWith("SKTTP/QR:${QrShareCodec.VERSION}:"))
         val collector = QrShareCollector()
         assertNull(collector.add(frames.last()))
         assertNull(collector.add(frames.last()))
@@ -141,13 +141,29 @@ class QrShareCodecTest {
 
     @Test fun rejectsUnknownVersionInvalidIndexAndUnboundedPartCount() {
         val frame = QrShareCodec.create("hello").frames().single()
-        failure(QrShareFailure.VERSION) { QrShareCollector().add(frame.replace("SKTTP/QR:1:", "SKTTP/QR:2:")) }
+        failure(QrShareFailure.VERSION) { QrShareCollector().add(frame.replace("SKTTP/QR:${QrShareCodec.VERSION}:", "SKTTP/QR:99:")) }
         val fields = frame.split(':').toMutableList()
         fields[5] = "-1"
         failure(QrShareFailure.INVALID) { QrShareCollector().add(fields.joinToString(":")) }
         fields[4] = "9999999"
         fields[5] = "0"
         failure(QrShareFailure.INVALID) { QrShareCollector().add(fields.joinToString(":")) }
+    }
+
+    @Test fun acceptsLegacyVersionOneFramesButDoesNotMixVersions() {
+        val frames = QrShareCodec.create("legacy ".repeat(1000)).frames(100)
+        val legacy = frames.map { it.replace("SKTTP/QR:${QrShareCodec.VERSION}:", "SKTTP/QR:1:") }
+        val collector = QrShareCollector()
+        var result: String? = null
+        legacy.forEach { collector.add(it)?.let { value -> result = value } }
+        assertEquals("legacy ".repeat(1000), result)
+        // 圧縮されにくいデータで複数枚に分割し、同一IDでも混在を拒否する。
+        val multiple = QrShareCodec.create(Base64.getEncoder().encodeToString(ByteArray(300).also { Random(4).nextBytes(it) })).frames(100)
+        val mixed = QrShareCollector()
+        mixed.add(multiple.first())
+        failure(QrShareFailure.DIFFERENT_TRANSFER) {
+            mixed.add(multiple[1].replace("SKTTP/QR:${QrShareCodec.VERSION}:", "SKTTP/QR:1:"))
+        }
     }
 
     @Test fun rejectsBrokenChecksum() {

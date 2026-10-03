@@ -449,6 +449,10 @@ dependencies {
 
     // QR共有はモデルのダウンロードなしでオフライン動作する。
     implementation("com.google.zxing:core:3.5.4")
+    implementation("io.github.zxing-cpp:android:3.1.1") {
+        // ラッパーが使うImageProxy APIは既存のCameraX 1.4.2で利用できる。
+        exclude(group = "androidx.camera", module = "camera-core")
+    }
     implementation("androidx.camera:camera-camera2:1.4.2")
     implementation("androidx.camera:camera-lifecycle:1.4.2")
     implementation("androidx.camera:camera-view:1.4.2")

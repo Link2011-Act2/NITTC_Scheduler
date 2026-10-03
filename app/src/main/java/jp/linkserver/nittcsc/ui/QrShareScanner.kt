@@ -12,17 +12,12 @@ import androidx.camera.view.PreviewView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material3.Icon
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -42,7 +37,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -58,7 +52,6 @@ import jp.linkserver.nittcsc.logic.QrScanTarget
 import jp.linkserver.nittcsc.logic.QrScannerTracker
 import jp.linkserver.nittcsc.logic.QrScannerPhase
 import jp.linkserver.nittcsc.logic.QrScannerVisualState
-import jp.linkserver.nittcsc.logic.academicYearForDate
 import jp.linkserver.nittcsc.qr.QrShareMedia
 import jp.linkserver.nittcsc.viewmodel.SchedulerUiState
 import jp.linkserver.nittcsc.viewmodel.SchedulerViewModel
@@ -92,6 +85,7 @@ internal fun QrShareScanner(state: SchedulerUiState, viewModel: SchedulerViewMod
     var tracker by remember { mutableStateOf(QrScannerTracker()) }
     var detectedAt by remember { mutableLongStateOf(0L) }
     var completionShown by remember { mutableStateOf(false) }
+    var failureShown by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var active by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
@@ -106,7 +100,7 @@ internal fun QrShareScanner(state: SchedulerUiState, viewModel: SchedulerViewMod
         collector = QrShareCollector()
         received = 0; total = 0; pending = null; error = null; success = null
         receivedFragmentIndices = emptySet(); fragmentReceiptTimes = emptyMap()
-        target = null; tracker = QrScannerTracker(); detectedAt = 0L; completionShown = false
+        target = null; tracker = QrScannerTracker(); detectedAt = 0L; completionShown = false; failureShown = false
     }
     suspend fun accept(text: String): Boolean {
         // エラー後のフレームで表示を消さない。GIFの後続解析もここで止める。
@@ -159,17 +153,19 @@ internal fun QrShareScanner(state: SchedulerUiState, viewModel: SchedulerViewMod
             completionShown = true
         }
     }
-    LaunchedEffect(error, processing, readingFile, importing, pending) {
-        val message = error ?: return@LaunchedEffect
-        // 解析が終了してから操作を出し、再開操作まではエラーを表示し続ける。
-        if (pending != null || processing || readingFile || importing) return@LaunchedEffect
-        if (snackbar.showSnackbar(message, actionLabel = resources.getString(R.string.qr_scan_retry),
-                duration = SnackbarDuration.Indefinite, withDismissAction = false) == SnackbarResult.ActionPerformed) reset()
+    LaunchedEffect(error, pending, active) {
+        failureShown = false
+        if (error != null && pending == null && active) {
+            // Soft Burstとバツの演出を見せてから警告を出す。解析の停止はerrorで即時に行う。
+            delay(if (ValueAnimator.areAnimatorsEnabled()) 700L else 160L)
+            failureShown = true
+        }
     }
     LaunchedEffect(success) { success?.let { snackbar.showSnackbar(it) } }
     val visual = QrScannerVisualState(when {
         pending != null -> QrScannerPhase.Completed
-        error != null || cameraError -> QrScannerPhase.Error
+        error != null -> QrScannerPhase.Failed
+        cameraError -> QrScannerPhase.Error
         received > 0 -> QrScannerPhase.Receiving
         target != null -> QrScannerPhase.Tracking
         else -> QrScannerPhase.Idle
@@ -208,53 +204,35 @@ internal fun QrShareScanner(state: SchedulerUiState, viewModel: SchedulerViewMod
                     }
                 }, onPreviewReady = { preview = it }, onError = { cameraError = true })
         })
-    pending?.takeIf { completionShown }?.let { data ->
+    error?.takeIf { failureShown && pending == null && !processing && !readingFile && !importing }?.let { message ->
         AlertDialog(
-            onDismissRequest = { if (!importing) reset() },
-            title = { Text(stringResource(R.string.qr_import_title)) },
-            text = {
-                Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (data.classLabel.isNotBlank()) Text(data.classLabel, style = MaterialTheme.typography.titleMedium)
-                    Text(stringResource(R.string.qr_image_year, data.academicYear))
-                    Text(stringResource(R.string.qr_import_warning))
-                    data.sections.sortedBy { it.ordinal }.forEach { section ->
-                        val localCount = when (section) {
-                            QrShareSection.FIRST -> state.lessons.keys.count { it.academicYear == data.academicYear && it.timetableTerm.name == "FIRST" }
-                            QrShareSection.SECOND -> state.lessons.keys.count { it.academicYear == data.academicYear && it.timetableTerm.name == "SECOND" }
-                            QrShareSection.CANCELLATIONS -> state.cancelledLessons.count { academicYearForDate(it.first) == data.academicYear }
-                            QrShareSection.CHANGES -> state.changedLessons.keys.count { academicYearForDate(it.first) == data.academicYear }
-                            QrShareSection.DAY_TYPES -> state.dayTypeEntities.size
-                            QrShareSection.NOTES -> state.lessonNotes.size
-                            QrShareSection.PLANS -> state.plans.size
-                            QrShareSection.TASKS -> state.tasks.size
-                        }
-                        Text(stringResource(R.string.qr_import_count, stringResource(section.labelRes()), localCount, data.count(section)))
-                        Text(stringResource(when (section) {
-                            QrShareSection.FIRST, QrShareSection.SECOND -> R.string.qr_import_timetable_scope
-                            QrShareSection.CANCELLATIONS, QrShareSection.CHANGES -> R.string.qr_import_year_scope
-                            else -> R.string.qr_import_all_scope
-                        }), style = MaterialTheme.typography.bodySmall)
-                    }
-                    if (QrShareSection.DAY_TYPES in data.sections) Text(stringResource(R.string.qr_import_breaks, state.longBreaks.size, data.longBreaks.size))
-                    Text(stringResource(R.string.qr_reminder_notice), style = MaterialTheme.typography.bodySmall)
-                    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                }
-            },
-            confirmButton = { TextButton(enabled = !importing && !processing, onClick = {
+            onDismissRequest = {},
+            icon = { Icon(Icons.Rounded.Close, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+            title = { Text(stringResource(R.string.qr_scan_failed)) },
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = ::reset) { Text(stringResource(R.string.btn_ok)) } }
+        )
+    }
+    pending?.takeIf { completionShown }?.let { data ->
+        QrShareImportDialog(data, state, busy = importing || processing, error = error,
+            onDismiss = ::reset, onConfirm = { approvedNotes ->
                 importing = true
                 onBusyChanged(true)
                 error = null
                 scope.launch {
                     try {
-                        val warning = viewModel.importQrShare(context, data)
+                        val result = viewModel.importQrShare(context, data, approvedNotes)
                         reset()
-                        success = resources.getString(if (warning) R.string.qr_import_partial else R.string.qr_import_success)
+                        val message = resources.getString(if (result.integrationsFailed) R.string.qr_import_partial else R.string.qr_import_success)
+                        success = if (data.sections.any { it == QrShareSection.TASKS || it == QrShareSection.PLANS || it == QrShareSection.NOTES }) {
+                            result.summary.let { summary -> message + "\n" + resources.getString(R.string.qr_import_result,
+                                summary.added, summary.duplicates, summary.replacedNotes, summary.keptNotes) }
+                        } else message
                     } catch (e: CancellationException) { throw e }
                     catch (e: Exception) { error = qrFailureMessage(resources, e) }
                     finally { importing = false; onBusyChanged(false) }
                 }
-            }) { Text(stringResource(R.string.qr_overwrite)) } },
-            dismissButton = { TextButton(onClick = ::reset, enabled = !importing) { Text(stringResource(R.string.qr_cancel)) } }
+            }
         )
     }
 }

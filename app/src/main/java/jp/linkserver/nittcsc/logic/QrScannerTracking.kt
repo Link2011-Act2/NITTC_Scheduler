@@ -48,7 +48,7 @@ internal class QrScannerTracker {
     companion object { const val GRACE_MS = 350L }
 }
 
-internal enum class QrScannerPhase { Idle, Tracking, Receiving, Completed, Error }
+internal enum class QrScannerPhase { Idle, Tracking, Receiving, Completed, Failed, Error }
 
 internal data class QrScannerVisualState(
     val phase: QrScannerPhase,
