@@ -105,8 +105,8 @@ val buildNumberFiles = (
     ).filter { it.isFile }
 ).sortedBy { it.relativeTo(rootProject.projectDir).invariantSeparatorsPath }
 
-val appCodeName = "Sist" // トリッカルから取ります
-val appVersionName = "1.1.2-IntDev"
+val appCodeName = "Meluna" // トリッカルから取ります
+val appVersionName = "1.2.0-IntDev"
 val buildContentHash = MessageDigest.getInstance("SHA-256").run {
     buildNumberFiles.forEach { file ->
         update(file.relativeTo(rootProject.projectDir).invariantSeparatorsPath.toByteArray())
@@ -119,8 +119,16 @@ val buildContentHash = MessageDigest.getInstance("SHA-256").run {
 val buildTimestamp = DateTimeFormatter.ofPattern("yyMMdd-HHmm")
     .withZone(ZoneId.systemDefault())
     .format(Instant.ofEpochMilli(buildNumberFiles.maxOf { it.lastModified() }))
+val buildNumberVersionPrefix = if (
+    appVersionName.substringAfter('-', missingDelimiterValue = "")
+        .startsWith("IntDev", ignoreCase = true)
+) {
+    "d"
+} else {
+    "v"
+}
 val generatedBuildNumber =
-    "$appCodeName-v${appVersionName.substringBefore('-').removePrefix("v")}-$buildTimestamp-${buildContentHash.take(3)}"
+    "$appCodeName-$buildNumberVersionPrefix${appVersionName.substringBefore('-').removePrefix("v")}-$buildTimestamp-${buildContentHash.take(3)}"
 
 // ── OSS ライセンス生成タスク ──────────────────────────────────────────────
 

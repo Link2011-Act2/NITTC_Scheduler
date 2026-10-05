@@ -7,6 +7,9 @@ const crypto = require('node:crypto');
 const zlib = require('node:zlib');
 const script = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8').match(/<script>([\s\S]*?)<\/script>/)[1];
 const data = JSON.parse(script.match(/^  const data = (.*);$/m)[1]);
+const template = fs.readFileSync(path.join(__dirname, 'template.html'), 'utf8');
+assert.equal(script.slice(script.indexOf('  const qr =')).replace(/\r\n/g, '\n').trim(),
+  template.slice(template.indexOf('  const qr ='), template.indexOf('</script>')).replace(/\r\n/g, '\n').trim());
 const ids = new Set();
 function verifyDataset(dataset, count, mode, bytesPerPart) {
     assert.ok(!ids.has(dataset.transferId)); ids.add(dataset.transferId);
@@ -66,6 +69,21 @@ function step(ms) { now += ms; frameCallback(now); }
 function click(id) { elements.get(id).events.click(); }
 function shown() { return Number(elements.get('#index').textContent); }
 function mode(value) { elements.get('#mode').events.change({ target: { value } }); }
+function shuffle(checked) { elements.get('#shuffle').events.change({ target: { checked } }); }
+function displayedFrame() { return vm.runInContext('order[position]', context); }
+function verifyRound(size, firstFrame) {
+  const frames = [];
+  for (let i = 0; i < size; i++) {
+    const frame = displayedFrame();
+    frames.push(frame);
+    assert.equal(elements.get('#qr').src, vm.runInContext(`dataset().images[${frame}]`, context));
+    assert.equal(shown(), Number(vm.runInContext(`dataset().frames[${frame}]`, context).split(':')[5]) + 1);
+    step(50);
+  }
+  assert.deepEqual([...frames].sort((a, b) => a - b), Array.from({ length: size }, (_, i) => i));
+  if (firstFrame !== undefined) assert.equal(frames[0], firstFrame);
+  return frames;
+}
 async function settle() { await new Promise(resolve => setImmediate(resolve)); }
 async function prepared() {
   for (let i = 0; i < 2000; i++) {
@@ -145,6 +163,47 @@ function applyBytes(value) {
   assert.equal(elements.get('#capacity-warning').hidden, true);
   assert.equal(vm.runInContext('dataset().transferId', context), data.datasets[128].normal.transferId);
 
+  // Seed the random source to make per-round reshuffling and coverage checks reproducible.
+  vm.runInContext('let randomSeed = 20261003; Math.random = () => ((randomSeed = (Math.imul(randomSeed, 1664525) + 1013904223) >>> 0) / 4294967296)', context);
+  speeds[3].events.change();
+  if (vm.runInContext('paused', context)) click('#pause');
+  const transferId = vm.runInContext('dataset().transferId', context);
+  shuffle(true);
+  assert.equal(vm.runInContext('dataset().transferId', context), transferId);
+  assert.match(elements.get('#status').textContent, /シャッフル/);
+  for (const input of counts) {
+    input.events.change(); await prepared();
+    const size = Number(input.value);
+    for (const pattern of ['normal', 'hash', 'duplicate']) {
+      mode(pattern); await prepared();
+      const total = size + (pattern === 'duplicate' ? 1 : 0);
+      const first = verifyRound(total);
+      const second = verifyRound(total);
+      const third = verifyRound(total);
+      assert.notDeepEqual(first, Array.from({ length: total }, (_, i) => i));
+      assert.notDeepEqual(first, second); assert.notDeepEqual(second, third);
+      if (pattern === 'duplicate') assert.match(elements.get('#mode-help').textContent, /ランダム/);
+    }
+  }
+  // Manual starts create a complete new round, with the requested QR shown first.
+  click('#restart'); assert.equal(shown(), 1); verifyRound(129, 0);
+  document.querySelector('#start').value = '128'; click('#jump'); assert.equal(shown(), 128);
+  verifyRound(129, 128);
+  click('#fault'); assert.equal(displayedFrame(), 1);
+  assert.match(elements.get('#status').textContent, /内容改変/);
+  step(1000); assert.equal(displayedFrame(), 1);
+  click('#pause'); verifyRound(129, 1);
+  click('#pause'); const frozenFrame = displayedFrame();
+  step(5000); assert.equal(displayedFrame(), frozenFrame);
+  shuffle(false); assert.equal(shown(), 1);
+  assert.equal(elements.get('#pause').textContent, '再開');
+  assert.doesNotMatch(elements.get('#mode-help').textContent, /ランダム/);
+  click('#pause'); mode('normal'); await prepared(); verifyRound(128, 0);
+  // Keep the newest order setting when QR generation is in flight.
+  applyBytes(333); shuffle(true); await prepared(); verifyRound(128);
+  applyBytes(200); await prepared(); verifyRound(128);
+  shuffle(false); assert.equal(shown(), 1);
+
   const cases = [], symbols = [];
   const settings = [[16, 100], [16, 333], [16, 1600], [32, 999], [64, 1000], [128, 512], [128, 513], [128, 1600]];
   for (const [count, bytesPerPart] of settings) {
@@ -166,5 +225,5 @@ function applyBytes(value) {
   const output = path.join(__dirname, 'out'); fs.mkdirSync(output, { recursive: true });
   fs.writeFileSync(path.join(output, 'dynamic-cases.txt'), cases.join('\n'));
   fs.writeFileSync(path.join(output, 'dynamic-symbols.txt'), symbols.join('\n'));
-  console.log('PASS: 12 prebuilt + 24 dynamic datasets; exact 100–1600B fragments, valid GZIP/JSON, error scenarios, loops, speeds, editing, warning-only capacity limit, pause, generation races.');
+  console.log('PASS: 12 prebuilt + 24 dynamic datasets; exact 100–1600B fragments, valid GZIP/JSON, error scenarios, loops, speeds, editing, warning-only capacity limit, pause, generation races; shuffled rounds cover every QR once, reshuffle, manual starts, and image/fragment alignment.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

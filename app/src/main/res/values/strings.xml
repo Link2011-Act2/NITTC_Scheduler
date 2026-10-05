@@ -813,6 +813,8 @@
     <string name="about_version_label" translatable="false">%1$s  v%2$s (%3$d)</string>
     <string name="about_simple_version_title">バージョン</string>
     <string name="about_simple_version_value" translatable="false">v%1$s</string>
+    <string name="about_overview_channel_title">チャネル</string>
+    <string name="about_overview_build_title">ビルド</string>
     <string name="about_dev_channel_title">開発チャネル</string>
     <string name="about_dev_channel_dialog_title">開発チャネル: %1$s</string>
     <string name="about_dev_channel_value_intdev">内部検証版</string>

@@ -32,6 +32,7 @@
   button:focus-visible, input:focus-visible { outline: 3px solid #24634f; outline-offset: 2px; }
   #pause { flex: 1; background: #24634f; color: white; }
   .start { display: flex; align-items: center; gap: 10px; margin: 20px 0; font-size: 14px; }
+  input[type=checkbox] { accent-color: #24634f; width: 20px; height: 20px; flex-shrink: 0; }
   input[type=number] { width: 76px; border: 1px solid #a4b5ab; border-radius: 12px; padding: 9px; font: inherit; }
   .bytes-input { display: flex; align-items: center; gap: 8px; }
   #bytes { width: 100px; }
@@ -56,7 +57,7 @@
     <div class="eyebrow">SKTTP/QR · TRANSMISSION TEST</div>
     <h1>分割QRを、<br>何度でも。</h1>
     <span class="badge" id="badge">128 fragments × 200 bytes</span>
-    <p class="muted">NITTC Schedulerの「読み取る」を向けてください。全枚数を表示したら、1枚目に戻って繰り返します。</p>
+    <p class="muted">NITTC Schedulerの「読み取る」を向けてください。全枚数を表示したら、次の周を繰り返します。</p>
     <h2>QRの枚数</h2>
     <div class="speeds" role="radiogroup" aria-label="QRの枚数">
       <label><input type="radio" name="count" value="16"><span>16枚</span></label>
@@ -79,6 +80,9 @@
     </select>
     <p class="muted" id="mode-help"></p>
     <button id="fault" hidden>不一致の1枚目を表示（一時停止）</button>
+    <h2>表示する順番</h2>
+    <label class="start"><input id="shuffle" type="checkbox" aria-describedby="shuffle-help">毎周シャッフルする</label>
+    <p class="muted" id="shuffle-help">オンにすると、1周で全QRを1回ずつ表示し、次の周に入るたびに順番をシャッフルします。</p>
     <h2>送信する速度</h2>
     <div class="speeds" role="radiogroup" aria-label="送信する速度">
       <label><input type="radio" name="speed" value="200"><span>安定</span></label>
@@ -104,19 +108,41 @@
   const pauseButton = document.querySelector('#pause');
   let count = 128, bytesPerPart = 200, mode = 'normal', position = 0, interval = 125, paused = false, ready = false, last = performance.now();
   let selectedDataset, decodedImages = [], generation = 0;
+  let shuffled = false, order = [];
   const modeHelp = {
     normal: '全枚数を集めると受信・検証に成功します。',
     hash: '全断片に同じ誤ったSHA-256を設定しています。全枚数が揃った時点で破損エラーになり、受信がリセットされます。',
     duplicate: '正常な1枚目の直後に、同じ番号・ID・ハッシュで内容だけが異なる1枚目を送ります。両方を読むと破損エラーになります。確実に試す場合は正常な1枚目で一時停止し、受信後に下のボタンを押してください。'
   };
   function dataset() { return selectedDataset; }
+  function resetOrder(firstFrame) {
+    order = Array.from({ length: dataset().frames.length }, (_, index) => index);
+    if (shuffled) {
+      for (let i = order.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [order[i], order[j]] = [order[j], order[i]];
+      }
+    }
+    if (firstFrame !== undefined) {
+      const offset = order.indexOf(firstFrame);
+      order.push(...order.splice(0, offset));
+    }
+    position = 0;
+  }
+  function updateModeHelp() {
+    document.querySelector('#mode-help').textContent = count * bytesPerPart > 65536 && mode !== 'duplicate' ?
+      'この設定は受信上限を超えるため、全枚受信後の検証より前に容量超過エラーになります。' :
+      mode === 'duplicate' && shuffled ?
+        '正常な1枚目と、同じ番号・ID・ハッシュで内容だけが異なる1枚目を、各周で1回ずつランダムな順番で送ります。両方を読むと破損エラーになります。確実に試す場合は正常な1枚目で一時停止し、受信後に下のボタンを押してください。' : modeHelp[mode];
+  }
   function show() {
     const selected = dataset();
-    const index = Number(selected.frames[position].split(':')[5]) + 1;
-    qr.src = decodedImages[position].src;
+    const frame = order[position];
+    const index = Number(selected.frames[frame].split(':')[5]) + 1;
+    qr.src = decodedImages[frame].src;
     qr.alt = `SKTTP/QR テスト断片 ${index} / ${count}`;
     indexText.textContent = index;
-    statusText.textContent = `${paused ? '一時停止中' : '繰り返し送信中'}${mode === 'duplicate' && position === 1 ? ' · 内容改変の1枚目' : ''}`;
+    statusText.textContent = `${paused ? '一時停止中' : '繰り返し送信中'}${shuffled ? ' · シャッフル' : ''}${mode === 'duplicate' && frame === 1 ? ' · 内容改変の1枚目' : ''}`;
   }
   function timing() {
     if (!dataset()) return;
@@ -138,8 +164,7 @@
     document.querySelector('#total').textContent = count;
     document.querySelector('#badge').textContent = `${count} fragments × ${bytesPerPart} bytes`;
     const start = document.querySelector('#start'); start.max = String(count); start.value = '1';
-    document.querySelector('#mode-help').textContent = count * bytesPerPart > 65536 && mode !== 'duplicate' ?
-      'この設定は受信上限を超えるため、全枚受信後の検証より前に容量超過エラーになります。' : modeHelp[mode];
+    updateModeHelp();
     document.querySelector('#fault').hidden = mode !== 'duplicate';
     document.querySelector('#metadata').textContent = '';
     try {
@@ -153,6 +178,7 @@
       await Promise.all(images.map(image => image.decode()));
       if (current !== generation) return;
       selectedDataset = selected; decodedImages = images;
+      resetOrder();
       document.querySelector('#metadata').textContent = `SKTTP/QR v1\n断片数: ${count}\n各断片: ${bytesPerPart}B（Base64・ヘッダーを除く）\n圧縮データ: ${selected.compressedBytes.toLocaleString()}B\nJSON: ${selected.jsonBytes.toLocaleString()}B\n${bytesPerPart === 200 ? '' : '圧縮データにはテスト用のGZIPパディングを含む\n'}誤り訂正: M / 余白: 4マス\nID: ${selected.transferId}\nSHA-256: ${selected.digest}`;
       ready = true; qr.hidden = false; show(); timing(); last = performance.now();
     } catch (error) {
@@ -168,7 +194,8 @@
   function tick(now) {
     if (ready && !paused && !document.hidden && now - last >= interval) {
       // Do not skip fragments when the browser drops a frame.
-      position = (position + 1) % dataset().frames.length;
+      position++;
+      if (position === order.length) resetOrder();
       show();
       last = now - ((now - last) % interval);
     }
@@ -190,20 +217,27 @@
   document.querySelector('#mode').addEventListener('change', event => {
     mode = event.target.value; selectDataset();
   });
+  document.querySelector('#shuffle').addEventListener('change', event => {
+    shuffled = event.target.checked;
+    updateModeHelp();
+    last = performance.now();
+    if (ready) { resetOrder(); show(); }
+  });
   document.querySelector('#fault').addEventListener('click', () => {
     if (mode !== 'duplicate') return;
-    position = 1; setPaused(true);
+    if (!ready) return;
+    resetOrder(1); setPaused(true);
   });
   pauseButton.addEventListener('click', () => {
     setPaused(!paused);
   });
-  document.querySelector('#restart').addEventListener('click', () => { position = 0; last = performance.now(); if (ready) show(); });
+  document.querySelector('#restart').addEventListener('click', () => { last = performance.now(); if (ready) { resetOrder(0); show(); } });
   document.querySelector('#jump').addEventListener('click', () => {
     if (!ready) return;
     const input = document.querySelector('#start');
     const requested = Number(input.value);
     if (!input.reportValidity() || !Number.isInteger(requested) || requested < 1 || requested > count) return;
-    position = dataset().frames.findIndex(frame => Number(frame.split(':')[5]) === requested - 1);
+    resetOrder(dataset().frames.findIndex(frame => Number(frame.split(':')[5]) === requested - 1));
     last = performance.now(); if (ready) show();
   });
   document.addEventListener('visibilitychange', () => { last = performance.now(); });
