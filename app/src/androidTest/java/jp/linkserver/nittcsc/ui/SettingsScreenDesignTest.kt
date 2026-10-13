@@ -1,6 +1,8 @@
 package jp.linkserver.nittcsc.ui
 
 import android.graphics.Bitmap
+import androidx.activity.OnBackPressedDispatcher
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -148,6 +150,67 @@ class SettingsScreenDesignTest(
         file.outputStream().use {
             composeRule.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
         }
+    }
+
+    @Test
+    fun lessonNotificationToggleAndDetailsAreIndependentAndBackReturnsToSettings() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val title = context.getString(R.string.label_lesson_start_notification)
+        val timing = context.getString(R.string.label_lesson_start_notification_minutes)
+        var toggleCount = 0
+        var exitCount = 0
+        var backDispatcher: OnBackPressedDispatcher? = null
+        composeRule.setContent {
+            backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+            AppTheme(mode, darkTheme = dark, dynamicColor = dynamic) {
+                val density = LocalDensity.current
+                CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
+                    var settings by remember {
+                        mutableStateOf(SettingsEntity(
+                            termStart = LocalDate.now(),
+                            termEnd = LocalDate.now().plusMonths(3),
+                            lessonStartNotificationEnabled = false
+                        ))
+                    }
+                    SettingsScreen(
+                        state = SchedulerUiState(settings = settings, uiDesignMode = mode),
+                        onBack = { exitCount++ },
+                        onAbout = {},
+                        onToggleLocalAi = {},
+                        onToggleDrawerNavigation = {},
+                        onToggleAddTasksToCalendar = {},
+                        onToggleCurrentTimeMarker = {},
+                        onToggleUnifyTaskPlanView = {},
+                        onToggleShowWeekdayOnDates = {},
+                        onToggleAdvancedTimeSettingsUi = {},
+                        onToggleLessonStartNotifications = {
+                            toggleCount++
+                            settings = settings.copy(lessonStartNotificationEnabled = it)
+                        }
+                    )
+                }
+            }
+        }
+
+        // オフのまま左側から詳細へ進み、ツールバーの戻るで一覧へ戻る。
+        composeRule.onNodeWithText(title).performScrollTo().performClick()
+        composeRule.onNodeWithText(context.getString(R.string.section_notification_settings)).assertDoesNotExist()
+        composeRule.onNodeWithText(timing).assertDoesNotExist()
+        composeRule.onNodeWithContentDescription(context.getString(R.string.cd_back)).performClick()
+        composeRule.onNodeWithContentDescription(title).assertIsOff()
+        composeRule.runOnIdle { assertEquals(0, toggleCount); assertEquals(0, exitCount) }
+
+        // 右側のトグルは詳細を開かずに切り替わる。
+        composeRule.onNodeWithContentDescription(title).performClick().assertIsOn()
+        composeRule.onNodeWithText(timing).assertDoesNotExist()
+        composeRule.runOnIdle { assertEquals(1, toggleCount) }
+
+        composeRule.onNodeWithText(title).performClick()
+        composeRule.onNodeWithText(timing).performScrollTo().assertIsDisplayed()
+        composeRule.runOnIdle { checkNotNull(backDispatcher).onBackPressed() }
+        composeRule.onNodeWithContentDescription(title).assertIsOn()
+        composeRule.onNodeWithText(timing).assertDoesNotExist()
+        composeRule.runOnIdle { assertEquals(1, toggleCount); assertEquals(0, exitCount) }
     }
 
     companion object {

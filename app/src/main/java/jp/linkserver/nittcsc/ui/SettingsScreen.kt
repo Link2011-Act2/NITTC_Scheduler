@@ -281,6 +281,7 @@ fun SettingsScreen(
     }
     val lifecycleOwner = LocalLifecycleOwner.current
     val settingsScrollState = rememberScrollState()
+    var showLessonNotificationSettings by rememberSaveable { mutableStateOf(false) }
     var showImportConfirmDialog by remember { mutableStateOf(false) }
     var pendingImportJson by remember { mutableStateOf<String?>(null) }
     val currentVersionName = remember {
@@ -562,6 +563,49 @@ fun SettingsScreen(
         )
     }
 
+    if (showLessonNotificationSettings) {
+        LessonStartNotificationSettingsScreen(onBack = { showLessonNotificationSettings = false }) {
+            LessonStartNotificationSettingsContent(
+                enabled = enabledLessonStartNotifications,
+                notificationsEnabled = notificationsEnabled,
+                promotedNotificationsEnabled = promotedNotificationsEnabled,
+                liveUpdatesEnabled = enabledLessonStartLiveUpdates,
+                liveUpdatesSupported = supportsLessonStartLiveUpdates,
+                progressCountsDown = enabledLessonStartProgressCountsDown,
+                liveUpdateEarlyMinutes = lessonStartLiveUpdateEarlyMinutes,
+                chipMode = lessonStartChipMode,
+                minutesBefore = lessonStartNotificationMinutesBefore,
+                exclusions = state.lessonNotificationExclusions,
+                subjectSuggestions = subjectSuggestions,
+                subjectTeacherCandidates = subjectTeacherCandidates,
+                onToggleEnabled = onToggleLessonStartNotifications,
+                onOpenNotificationSettings = {
+                    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    context.startActivity(intent)
+                },
+                onOpenPromotedNotificationSettings = {
+                    val intent = if (Build.VERSION.SDK_INT >= 36) {
+                        Intent(Settings.ACTION_APP_NOTIFICATION_PROMOTION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    } else {
+                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    }
+                    context.startActivity(intent)
+                },
+                onToggleLiveUpdates = onToggleLessonStartNotificationLiveUpdates,
+                onToggleProgressCountsDown = onToggleLessonStartNotificationProgressCountsDown,
+                onUpdateLiveUpdateEarlyMinutes = onUpdateLessonStartNotificationLiveUpdateEarlyMinutes,
+                onUpdateChipMode = onUpdateLessonStartNotificationChipMode,
+                onMinutesBeforeChange = { lessonStartNotificationMinutesBefore = it },
+                onAddExclusion = onAddLessonNotificationExclusion,
+                onDeleteExclusion = onDeleteLessonNotificationExclusion
+            )
+        }
+        return
+    }
+
     AnimatedContent(
         targetState = timetableSettingsPage,
         transitionSpec = {
@@ -646,42 +690,10 @@ fun SettingsScreen(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             AppSettingsCategory(title = stringResource(R.string.section_notification_settings))
 
-            LessonStartNotificationSettingsContent(
+            LessonStartNotificationSettingsEntry(
                 enabled = enabledLessonStartNotifications,
-                notificationsEnabled = notificationsEnabled,
-                promotedNotificationsEnabled = promotedNotificationsEnabled,
-                liveUpdatesEnabled = enabledLessonStartLiveUpdates,
-                liveUpdatesSupported = supportsLessonStartLiveUpdates,
-                progressCountsDown = enabledLessonStartProgressCountsDown,
-                liveUpdateEarlyMinutes = lessonStartLiveUpdateEarlyMinutes,
-                chipMode = lessonStartChipMode,
-                minutesBefore = lessonStartNotificationMinutesBefore,
-                exclusions = state.lessonNotificationExclusions,
-                subjectSuggestions = subjectSuggestions,
-                subjectTeacherCandidates = subjectTeacherCandidates,
-                onToggleEnabled = onToggleLessonStartNotifications,
-                onOpenNotificationSettings = {
-                    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                    context.startActivity(intent)
-                },
-                onOpenPromotedNotificationSettings = {
-                    val intent = if (Build.VERSION.SDK_INT >= 36) {
-                        Intent(Settings.ACTION_APP_NOTIFICATION_PROMOTION_SETTINGS)
-                            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                    } else {
-                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                    }
-                    context.startActivity(intent)
-                },
-                onToggleLiveUpdates = onToggleLessonStartNotificationLiveUpdates,
-                onToggleProgressCountsDown = onToggleLessonStartNotificationProgressCountsDown,
-                onUpdateLiveUpdateEarlyMinutes = onUpdateLessonStartNotificationLiveUpdateEarlyMinutes,
-                onUpdateChipMode = onUpdateLessonStartNotificationChipMode,
-                onMinutesBeforeChange = { lessonStartNotificationMinutesBefore = it },
-                onAddExclusion = onAddLessonNotificationExclusion,
-                onDeleteExclusion = onDeleteLessonNotificationExclusion
+                onOpenDetails = { showLessonNotificationSettings = true },
+                onToggleEnabled = onToggleLessonStartNotifications
             )
         }
 

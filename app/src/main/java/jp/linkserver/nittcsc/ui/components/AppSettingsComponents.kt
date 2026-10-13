@@ -7,10 +7,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.toggleable
@@ -29,6 +32,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.key
@@ -40,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -294,6 +299,55 @@ fun AppSettingsNavigationItem(
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant
         )
+    }
+}
+
+/** 左側は詳細画面への移動、右側は有効・無効の切り替えとして個別に操作する。 */
+@Composable
+fun AppSettingsSwitchNavigationItem(
+    title: String,
+    summary: String?,
+    checked: Boolean,
+    onClick: () -> Unit,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    val expressive = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
+    val padding = if (expressive) 16.dp else 20.dp
+    AppSettingsItem {
+        Row(
+            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)
+                .heightIn(min = if (expressive) 72.dp else 80.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                onClick = onClick,
+                color = Color.Transparent,
+                modifier = Modifier.weight(1f).fillMaxHeight()
+            ) {
+                Row(
+                    modifier = Modifier.padding(padding),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    SettingsItemText(title, summary, Modifier.weight(1f))
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            VerticalDivider(Modifier.height(32.dp))
+            Box(
+                modifier = Modifier.fillMaxHeight()
+                    .toggleable(checked, role = Role.Switch, onValueChange = onCheckedChange)
+                    .semantics { contentDescription = title }
+                    .padding(horizontal = padding),
+                contentAlignment = Alignment.Center
+            ) {
+                AppSwitch(checked = checked, onCheckedChange = null)
+            }
+        }
     }
 }
 

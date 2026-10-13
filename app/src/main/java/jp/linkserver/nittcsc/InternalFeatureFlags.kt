@@ -5,7 +5,7 @@ object InternalFeatureFlags {
     const val QR_SHARE_BETA = true
 
     // falseにすると設定項目を隠し、保存済みの選択に関係なく標準Material 3へ戻す。
-    const val MATERIAL_3_EXPRESSIVE = false
+    const val MATERIAL_3_EXPRESSIVE = true
 
     // 新規利用者は従来の初期値で直接開始する。
     const val INITIAL_SETUP = false
