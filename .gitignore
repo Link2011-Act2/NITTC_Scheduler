@@ -41,3 +41,5 @@ classes.jar
 *.dm
 *.apk
 APK/
+
+verification/

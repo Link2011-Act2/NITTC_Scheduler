@@ -169,7 +169,7 @@ internal fun QrShareSelectionScreen(
                     }
                 }
                 items(qrShareChoiceGroups, key = { it.first().section.name }) { choices ->
-                    AppSettingsGroup(Modifier.padding(horizontal = 16.dp), connectedRows = true) {
+                    AppSettingsGroup(Modifier.padding(horizontal = 16.dp), connectedRows = true, expressiveStyle = false) {
                         choices.forEach { choice ->
                             item("${choice.section.name}/${choice.daysScope?.name.orEmpty()}") {
                                 val section = choice.section

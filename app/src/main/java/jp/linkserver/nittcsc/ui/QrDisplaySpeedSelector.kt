@@ -35,7 +35,7 @@ internal fun QrDisplaySpeedSelector(
     val labels = listOf(stringResource(R.string.qr_speed_stable), stringResource(R.string.qr_speed_standard),
         stringResource(R.string.qr_speed_fast), stringResource(R.string.qr_speed_ultra_fast))
     val description = stringResource(R.string.qr_display_speed)
-    val defaults = ToggleButtonDefaults.toggleButtonColors()
+    val defaults = ToggleButtonDefaults.colors()
     val extreme = speed == QrDisplaySpeed.ULTRA_FAST
     // checkedの切り替えでも同じアニメーション色を使い、選択解除時も滑らかに戻す。
     val extremeContainer by animateColorAsState(

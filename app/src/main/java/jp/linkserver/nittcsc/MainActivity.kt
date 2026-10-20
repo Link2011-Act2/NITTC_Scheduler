@@ -8,6 +8,8 @@ import androidx.activity.viewModels
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import jp.linkserver.nittcsc.data.AppDatabase
 import jp.linkserver.nittcsc.data.SchedulerRepository
 import jp.linkserver.nittcsc.data.UiDesignPreferences
@@ -37,6 +39,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // A preserved Android 15 decor can otherwise fit system bars again on recreation.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         enableEdgeToEdge()
         setContent {
             val uiDesignMode by viewModel.uiDesignMode.collectAsStateWithLifecycle()
@@ -51,6 +55,13 @@ class MainActivity : ComponentActivity() {
             PlanReminderWorker.rescheduleAll(this@MainActivity)
             LessonStartNotificationWorker.rescheduleAll(this@MainActivity)
         }
+    }
+
+    override fun onPostCreate(savedInstanceState: Bundle?) {
+        super.onPostCreate(savedInstanceState)
+        // Deliver preserved insets before Compose's first measure can clamp restored scroll.
+        val content = findViewById<android.view.View>(android.R.id.content)
+        ViewCompat.getRootWindowInsets(content)?.let { ViewCompat.dispatchApplyWindowInsets(content, it) }
     }
 
     override fun onResume() {

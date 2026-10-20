@@ -67,7 +67,7 @@ import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.SplitButton
+import androidx.compose.material3.SplitButtonLayout
 import androidx.compose.material3.SplitButtonDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -603,7 +603,7 @@ fun AppConnectedButtonGroup(
                 checked = selected,
                 onCheckedChange = { onSelectedIndexChange(index) },
                 enabled = enabled,
-                colors = colorsForIndex?.invoke(index) ?: ToggleButtonDefaults.toggleButtonColors(),
+                colors = colorsForIndex?.invoke(index) ?: ToggleButtonDefaults.colors(),
                 contentPadding = contentPadding ?: ButtonDefaults.contentPaddingFor(ButtonDefaults.MinHeight),
                 shapes = when (index) {
                     0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
@@ -662,7 +662,7 @@ fun AppSplitButton(
     primaryEnabled: Boolean = true,
     secondaryEnabled: Boolean = true
 ) {
-    SplitButton(
+    SplitButtonLayout(
         leadingButton = {
             SplitButtonDefaults.LeadingButton(
                 onClick = onPrimaryClick,

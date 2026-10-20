@@ -12,13 +12,6 @@ val Shapes = Shapes(
     extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(32.dp)
 )
 
-val ExpressiveShapes = Shapes(
-    extraSmall = RoundedCornerShape(6.dp),
-    small = RoundedCornerShape(14.dp),
-    medium = RoundedCornerShape(22.dp),
-    large = RoundedCornerShape(28.dp),
-    extraLarge = RoundedCornerShape(36.dp)
-)
 
 /** M3Eのヒーロー領域用。非対称な輪郭で通常カードとの役割差を明確にする。 */
 val ExpressiveLessonHeroShape = RoundedCornerShape(

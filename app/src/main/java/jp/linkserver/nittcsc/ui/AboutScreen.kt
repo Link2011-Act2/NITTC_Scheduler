@@ -39,6 +39,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import jp.linkserver.nittcsc.BuildConfig
+import jp.linkserver.pyrite.about.AboutUpdateCard
+import jp.linkserver.pyrite.settings.SettingsContentCard
+import jp.linkserver.pyrite.screen.PyriteScreenScaffold
+import jp.linkserver.pyrite.screen.PyriteBackButton
+import jp.linkserver.nittcsc.data.UiDesignMode
+import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
+import androidx.compose.foundation.layout.PaddingValues
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.ui.components.AppLoadingIndicator
 import jp.linkserver.nittcsc.update.AppUpdateInfo
@@ -108,31 +115,18 @@ fun AboutScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.about_screen_title)) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.cd_back)
-                        )
-                    }
-                }
-            )
-        }
-    ) { padding ->
+    val expressive = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
+    val aboutScrollState = rememberScrollState()
+    val pageContent: @Composable (PaddingValues) -> Unit = { padding ->
         AdaptiveContentPane(
             modifier = Modifier.padding(padding),
             maxWidth = FormContentMaxWidth
         ) {
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
+                modifier = if (expressive) Modifier.fillMaxSize().verticalScroll(aboutScrollState)
+                    .padding(horizontal = 20.dp, vertical = 18.dp)
+                else Modifier.fillMaxSize().padding(16.dp).verticalScroll(aboutScrollState),
+                verticalArrangement = Arrangement.spacedBy(if (expressive) 28.dp else 24.dp)
             ) {
             // ── アプリ概要 ────────────────────────────────────────────
             AboutOverviewMosaic(
@@ -148,6 +142,7 @@ fun AboutScreen(
             )
 
             // ── サポート情報 ──────────────────────────────────────────
+            AboutSectionCard {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     text = stringResource(R.string.about_support_title),
@@ -182,7 +177,21 @@ fun AboutScreen(
                     }
                 }
             }
+            }
 
+            if (expressive) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.about_update_section_title),
+                        style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold)
+                    AboutUpdateCard(
+                        description = stringResource(R.string.about_update_section_help),
+                        status = updateStatus.orEmpty(),
+                        actionLabel = stringResource(R.string.about_update_check_button),
+                        onCheck = { startUpdateCheck() }, checking = checkingUpdates, hasResult = updateStatus != null
+                    )
+                }
+            } else {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     text = stringResource(R.string.about_update_section_title),
@@ -218,8 +227,10 @@ fun AboutScreen(
                     )
                 }
             }
+            }
 
             // ── オープンソースライセンス ──────────────────────────────
+            AboutSectionCard {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     text = stringResource(R.string.about_oss_title),
@@ -240,7 +251,30 @@ fun AboutScreen(
                 }
             }
             }
+            }
         }
+    }
+    if (expressive) {
+        PyriteScreenScaffold(stringResource(R.string.about_screen_title), navigationIcon = {
+            PyriteBackButton(onBack, stringResource(R.string.cd_back))
+        }, content = pageContent)
+    } else {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.about_screen_title)) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.cd_back)
+                        )
+                    }
+                }
+            )
+        },
+        content = pageContent
+    )
     }
 
     // チャネル説明ダイアログ
@@ -324,4 +358,12 @@ private fun openUrl(context: Context, url: String) {
     } catch (_: Exception) {
         // URLを開けない場合は無視
     }
+}
+
+/** M3 retains its uncontained layout; Expressive shares Pyrite's content-card geometry. */
+@Composable
+private fun AboutSectionCard(content: @Composable () -> Unit) {
+    if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+        SettingsContentCard { androidx.compose.foundation.layout.Box(Modifier.padding(horizontal = 22.dp, vertical = 18.dp)) { content() } }
+    } else content()
 }

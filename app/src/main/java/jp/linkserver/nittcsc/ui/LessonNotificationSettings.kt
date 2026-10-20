@@ -32,6 +32,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import jp.linkserver.pyrite.settings.SettingsButtonItem
+import jp.linkserver.pyrite.settings.SettingsContentCard
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.LessonNotificationExclusionEntity
 import jp.linkserver.nittcsc.data.LessonStartNotificationChipMode
@@ -160,30 +162,30 @@ internal fun LessonStartNotificationSettingsContent(
             }
             if (exclusions.isEmpty()) {
                 item("no-exclusions") {
-                    Text(stringResource(R.string.msg_no_lesson_start_notification_exclusions),
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    SettingsContentCard {
+                        Text(stringResource(R.string.msg_no_lesson_start_notification_exclusions),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             } else {
                 item("exclusions-heading") {
-                    Text(stringResource(R.string.label_lesson_start_notification_exclusions),
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    SettingsContentCard {
+                        Text(stringResource(R.string.label_lesson_start_notification_exclusions),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    }
                 }
                 exclusions.forEach { exclusion ->
                     item("exclusion-${exclusion.id}") {
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(exclusion.subject, style = MaterialTheme.typography.bodyLarge)
-                                if (exclusion.matchTeacher && !exclusion.teacher.isNullOrBlank()) {
-                                    Text(stringResource(R.string.label_lesson_start_notification_exclusion_teacher, exclusion.teacher),
-                                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                            TextButton(onClick = { onDeleteExclusion(exclusion) }) { Text(stringResource(R.string.btn_delete)) }
-                        }
+                        SettingsButtonItem(
+                            title = exclusion.subject,
+                            summary = if (exclusion.matchTeacher && !exclusion.teacher.isNullOrBlank())
+                                stringResource(R.string.label_lesson_start_notification_exclusion_teacher, exclusion.teacher) else null,
+                            actionLabel = stringResource(R.string.btn_delete),
+                            onClick = { onDeleteExclusion(exclusion) }
+                        )
                     }
                 }
             }

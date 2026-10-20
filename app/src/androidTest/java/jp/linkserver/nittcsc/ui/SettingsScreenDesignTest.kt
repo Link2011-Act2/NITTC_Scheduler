@@ -222,7 +222,8 @@ class SettingsScreenDesignTest(
             arrayOf(UiDesignMode.MATERIAL_3_EXPRESSIVE, true, true, 1f),
             arrayOf(UiDesignMode.MATERIAL_3_EXPRESSIVE, true, true, 1.8f),
             arrayOf(UiDesignMode.MATERIAL_3, false, false, 1f),
-            arrayOf(UiDesignMode.MATERIAL_3, true, false, 1f)
+            arrayOf(UiDesignMode.MATERIAL_3, true, false, 1f),
+            arrayOf(UiDesignMode.MATERIAL_3, false, false, 1.8f)
         )
     }
 }

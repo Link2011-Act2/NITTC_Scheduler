@@ -1,5 +1,7 @@
 package jp.linkserver.nittcsc.ui
 
+import jp.linkserver.pyrite.screen.PyriteScreenTransition
+
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -1728,19 +1730,9 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        AnimatedContent(
+        PyriteScreenTransition(
             targetState = currentScreenResource,
-            transitionSpec = {
-                val isReturningFromAbout = initialState == "about" && targetState == "settings"
-                if (targetState == "main" || isReturningFromAbout) {
-                    slideInHorizontally { -it / 2 } + fadeIn() togetherWith
-                        slideOutHorizontally { it } + fadeOut()
-                } else {
-                    slideInHorizontally { it } + fadeIn() togetherWith
-                        slideOutHorizontally { -it / 2 } + fadeOut()
-                }
-            },
-            label = "ScreenTransition"
+            direction = ::schedulerNavigationDirection
         ) { screen ->
             when (screen) {
                 "oss" -> {

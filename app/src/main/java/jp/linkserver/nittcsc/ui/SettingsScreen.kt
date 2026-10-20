@@ -656,7 +656,7 @@ fun SettingsScreen(
                 scrollState = settingsScrollState
             ) {
         // ── 時間割設定 ──────────────────────────────────────────
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             AppSettingsCategory(title = stringResource(R.string.section_timetable_settings))
             AppSettingsGroup {
                 item("lesson-timetable-settings") {
@@ -687,7 +687,7 @@ fun SettingsScreen(
             }
         }
         // ── 通知設定 ──────────────────────────────────────────
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             AppSettingsCategory(title = stringResource(R.string.section_notification_settings))
 
             LessonStartNotificationSettingsEntry(
@@ -698,7 +698,7 @@ fun SettingsScreen(
         }
 
         // ── 表示設定 ──────────────────────────────────────────
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             AppSettingsCategory(title = stringResource(R.string.section_display_settings))
 
             AppSettingsGroup {
@@ -736,7 +736,7 @@ fun SettingsScreen(
         }
 
         // ── カレンダー連携 ──────────────────────────────────────────
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             AppSettingsCategory(title = stringResource(R.string.section_task_plan_settings))
 
             AppSettingsGroup {
@@ -799,7 +799,7 @@ fun SettingsScreen(
         }
 
         // ── 上級者向け機能 ──────────────────────────────────────────
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             AppSettingsCategory(title = stringResource(R.string.section_navigation_settings))
 
             AppSettingsGroup {
@@ -824,7 +824,7 @@ fun SettingsScreen(
         }
 
         // ── 実験的機能 ──────────────────────────────────────────
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             AppSettingsCategory(title = stringResource(R.string.section_experimental))
 
             AppSettingsGroup {
@@ -919,13 +919,13 @@ fun SettingsScreen(
         }
 
         // ── 設定データの移行 ───────────────────────────────────────
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             AppSettingsCategory(title = stringResource(R.string.section_data_transfer))
             AppSettingsGroup {
-                item("desc_data_transfer", contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
+                item("desc_data_transfer", contentPadding = PaddingValues(horizontal = 22.dp, vertical = 18.dp)) {
                     Text(
                         stringResource(R.string.desc_data_transfer),
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

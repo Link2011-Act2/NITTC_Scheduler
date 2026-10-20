@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -24,14 +25,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -50,10 +48,17 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import jp.linkserver.pyrite.settings.SettingsGroup
+import jp.linkserver.pyrite.settings.SettingsContentCard
+import jp.linkserver.pyrite.settings.SettingsSwitchItem
+import jp.linkserver.pyrite.settings.SettingsNavigationItem
+import jp.linkserver.pyrite.settings.SettingsSplitSwitchItem
+import jp.linkserver.pyrite.settings.SettingsActionItem
+import jp.linkserver.pyrite.screen.PyriteScreenScaffold
+import jp.linkserver.pyrite.screen.PyriteBackButton
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.UiDesignMode
 import jp.linkserver.nittcsc.ui.AdaptiveContentPane
@@ -64,15 +69,19 @@ private val LocalInsideSettingsItem = staticCompositionLocalOf { false }
 
 private enum class SettingsGroupPosition { Single, First, Middle, Last }
 
-private fun settingsRowShape(position: SettingsGroupPosition): Shape = when (position) {
-    SettingsGroupPosition.Single -> RoundedCornerShape(20.dp)
-    SettingsGroupPosition.First -> RoundedCornerShape(
-        topStart = 20.dp, topEnd = 20.dp, bottomEnd = 4.dp, bottomStart = 4.dp
-    )
-    SettingsGroupPosition.Middle -> RoundedCornerShape(4.dp)
-    SettingsGroupPosition.Last -> RoundedCornerShape(
-        topStart = 4.dp, topEnd = 4.dp, bottomEnd = 20.dp, bottomStart = 20.dp
-    )
+private fun settingsRowShape(position: SettingsGroupPosition, expressive: Boolean): Shape {
+    val outerRadius = if (expressive) 22.dp else 20.dp
+    val innerRadius = if (expressive) 6.dp else 4.dp
+    return when (position) {
+        SettingsGroupPosition.Single -> RoundedCornerShape(outerRadius)
+        SettingsGroupPosition.First -> RoundedCornerShape(
+            topStart = outerRadius, topEnd = outerRadius, bottomEnd = innerRadius, bottomStart = innerRadius
+        )
+        SettingsGroupPosition.Middle -> RoundedCornerShape(innerRadius)
+        SettingsGroupPosition.Last -> RoundedCornerShape(
+            topStart = innerRadius, topEnd = innerRadius, bottomEnd = outerRadius, bottomStart = outerRadius
+        )
+    }
 }
 
 private fun settingsRowPosition(index: Int, count: Int): SettingsGroupPosition = when {
@@ -86,14 +95,17 @@ private fun settingsRowPosition(index: Int, count: Int): SettingsGroupPosition =
 private fun SettingsRowSurface(
     position: SettingsGroupPosition,
     modifier: Modifier = Modifier,
+    expressiveStyle: Boolean = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE,
     content: @Composable () -> Unit
 ) {
+    val expressive = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
     Surface(
         modifier = modifier.fillMaxWidth().heightIn(
-            min = if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) 72.dp else 0.dp
+            min = if (expressive) 72.dp else 0.dp
         ),
-        shape = settingsRowShape(position),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = settingsRowShape(position, expressiveStyle),
+        color = if (expressiveStyle) MaterialTheme.colorScheme.surfaceContainerHigh
+            else MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -106,6 +118,11 @@ private fun SettingsRowSurface(
 /** 1項目だけのPreference surface。複数項目にはAppSettingsGroupを使用する。 */
 @Composable
 fun PreferenceGroup(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+        SettingsContentCard(modifier) { Column(content = content) }
+        return
+    }
+
     SettingsRowSurface(SettingsGroupPosition.Single, modifier) {
         Column(content = content)
     }
@@ -117,6 +134,11 @@ fun AppSettingsItem(
     contentPadding: PaddingValues = PaddingValues(0.dp),
     content: @Composable () -> Unit
 ) {
+    if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE && !LocalInsideSettingsItem.current) {
+        SettingsContentCard(modifier) { Column(Modifier.padding(contentPadding)) { content() } }
+        return
+    }
+
     if (LocalInsideSettingsItem.current) {
         Column(modifier.padding(contentPadding)) { content() }
     } else {
@@ -128,7 +150,8 @@ fun AppSettingsItem(
 
 @Composable
 fun SettingsSection(title: String, content: AppSettingsGroupScope.() -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    val expressive = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
+    Column(verticalArrangement = Arrangement.spacedBy(if (expressive) 10.dp else 8.dp)) {
         AppSettingsCategory(title)
         AppSettingsGroup(content = content)
     }
@@ -189,15 +212,29 @@ fun AppSettingsGroup(
     standardSpacing: Dp = 0.dp,
     standardContainerColor: Color = MaterialTheme.colorScheme.surfaceContainer,
     connectedRows: Boolean = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE,
+    expressiveStyle: Boolean = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE,
     content: AppSettingsGroupScope.() -> Unit
 ) {
     val entries = AppSettingsGroupScope().apply(content).items
+    if (connectedRows && expressiveStyle && LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+        val rows = entries.expressiveItems()
+        SettingsGroup(modifier) {
+            rows.forEach { entry ->
+                item(entry.key) {
+                    if (entry.padding != PaddingValues(0.dp)) {
+                        SettingsContentCard { Column(Modifier.fillMaxWidth().padding(entry.padding)) { entry.content() } }
+                    } else entry.content()
+                }
+            }
+        }
+        return
+    }
     if (connectedRows) {
         val rows = entries.expressiveItems()
         Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             rows.forEachIndexed { index, entry ->
                 key(entry.key) {
-                    SettingsRowSurface(settingsRowPosition(index, rows.size)) {
+                    SettingsRowSurface(settingsRowPosition(index, rows.size), expressiveStyle = expressiveStyle) {
                         Column(Modifier.fillMaxWidth().padding(entry.padding)) { entry.content() }
                     }
                 }
@@ -219,43 +256,30 @@ fun AppSettingsCategory(title: String, modifier: Modifier = Modifier) {
     val expressive = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
     Text(
         text = title,
-        modifier = modifier.then(if (expressive) Modifier.padding(horizontal = 16.dp) else Modifier)
-            .semantics { heading() },
-        style = if (expressive) MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp, lineHeight = 20.sp)
+        modifier = modifier.semantics { heading() },
+        style = if (expressive) MaterialTheme.typography.titleSmall.copy(
+            fontFamily = FontFamily.SansSerif, fontSize = 15.sp, lineHeight = 20.sp,
+            letterSpacing = 0.1.sp
+        )
             else MaterialTheme.typography.titleMedium,
         color = MaterialTheme.colorScheme.primary,
-        fontWeight = if (expressive) FontWeight.Medium else FontWeight.Bold
+        fontWeight = FontWeight.Bold
     )
 }
 
 @Composable
 private fun SettingsItemText(title: String, summary: String?, modifier: Modifier = Modifier) {
-    val expressive = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
     Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(
-            text = title,
-            style = if (expressive) {
-                MaterialTheme.typography.titleMedium.copy(
-                    fontFamily = FontFamily.SansSerif,
-                    fontSize = 16.sp,
-                    lineHeight = 24.sp,
-                    fontWeight = FontWeight.Normal
-                )
-            } else MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = if (expressive) 2 else Int.MAX_VALUE,
-            overflow = if (expressive) TextOverflow.Ellipsis else TextOverflow.Clip
-        )
-        if (!summary.isNullOrEmpty()) {
-            Text(
-                summary,
-                style = if (expressive) {
-                    MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 21.sp)
-                } else MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+        if (!summary.isNullOrEmpty()) Text(summary, style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+/** 参照アプリの配色を設定画面内だけに適用する。操作は親の行へ委譲する。 */
+@Composable
+private fun SettingsSwitch(checked: Boolean, enabled: Boolean = true) {
+    AppSwitch(checked = checked, onCheckedChange = null, enabled = enabled)
 }
 
 @Composable
@@ -267,21 +291,17 @@ fun AppSettingsSwitchItem(
     modifier: Modifier = Modifier,
     enabled: Boolean = true
 ) {
-    val expressive = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
+    if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+        SettingsSwitchItem(title, checked, onCheckedChange, modifier, summary, enabled)
+        return
+    }
     AppSettingsItem {
-        Row(
-            modifier = modifier
-                .fillMaxWidth()
-                .heightIn(min = if (expressive) 72.dp else 80.dp)
-                .toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onCheckedChange)
-                .padding(horizontal = if (expressive) 16.dp else 20.dp,
-                    vertical = if (expressive) 16.dp else 20.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(if (expressive) 16.dp else 20.dp)
-        ) {
-            SettingsItemText(title, summary, Modifier.weight(1f).alpha(if (enabled) 1f else 0.38f))
-            // 行全体を1つのSwitchとして読み上げ、thumbも同じクリック領域で操作する。
-            AppSwitch(checked = checked, onCheckedChange = null, enabled = enabled)
+        Row(modifier.fillMaxWidth().heightIn(min = 80.dp)
+            .toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onCheckedChange)
+            .padding(20.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+            SettingsItemText(title, summary, Modifier.weight(1f).alpha(if (enabled) 1f else .38f))
+            SettingsSwitch(checked, enabled)
         }
     }
 }
@@ -293,12 +313,13 @@ fun AppSettingsNavigationItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+        SettingsNavigationItem(title, onClick, modifier, summary)
+        return
+    }
     AppSettingsActionItem(title, summary, onClick, modifier) {
-        Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(24.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -311,12 +332,17 @@ fun AppSettingsSwitchNavigationItem(
     onClick: () -> Unit,
     onCheckedChange: (Boolean) -> Unit
 ) {
-    val expressive = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
-    val padding = if (expressive) 16.dp else 20.dp
+    if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+        SettingsSplitSwitchItem(title, checked, onCheckedChange, onClick, summary = summary)
+        return
+    }
+
+    val horizontalPadding = 20.dp
+    val verticalPadding = 20.dp
     AppSettingsItem {
         Row(
             modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)
-                .heightIn(min = if (expressive) 72.dp else 80.dp),
+                .heightIn(min = 80.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
@@ -325,7 +351,7 @@ fun AppSettingsSwitchNavigationItem(
                 modifier = Modifier.weight(1f).fillMaxHeight()
             ) {
                 Row(
-                    modifier = Modifier.padding(padding),
+                    modifier = Modifier.padding(horizontal = horizontalPadding, vertical = verticalPadding),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -333,6 +359,7 @@ fun AppSettingsSwitchNavigationItem(
                     Icon(
                         Icons.AutoMirrored.Filled.KeyboardArrowRight,
                         contentDescription = null,
+                        modifier = Modifier.size(24.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -342,10 +369,10 @@ fun AppSettingsSwitchNavigationItem(
                 modifier = Modifier.fillMaxHeight()
                     .toggleable(checked, role = Role.Switch, onValueChange = onCheckedChange)
                     .semantics { contentDescription = title }
-                    .padding(horizontal = padding),
+                    .padding(horizontal = horizontalPadding),
                 contentAlignment = Alignment.Center
             ) {
-                AppSwitch(checked = checked, onCheckedChange = null)
+                SettingsSwitch(checked = checked)
             }
         }
     }
@@ -379,17 +406,14 @@ private fun AppSettingsActionItem(
     modifier: Modifier,
     trailingContent: @Composable () -> Unit
 ) {
-    val expressive = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
+    if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+        SettingsActionItem(title, onClick, modifier, summary, trailingContent = trailingContent)
+        return
+    }
     AppSettingsItem {
         Surface(onClick = onClick, color = Color.Transparent, modifier = modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier
-                    .heightIn(min = if (expressive) 72.dp else 80.dp)
-                    .padding(horizontal = if (expressive) 16.dp else 20.dp,
-                        vertical = if (expressive) 16.dp else 20.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(if (expressive) 16.dp else 20.dp)
-            ) {
+            Row(Modifier.heightIn(min = 80.dp).padding(20.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                 SettingsItemText(title, summary, Modifier.weight(1f))
                 trailingContent()
             }
@@ -433,51 +457,28 @@ internal fun AppSettingsScaffold(
     scrollEnabled: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val expressive = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
-    Scaffold(
-        containerColor = if (expressive) MaterialTheme.colorScheme.surface
-            else MaterialTheme.colorScheme.background,
-        topBar = {
-            if (expressive) {
-                TopAppBar(
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
-                    title = { Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.cd_back))
-                        }
-                    }
-                )
-            } else {
-                AppFlexibleTopAppBar(
-                    title = { Text(title) },
-                    navigationIcon = {
-                        AppIconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.cd_back))
-                        }
-                    }
-                )
+    if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+        PyriteScreenScaffold(title, navigationIcon = {
+            PyriteBackButton(onBack, stringResource(R.string.cd_back))
+        }) { padding ->
+            AdaptiveContentPane(Modifier.padding(padding), maxWidth = ListContentMaxWidth) {
+                Column(Modifier.fillMaxSize().verticalScroll(scrollState, enabled = scrollEnabled)
+                    .padding(horizontal = 20.dp, vertical = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(28.dp), content = content)
             }
         }
-    ) { padding ->
-        AdaptiveContentPane(modifier = Modifier.padding(padding), maxWidth = ListContentMaxWidth) {
-            if (expressive) {
-                Column(
-                    modifier = Modifier.fillMaxSize()
-                        .verticalScroll(scrollState, enabled = scrollEnabled)
-                        .padding(horizontal = 16.dp)
-                        .padding(top = 8.dp, bottom = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(20.dp),
-                    content = content
-                )
-            } else {
-                Column(
-                    modifier = Modifier.fillMaxSize().padding(16.dp)
-                        .verticalScroll(scrollState, enabled = scrollEnabled),
-                    verticalArrangement = Arrangement.spacedBy(24.dp),
-                    content = content
-                )
+        return
+    }
+    Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
+        AppFlexibleTopAppBar(title = { Text(title) }, navigationIcon = {
+            AppIconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.cd_back))
             }
+        })
+    }) { padding ->
+        AdaptiveContentPane(Modifier.padding(padding), maxWidth = ListContentMaxWidth) {
+            Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(scrollState, enabled = scrollEnabled),
+                verticalArrangement = Arrangement.spacedBy(24.dp), content = content)
         }
     }
 }

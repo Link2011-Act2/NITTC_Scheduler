@@ -11,6 +11,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven("https://jitpack.io") { content { includeGroup("com.github.Link2011-Act2") } }
     }
 }
 

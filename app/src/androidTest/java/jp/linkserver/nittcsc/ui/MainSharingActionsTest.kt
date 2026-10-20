@@ -99,9 +99,14 @@ class MainSharingActionsTest {
         composeRule.onNodeWithText(label(R.string.section_navigation_settings)).performScrollTo().assertIsDisplayed()
         val title = hasText(label(R.string.label_show_sync_button))
         composeRule.onNodeWithText(label(R.string.label_show_sync_button)).performScrollTo()
-        // 通常M3はグループ内のスイッチが同じ親を持つため、対象行を先頭から取得する。
-        val control = composeRule.onAllNodes(isToggleable() and (title or hasAnySibling(title or hasAnyDescendant(title))))
-            .onFirst().performScrollTo()
+        // Pyrite merges title and toggle into one accessible row; sibling matching
+        // would also select unrelated switches in the connected group.
+        val control = if (mode == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+            composeRule.onNode(isToggleable() and title).performScrollTo()
+        } else {
+            composeRule.onAllNodes(isToggleable() and (title or hasAnySibling(title or hasAnyDescendant(title))))
+                .onFirst().performScrollTo()
+        }
         control.assertIsOff().performClick().assertIsOn().performClick().assertIsOff()
         composeRule.runOnIdle { assertEquals(false, settings.value.showSyncButton) }
     }

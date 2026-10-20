@@ -3,12 +3,15 @@ package jp.linkserver.nittcsc.ui.theme
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MaterialExpressiveTheme
-import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
+import jp.linkserver.pyrite.theme.PyriteTheme
+import jp.linkserver.pyrite.theme.PyriteStyle
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -86,6 +89,8 @@ fun AppTheme(
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {
+    val currentContent = rememberUpdatedState(content)
+    val stableContent = remember { movableContentOf { currentContent.value() } }
     val context = LocalContext.current
     val colorScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
@@ -110,29 +115,20 @@ fun AppTheme(
     }
 
     val effectiveMode = uiDesignMode.effective(InternalFeatureFlags.MATERIAL_3_EXPRESSIVE)
-    val typography = when (effectiveMode) {
-        UiDesignMode.MATERIAL_3 -> Typography
-        UiDesignMode.MATERIAL_3_EXPRESSIVE -> ExpressiveTypography
-    }
-    val shapes = when (effectiveMode) {
-        UiDesignMode.MATERIAL_3 -> Shapes
-        UiDesignMode.MATERIAL_3_EXPRESSIVE -> ExpressiveShapes
-    }
 
     CompositionLocalProvider(LocalUiDesignMode provides effectiveMode) {
         when (effectiveMode) {
             UiDesignMode.MATERIAL_3 -> MaterialTheme(
                 colorScheme = colorScheme,
-                typography = typography,
-                shapes = shapes,
-                content = content
+                typography = Typography,
+                shapes = Shapes,
+                content = stableContent
             )
-            UiDesignMode.MATERIAL_3_EXPRESSIVE -> MaterialExpressiveTheme(
-                colorScheme = colorScheme,
-                motionScheme = MotionScheme.expressive(),
-                typography = typography,
-                shapes = shapes,
-                content = content
+            UiDesignMode.MATERIAL_3_EXPRESSIVE -> PyriteTheme(
+                style = PyriteStyle.Material3Expressive,
+                darkTheme = darkTheme,
+                dynamicColor = dynamicColor,
+                content = stableContent
             )
         }
     }

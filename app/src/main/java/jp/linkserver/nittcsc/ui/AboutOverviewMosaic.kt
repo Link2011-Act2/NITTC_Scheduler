@@ -32,6 +32,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import jp.linkserver.pyrite.about.AboutInfo
+import jp.linkserver.pyrite.about.AboutDetail
+import jp.linkserver.pyrite.about.AboutOverviewContent
+import jp.linkserver.pyrite.about.AboutOverviewMosaic as PyriteAboutOverviewMosaic
+import jp.linkserver.nittcsc.data.UiDesignMode
+import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
 import jp.linkserver.nittcsc.R
 
 @Composable
@@ -46,6 +52,24 @@ internal fun AboutOverviewMosaic(
     onChannelClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+        PyriteAboutOverviewMosaic(
+            info = AboutInfo(
+                name = stringResource(R.string.app_name),
+                version = stringResource(R.string.about_version_label, channelLabel, versionName, versionCode)
+            ),
+            overview = AboutOverviewContent(
+                channel = AboutDetail(stringResource(R.string.about_overview_channel_title), channelName),
+                build = AboutDetail(stringResource(R.string.about_overview_build_title), buildNumber),
+                version = AboutDetail(stringResource(R.string.about_simple_version_title), stringResource(R.string.about_simple_version_value, simpleVersion))
+            ),
+            modifier = modifier,
+            icon = { AboutAppIcon(Modifier.fillMaxSize()) },
+            onVersionClick = onVersionClick,
+            onChannelClick = onChannelClick
+        )
+        return
+    }
     val cardColor = MaterialTheme.colorScheme.surfaceContainerHigh
     val gutterColor = MaterialTheme.colorScheme.background
     val cardShape = RoundedCornerShape(20.dp)

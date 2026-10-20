@@ -11,6 +11,7 @@ import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import org.gradle.api.artifacts.result.ResolvedArtifactResult
 import org.gradle.maven.MavenModule
 import org.gradle.maven.MavenPomArtifact
+import java.util.zip.ZipInputStream
 import java.util.zip.ZipFile
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -216,6 +217,21 @@ fun readNoticeOrLicenseText(artifactFile: File): String? {
     )
     return runCatching {
         ZipFile(artifactFile).use { zip ->
+            // AAR Java resources are nested in classes.jar. Read attribution from the resolved
+            // public artifact, never from a neighboring source checkout or generated JSON.
+            zip.getEntry("classes.jar")?.let { classes ->
+                val notices = linkedMapOf<String, String>()
+                ZipInputStream(zip.getInputStream(classes)).use { nested ->
+                    var entry = nested.nextEntry
+                    while (entry != null) {
+                        if (entry.name == "META-INF/pyrite/LICENSE" || entry.name == "META-INF/pyrite/NOTICE.md") {
+                            notices[entry.name] = nested.readBytes().toString(StandardCharsets.UTF_8)
+                        }
+                        entry = nested.nextEntry
+                    }
+                }
+                if (notices.isNotEmpty()) return@use notices.toSortedMap().values.joinToString("\n\n")
+            }
             candidateNames.firstNotNullOfOrNull { name ->
                 val entry = zip.getEntry(name) ?: return@firstNotNullOfOrNull null
                 zip.getInputStream(entry).bufferedReader(StandardCharsets.UTF_8).use { reader ->
@@ -268,6 +284,9 @@ val generatedOssAssetsDir = layout.buildDirectory.dir("generated/oss-assets")
 val generatedOssFile = generatedOssAssetsDir.map { it.file("oss_licenses/oss_licenses_auto.json") }
 
 val generateOssLicensesAutoJson = tasks.register("generateOssLicensesAutoJson") {
+    inputs.files(providers.provider { configurations.getByName("debugRuntimeClasspath") })
+        .withPropertyName("runtimeArtifacts")
+    inputs.files(llamaNativeArtifacts).withPropertyName("nativeArtifacts")
     inputs.file("src/main/assets/oss_licenses/ai_runtime_licenses.txt")
     outputs.file(generatedOssFile)
     doLast {
@@ -424,6 +443,7 @@ kotlin {
 }
 
 dependencies {
+    implementation("com.github.Link2011-Act2:Pyrite:508b1cf5131679fee7581acbc7ea55a365b6ff2c")
     implementation("androidx.core:core-ktx:1.18.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.2")
@@ -431,10 +451,10 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.0")
 
     implementation(platform("androidx.compose:compose-bom:2026.06.00"))
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-graphics")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3:1.5.0-alpha25")
+    implementation("androidx.compose.ui:ui:1.12.0")
+    implementation("androidx.compose.ui:ui-graphics:1.12.0")
+    implementation("androidx.compose.ui:ui-tooling-preview:1.12.0")
+    implementation("androidx.compose.material3:material3:1.5.0-beta01")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.navigation:navigation-compose:2.7.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.2")
@@ -468,9 +488,9 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     androidTestImplementation(platform("androidx.compose:compose-bom:2026.06.00"))
-    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
-    debugImplementation("androidx.compose.ui:ui-tooling")
-    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.12.0")
+    debugImplementation("androidx.compose.ui:ui-tooling:1.12.0")
+    debugImplementation("androidx.compose.ui:ui-test-manifest:1.12.0")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     
