@@ -195,7 +195,11 @@ class SettingsScreenDesignTest(
         // オフのまま左側から詳細へ進み、ツールバーの戻るで一覧へ戻る。
         composeRule.onNodeWithText(title).performScrollTo().performClick()
         composeRule.onNodeWithText(context.getString(R.string.section_notification_settings)).assertDoesNotExist()
-        composeRule.onNodeWithText(timing).assertDoesNotExist()
+        if (mode == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+            composeRule.onNodeWithText(timing).performScrollTo().assertIsNotEnabled()
+        } else {
+            composeRule.onNodeWithText(timing).assertDoesNotExist()
+        }
         composeRule.onNodeWithContentDescription(context.getString(R.string.cd_back)).performClick()
         composeRule.onNodeWithContentDescription(title).assertIsOff()
         composeRule.runOnIdle { assertEquals(0, toggleCount); assertEquals(0, exitCount) }

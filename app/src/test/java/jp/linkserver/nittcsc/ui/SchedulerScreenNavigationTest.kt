@@ -5,6 +5,15 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class SchedulerScreenNavigationTest {
+    @Test fun settingsDetailsUseActualInitialAndTargetRoutes() {
+        for (detail in SettingsDestination.entries.filter { it != SettingsDestination.OVERVIEW }) {
+            assertEquals(PyriteNavigationDirection.Forward, settingsNavigationDirection(SettingsDestination.OVERVIEW, detail))
+            assertEquals(PyriteNavigationDirection.Backward, settingsNavigationDirection(detail, SettingsDestination.OVERVIEW))
+        }
+        assertEquals(PyriteNavigationDirection.Forward,
+            settingsNavigationDirection(SettingsDestination.LESSON, SettingsDestination.LESSON_NOTIFICATIONS))
+    }
+
     @Test fun forwardAndBackFollowSettingsAboutAndEditorParents() {
         for ((parent, child) in listOf(
             "main" to "settings", "settings" to "about", "about" to "oss", "about" to "update",

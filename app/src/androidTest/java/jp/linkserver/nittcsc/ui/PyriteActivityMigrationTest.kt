@@ -1,6 +1,8 @@
 package jp.linkserver.nittcsc.ui
 
 import android.view.View
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
@@ -94,6 +96,30 @@ class PyriteActivityMigrationTest {
             about.assertIsDisplayed()
             assertEquals(settingsBefore, geometry("settings-return"))
             if (mode == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+                val notificationTitle = text(R.string.label_lesson_start_notification)
+                val timing = text(R.string.label_lesson_start_notification_minutes)
+                compose.onNodeWithText(notificationTitle).performScrollTo().performClick()
+                compose.onNodeWithText(timing).performScrollTo().assertIsDisplayed()
+                val notificationBefore = geometry("notification-before-recreate")
+                scenario.recreate()
+                compose.waitUntil(timeoutMillis = 10_000) {
+                    compose.onAllNodesWithText(timing).fetchSemanticsNodes().isNotEmpty()
+                }
+                assertEquals(notificationBefore, geometry("notification-after-recreate"))
+                for ((orientation, expected) in listOf(
+                    ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE to Configuration.ORIENTATION_LANDSCAPE,
+                    ActivityInfo.SCREEN_ORIENTATION_PORTRAIT to Configuration.ORIENTATION_PORTRAIT
+                )) {
+                    scenario.onActivity { it.requestedOrientation = orientation }
+                    compose.waitUntil(timeoutMillis = 10_000) {
+                        context.resources.configuration.orientation == expected &&
+                            compose.onAllNodesWithText(timing).fetchSemanticsNodes().isNotEmpty()
+                    }
+                    compose.onNodeWithText(timing).performScrollTo().assertIsDisplayed()
+                    assertEquals(expectedMarker, settings()!!.showCurrentTimeMarker)
+                }
+                compose.onNodeWithContentDescription(text(R.string.cd_back)).performClick()
+                compose.onNodeWithText(notificationTitle).assertIsDisplayed()
                 fun switchTo(target: UiDesignMode) {
                     compose.onNodeWithText(text(R.string.label_ui_design)).performScrollTo().performClick()
                     if (target == UiDesignMode.MATERIAL_3) compose.onAllNodes(isSelectable()).onFirst().performClick()
