@@ -30,6 +30,8 @@ import jp.linkserver.nittcsc.data.ResolvedLesson
 import jp.linkserver.nittcsc.data.SettingsEntity
 import jp.linkserver.nittcsc.logic.ClassSlot
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -78,27 +80,45 @@ class LessonStartNotificationWorker(
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
+        val timing = jp.linkserver.nittcsc.logic.lessonReminderTiming(actualLessonStart, minutesBefore,
+            settings.lessonStartNotificationLiveUpdatesEnabled, Build.VERSION.SDK_INT >= 36,
+            settings.lessonStartNotificationLiveUpdateEarlyMinutes)
+        val liveAvailable = timing.liveAt != null && canPostPromotedNotifications()
+        val standardSignature = signature(candidate, settings, false)
+        val coordinator = LessonNotificationDeliveryCoordinator(applicationContext, "$date|$slotIndex",
+            timing.standardAt.toString(), signature(candidate, settings, true), notificationId(date, slotIndex, true), deliveryGate)
         if (live) {
-            if (!settings.lessonStartNotificationLiveUpdatesEnabled || Build.VERSION.SDK_INT < 36 ||
-                minutesBefore <= 0 || !canPostPromotedNotifications()) return Result.success()
-            val target = actualLessonStart
-            if (!now.isBefore(target)) return Result.success()
-            if (!claimDelivery(applicationContext, date, slotIndex, live, signature)) return Result.success()
+            val target = timing.liveEndsAt ?: return Result.success()
+            if (!liveAvailable || !now.isBefore(target)) return Result.success()
+            var completed = false
             try {
-                showLiveUpdateCountdown(notificationId, lesson, slot, target,
-                    minutesBefore + settings.lessonStartNotificationLiveUpdateEarlyMinutes.coerceIn(0, 5),
-                    settings.lessonStartNotificationProgressCountsDown, settings.lessonStartNotificationChipMode, pendingIntent)
+                completed = showLiveUpdateCountdown(notificationId, lesson, slot, target, minutesBefore,
+                    settings.lessonStartNotificationProgressCountsDown, settings.lessonStartNotificationChipMode,
+                    pendingIntent, coordinator)
             } finally {
-                NotificationManagerCompat.from(applicationContext).cancel(notificationId)
+                // WorkManagerの停止・Foreground化失敗でも、成功記録を残して通常通知を失わない。
+                withContext(NonCancellable) {
+                    if (coordinator.finishLive(id.toString(), completed)) {
+                        deliveryGate.exclusively {
+                            enqueueRecovery(applicationContext, date, slotIndex, standardSignature, timing.standardAt)
+                        }
+                    }
+                }
             }
         } else {
-            // 通常通知はLive Updatesの権限・Foreground化・終了処理と独立させる。
-            deliveryGate.deliverOnce(scheduledAt.toString(),
-                { deliveryPreferences(applicationContext).getString(alarmKey(date, slotIndex, false), null) },
-                { markDelivered(applicationContext, date, slotIndex, false, it) }) {
-                notifySafely(notificationId, buildStandardNotification(
-                    displayMinutesBefore(minutesBefore, Duration.between(now, actualLessonStart).toMillis()), lesson, slot, pendingIntent))
-            }
+            coordinator.deliverStandard(liveAvailable, Duration.between(timing.standardAt, now).toMillis(),
+                beforeDecision = { clearRecoveryCheck(applicationContext, date, slotIndex, standardSignature, inputData.getLong(KEY_RECOVERY_AT, 0)) },
+                scheduleRecovery = { enqueueRecovery(applicationContext, date, slotIndex, standardSignature, LocalDateTime.now().plusSeconds(30)) },
+                cancelLiveWork = {
+                    val manager = WorkManager.getInstance(applicationContext)
+                    manager.cancelUniqueWork(uniqueWorkName(date, slotIndex, true))
+                    manager.cancelUniqueWork(uniqueWorkName(date, slotIndex, true) + "_delivery")
+                },
+                post = {
+                    notifySafely(notificationId, buildStandardNotification(
+                        displayMinutesBefore(minutesBefore, Duration.between(LocalDateTime.now(), actualLessonStart).toMillis()),
+                        lesson, slot, pendingIntent))
+                })
         }
         return Result.success()
     }
@@ -136,8 +156,9 @@ class LessonStartNotificationWorker(
         minutesBefore: Int,
         progressCountsDown: Boolean,
         chipMode: LessonStartNotificationChipMode,
-        pendingIntent: PendingIntent
-    ) {
+        pendingIntent: PendingIntent,
+        coordinator: LessonNotificationDeliveryCoordinator
+    ): Boolean {
         val lessonStartMillis = liveUpdateTarget
             .atZone(ZoneId.systemDefault())
             .toInstant()
@@ -159,8 +180,12 @@ class LessonStartNotificationWorker(
                 chipMode = chipMode,
                 pendingIntent = pendingIntent
             )
-            if (!setForegroundSafely(notificationId, notification)) return
-            notifySafely(notificationId, notification)
+            if (!coordinator.postLive(id.toString()) {
+                withTimeoutOrNull(10_000) {
+                    canPostPromotedNotifications() && setForegroundSafely(notificationId, notification) &&
+                        notifySafely(notificationId, notification)
+                } ?: false
+            }) return false
 
             delay(nextLiveUpdateDelayMillis(remainingMillis))
             remainingMillis = Duration.between(
@@ -168,7 +193,7 @@ class LessonStartNotificationWorker(
                 liveUpdateTarget
             ).toMillis()
         }
-
+        return !isStopped && remainingMillis <= 0
     }
 
     @Suppress("NewApi")
@@ -385,6 +410,8 @@ class LessonStartNotificationWorker(
         private const val CHANNEL_ID = "lesson_start_notifications"
         private const val KEY_DATE = "date"
         private const val KEY_SLOT_INDEX = "slot_index"
+        private const val KEY_RECOVERY_AT = "recovery_at"
+        private const val RECOVERY_PREFERENCES = "lesson_notification_recovery_checks"
         internal const val KEY_LIVE = "live_update"
         internal const val KEY_SIGNATURE = "schedule_signature"
         private const val TAG = "LessonStartNotification"
@@ -401,7 +428,7 @@ class LessonStartNotificationWorker(
         private val deliveryGate = jp.linkserver.nittcsc.logic.ReminderDeliveryGate()
 
         private fun signature(candidate: jp.linkserver.nittcsc.logic.UpcomingLessonCandidate<ResolvedLesson>,
-            settings: SettingsEntity, live: Boolean): String = listOf(candidate, live,
+            settings: SettingsEntity, live: Boolean): String = listOf("countdown-end-v1", candidate, live,
             settings.lessonStartNotificationMinutesBefore,
             if (live) listOf(settings.lessonStartNotificationLiveUpdatesEnabled,
                 settings.lessonStartNotificationLiveUpdateEarlyMinutes,
@@ -461,6 +488,9 @@ class LessonStartNotificationWorker(
                             val key = alarmKey(date, candidate.slotIndex, live)
                             val signature = signature(candidate, settings, live)
                             val planSignature = "$signature|${ZoneId.systemDefault()}"
+                            if (!live && previous.optString(key) != planSignature) {
+                                workManager.cancelUniqueWork(uniqueWorkName(date, candidate.slotIndex, false) + "_recovery")
+                            }
                             next.put(key, planSignature)
                             val exact = ExactReminderAlarmScheduler.schedule(appContext, at,
                                 alarmPendingIntent(appContext, date, candidate.slotIndex, live, signature))
@@ -485,6 +515,7 @@ class LessonStartNotificationWorker(
                     val live = parts[2].toBoolean()
                     workManager.cancelUniqueWork(uniqueWorkName(date, index, live))
                     workManager.cancelUniqueWork(uniqueWorkName(date, index, live) + "_delivery")
+                    if (!live) workManager.cancelUniqueWork(uniqueWorkName(date, index, false) + "_recovery")
                     ExactReminderAlarmScheduler.cancel(appContext, alarmPendingIntent(appContext, date, index, live, null))
                     // 終了済みの通常通知は残す。有効な授業の変更・OFF時には取り消す。
                     if (live || date >= today && !wasAnyDelivered(appContext, date, index))
@@ -501,6 +532,29 @@ class LessonStartNotificationWorker(
             if (Build.VERSION.SDK_INT >= 31) builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
                 uniqueWorkName(date, slotIndex, live) + "_delivery", ExistingWorkPolicy.KEEP, builder.build())
+        }
+
+        private fun enqueueRecovery(context: Context, date: LocalDate, index: Int, signature: String, notBefore: LocalDateTime) {
+            val preferences = context.getSharedPreferences(RECOVERY_PREFERENCES, Context.MODE_PRIVATE)
+            val key = "$date|$index|$signature"
+            val now = System.currentTimeMillis()
+            val pending = preferences.getLong(key, 0)
+            if (pending > now - 60_000 && pending != 0L) return
+            val at = maxOf(now + 1_000, notBefore.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli())
+            val data = Data.Builder().putAll(workData(date, index, false, signature)).putLong(KEY_RECOVERY_AT, at).build()
+            val request = OneTimeWorkRequestBuilder<LessonStartNotificationWorker>().setInputData(data)
+                .setInitialDelay(at - now, TimeUnit.MILLISECONDS).addTag(WORK_TAG).build()
+            // 自分が再確認Workerの場合も、実行中の処理をキャンセルせず次の確認をつなぐ。
+            WorkManager.getInstance(context).enqueueUniqueWork(uniqueWorkName(date, index, false) + "_recovery",
+                ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+            preferences.edit().putLong(key, at).apply()
+        }
+
+        private fun clearRecoveryCheck(context: Context, date: LocalDate, index: Int, signature: String, at: Long) {
+            if (at == 0L) return
+            val preferences = context.getSharedPreferences(RECOVERY_PREFERENCES, Context.MODE_PRIVATE)
+            val key = "$date|$index|$signature"
+            if (preferences.getLong(key, 0) == at) preferences.edit().remove(key).apply()
         }
 
         private fun workData(date: LocalDate, index: Int, live: Boolean, signature: String): Data = Data.Builder()
@@ -528,13 +582,7 @@ class LessonStartNotificationWorker(
         private fun deliveryPreferences(context: Context) = context.getSharedPreferences("lesson_notification_deliveries", Context.MODE_PRIVATE)
         private fun wasAnyDelivered(context: Context, date: LocalDate, index: Int) =
             deliveryPreferences(context).contains(alarmKey(date, index, false))
-        private fun markDelivered(context: Context, date: LocalDate, index: Int, live: Boolean, signature: String) {
-            deliveryPreferences(context).edit().putString(alarmKey(date, index, live), signature).commit()
-        }
-        private suspend fun claimDelivery(context: Context, date: LocalDate, index: Int, live: Boolean, signature: String): Boolean =
-            deliveryGate.deliverOnce(signature,
-                { deliveryPreferences(context).getString(alarmKey(date, index, live), null) },
-                { markDelivered(context, date, index, live, it) }, { context.canPostAppNotifications() })
+
     }
 }
 

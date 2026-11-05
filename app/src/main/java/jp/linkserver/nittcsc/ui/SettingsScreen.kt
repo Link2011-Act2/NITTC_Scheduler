@@ -47,12 +47,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -563,64 +557,56 @@ fun SettingsScreen(
         )
     }
 
-    if (showLessonNotificationSettings) {
-        LessonStartNotificationSettingsScreen(onBack = { showLessonNotificationSettings = false }) {
-            LessonStartNotificationSettingsContent(
-                enabled = enabledLessonStartNotifications,
-                notificationsEnabled = notificationsEnabled,
-                promotedNotificationsEnabled = promotedNotificationsEnabled,
-                liveUpdatesEnabled = enabledLessonStartLiveUpdates,
-                liveUpdatesSupported = supportsLessonStartLiveUpdates,
-                progressCountsDown = enabledLessonStartProgressCountsDown,
-                liveUpdateEarlyMinutes = lessonStartLiveUpdateEarlyMinutes,
-                chipMode = lessonStartChipMode,
-                minutesBefore = lessonStartNotificationMinutesBefore,
-                exclusions = state.lessonNotificationExclusions,
-                subjectSuggestions = subjectSuggestions,
-                subjectTeacherCandidates = subjectTeacherCandidates,
-                onToggleEnabled = onToggleLessonStartNotifications,
-                onOpenNotificationSettings = {
-                    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                    context.startActivity(intent)
-                },
-                onOpenPromotedNotificationSettings = {
-                    val intent = if (Build.VERSION.SDK_INT >= 36) {
-                        Intent(Settings.ACTION_APP_NOTIFICATION_PROMOTION_SETTINGS)
+    val destination = if (showLessonNotificationSettings) SettingsDestination.LESSON_NOTIFICATIONS else
+        timetableSettingsPage?.let { SettingsDestination.valueOf(it.name) } ?: SettingsDestination.OVERVIEW
+    SettingsNavigationHost(destination, onNavigate = { target ->
+        showLessonNotificationSettings = target == SettingsDestination.LESSON_NOTIFICATIONS
+        onTimetableSettingsPageChange(if (target in listOf(SettingsDestination.LESSON, SettingsDestination.EXAM, SettingsDestination.SPECIAL))
+            TimetableSettingsPage.valueOf(target.name) else null)
+    }) { destinationPage, navigate ->
+        if (destinationPage == SettingsDestination.LESSON_NOTIFICATIONS) {
+            LessonStartNotificationSettingsScreen(onBack = { navigate(SettingsDestination.OVERVIEW) }) {
+                LessonStartNotificationSettingsContent(
+                    enabled = enabledLessonStartNotifications,
+                    notificationsEnabled = notificationsEnabled,
+                    promotedNotificationsEnabled = promotedNotificationsEnabled,
+                    liveUpdatesEnabled = enabledLessonStartLiveUpdates,
+                    liveUpdatesSupported = supportsLessonStartLiveUpdates,
+                    progressCountsDown = enabledLessonStartProgressCountsDown,
+                    liveUpdateEarlyMinutes = lessonStartLiveUpdateEarlyMinutes,
+                    chipMode = lessonStartChipMode,
+                    minutesBefore = lessonStartNotificationMinutesBefore,
+                    exclusions = state.lessonNotificationExclusions,
+                    subjectSuggestions = subjectSuggestions,
+                    subjectTeacherCandidates = subjectTeacherCandidates,
+                    onToggleEnabled = onToggleLessonStartNotifications,
+                    onOpenNotificationSettings = {
+                        val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                             .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                    } else {
-                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                    }
-                    context.startActivity(intent)
-                },
-                onToggleLiveUpdates = onToggleLessonStartNotificationLiveUpdates,
-                onToggleProgressCountsDown = onToggleLessonStartNotificationProgressCountsDown,
-                onUpdateLiveUpdateEarlyMinutes = onUpdateLessonStartNotificationLiveUpdateEarlyMinutes,
-                onUpdateChipMode = onUpdateLessonStartNotificationChipMode,
-                onMinutesBeforeChange = { lessonStartNotificationMinutesBefore = it },
-                onAddExclusion = onAddLessonNotificationExclusion,
-                onDeleteExclusion = onDeleteLessonNotificationExclusion
-            )
-        }
-        return
-    }
-
-    AnimatedContent(
-        targetState = timetableSettingsPage,
-        transitionSpec = {
-            if (targetState == null) {
-                slideInHorizontally { -it / 2 } + fadeIn() togetherWith
-                    slideOutHorizontally { it } + fadeOut()
-            } else {
-                slideInHorizontally { it } + fadeIn() togetherWith
-                    slideOutHorizontally { -it / 2 } + fadeOut()
+                        context.startActivity(intent)
+                    },
+                    onOpenPromotedNotificationSettings = {
+                        val intent = if (Build.VERSION.SDK_INT >= 36) {
+                            Intent(Settings.ACTION_APP_NOTIFICATION_PROMOTION_SETTINGS)
+                                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                        } else {
+                            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                        }
+                        context.startActivity(intent)
+                    },
+                    onToggleLiveUpdates = onToggleLessonStartNotificationLiveUpdates,
+                    onToggleProgressCountsDown = onToggleLessonStartNotificationProgressCountsDown,
+                    onUpdateLiveUpdateEarlyMinutes = onUpdateLessonStartNotificationLiveUpdateEarlyMinutes,
+                    onUpdateChipMode = onUpdateLessonStartNotificationChipMode,
+                    onMinutesBeforeChange = { lessonStartNotificationMinutesBefore = it },
+                    onAddExclusion = onAddLessonNotificationExclusion,
+                    onDeleteExclusion = onDeleteLessonNotificationExclusion
+                )
             }
-        },
-        label = "timetable-settings-navigation"
-    ) { page ->
-        if (page != null) {
-            val onReturnToTimetableSettings = { onTimetableSettingsPageChange(null) }
+        } else if (destinationPage != SettingsDestination.OVERVIEW) {
+            val page = TimetableSettingsPage.valueOf(destinationPage.name)
+            val onReturnToTimetableSettings = { navigate(SettingsDestination.OVERVIEW) }
             when (page) {
                 TimetableSettingsPage.LESSON,
                 TimetableSettingsPage.EXAM -> Material3SettingsPresentation {
@@ -663,14 +649,14 @@ fun SettingsScreen(
                     SettingsNavigationCard(
                         title = stringResource(R.string.settings_timetable_time_editor_title),
                         description = stringResource(R.string.settings_time_editor_summary),
-                        onClick = { onTimetableSettingsPageChange(TimetableSettingsPage.LESSON) }
+                        onClick = { navigate(SettingsDestination.LESSON) }
                     )
                 }
                 item("exam-timetable-settings") {
                     SettingsNavigationCard(
                         title = stringResource(R.string.settings_exam_time_editor_title),
                         description = stringResource(R.string.desc_exam_timetable_settings),
-                        onClick = { onTimetableSettingsPageChange(TimetableSettingsPage.EXAM) }
+                        onClick = { navigate(SettingsDestination.EXAM) }
                     )
                 }
                 item("special-timetable-features") {
@@ -681,7 +667,7 @@ fun SettingsScreen(
                                 R.string.special_timetable_settings_description
                             else R.string.special_timetable_settings_release_description
                         ),
-                        onClick = { onTimetableSettingsPageChange(TimetableSettingsPage.SPECIAL) }
+                        onClick = { navigate(SettingsDestination.SPECIAL) }
                     )
                 }
             }
@@ -692,7 +678,7 @@ fun SettingsScreen(
 
             LessonStartNotificationSettingsEntry(
                 enabled = enabledLessonStartNotifications,
-                onOpenDetails = { showLessonNotificationSettings = true },
+                onOpenDetails = { navigate(SettingsDestination.LESSON_NOTIFICATIONS) },
                 onToggleEnabled = onToggleLessonStartNotifications
             )
         }

@@ -7,6 +7,8 @@ import kotlinx.coroutines.sync.withLock
 class ReminderDeliveryGate {
     private val mutex = Mutex()
 
+    suspend fun <T> exclusively(action: suspend () -> T): T = mutex.withLock { action() }
+
     suspend fun deliverOnce(
         signature: String,
         readDelivered: () -> String?,

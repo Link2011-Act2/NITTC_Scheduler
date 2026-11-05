@@ -100,13 +100,13 @@ internal fun LessonStartNotificationSettingsContent(
             SettingsSection(stringResource(R.string.lesson_notification_live_settings)) {
                 item("early-minutes") {
                     ListSettingRow(
-                        title = stringResource(R.string.lesson_notification_live_display_timing),
+                        title = stringResource(R.string.label_lesson_start_live_update_early_minutes),
                         value = liveUpdateEarlyMinutes, options = listOf(0, 1, 2, 3, 5),
                         optionLabel = { minutes ->
                             if (minutes == 0) stringResource(R.string.lesson_start_live_update_early_none)
                             else stringResource(R.string.lesson_start_live_update_early_value, minutes)
                         },
-                        summary = stringResource(R.string.lesson_notification_live_display_timing_summary),
+                        summary = stringResource(R.string.desc_lesson_start_live_update_early_minutes),
                         onSelect = onUpdateLiveUpdateEarlyMinutes)
                 }
                 item("progress-direction") {

@@ -127,9 +127,22 @@ fun AppTheme(
             UiDesignMode.MATERIAL_3_EXPRESSIVE -> PyriteTheme(
                 style = PyriteStyle.Material3Expressive,
                 darkTheme = darkTheme,
-                dynamicColor = dynamicColor,
-                content = stableContent
-            )
+                dynamicColor = dynamicColor
+            ) {
+                // エラー系4ロールだけ通常M3と共有し、Pyriteのテーマとスタイルを引き継ぐ。
+                MaterialTheme(
+                    colorScheme = MaterialTheme.colorScheme.copy(
+                        error = colorScheme.error,
+                        onError = colorScheme.onError,
+                        errorContainer = colorScheme.errorContainer,
+                        onErrorContainer = colorScheme.onErrorContainer
+                    ),
+                    typography = MaterialTheme.typography,
+                    shapes = MaterialTheme.shapes,
+                    motionScheme = MaterialTheme.motionScheme,
+                    content = stableContent
+                )
+            }
         }
     }
 }

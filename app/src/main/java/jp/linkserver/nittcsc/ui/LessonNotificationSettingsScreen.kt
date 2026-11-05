@@ -1,6 +1,5 @@
 package jp.linkserver.nittcsc.ui
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
@@ -33,7 +32,6 @@ internal fun LessonStartNotificationSettingsScreen(
     onBack: () -> Unit,
     content: @Composable () -> Unit
 ) {
-    BackHandler(onBack = onBack)
     AppSettingsScaffold(
         title = stringResource(R.string.label_lesson_start_notification),
         onBack = onBack,
