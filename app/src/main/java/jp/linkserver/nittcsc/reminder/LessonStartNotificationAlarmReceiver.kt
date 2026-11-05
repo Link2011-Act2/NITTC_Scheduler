@@ -13,7 +13,9 @@ class LessonStartNotificationAlarmReceiver : BroadcastReceiver() {
         val slotIndex = intent.getIntExtra(EXTRA_SLOT_INDEX, -1)
         if (slotIndex < 0) return
 
-        LessonStartNotificationWorker.enqueueNow(context.applicationContext, date, slotIndex)
+        LessonStartNotificationWorker.enqueueNow(context.applicationContext, date, slotIndex,
+            intent.getBooleanExtra(LessonStartNotificationWorker.KEY_LIVE, false),
+            intent.getStringExtra(LessonStartNotificationWorker.KEY_SIGNATURE))
     }
 
     companion object {

@@ -18,6 +18,7 @@ class WidgetUpdateWorker(
 
     override suspend fun doWork(): Result {
         return try {
+            jp.linkserver.nittcsc.reminder.NotificationScheduleCoordinator.refresh(applicationContext)
             WidgetUpdater.updateAll(applicationContext)
             Result.success()
         } catch (e: Exception) {

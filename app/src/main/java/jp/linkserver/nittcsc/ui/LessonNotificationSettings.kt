@@ -11,6 +11,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.FilledTonalButton
+import jp.linkserver.pyrite.settings.SettingsMasterSwitch
+import jp.linkserver.nittcsc.ui.components.SettingsSection
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -32,14 +36,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import jp.linkserver.pyrite.settings.SettingsButtonItem
 import jp.linkserver.pyrite.settings.SettingsContentCard
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.LessonNotificationExclusionEntity
 import jp.linkserver.nittcsc.data.LessonStartNotificationChipMode
 import jp.linkserver.nittcsc.logic.updateTeacherAutoFill
-import jp.linkserver.nittcsc.ui.components.AppSettingsGroup
-import jp.linkserver.nittcsc.ui.components.AppSettingsExpandableItem
 import jp.linkserver.nittcsc.ui.components.NavigationPreferenceRow
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -69,20 +70,12 @@ internal fun LessonStartNotificationSettingsContent(
     onDeleteExclusion: (LessonNotificationExclusionEntity) -> Unit
 ) {
     var showExclusionEditor by rememberSaveable { mutableStateOf(false) }
-    var showLiveUpdateDisplayDetails by rememberSaveable { mutableStateOf(false) }
-
-    AppSettingsGroup {
-        item("enabled") {
-            SettingsSwitchRow(
-                stringResource(R.string.label_lesson_start_notification),
-                stringResource(R.string.desc_lesson_start_notification), enabled,
-                onCheckedChange = onToggleEnabled
-            )
-        }
-        if (enabled) {
+    Column(verticalArrangement = Arrangement.spacedBy(28.dp)) {
+        SettingsMasterSwitch(stringResource(R.string.label_lesson_start_notification), enabled, onToggleEnabled)
+        SettingsSection(stringResource(R.string.lesson_notification_basic_settings)) {
             item("minutes") {
                 NumberSettingRow(stringResource(R.string.label_lesson_start_notification_minutes),
-                    minutesBefore, stringResource(R.string.unit_minutes_before), onMinutesBeforeChange)
+                    minutesBefore, stringResource(R.string.unit_minutes_before), onMinutesBeforeChange, enabled = enabled)
             }
             if (!notificationsEnabled) {
                 item("notification-permission") {
@@ -90,108 +83,90 @@ internal fun LessonStartNotificationSettingsContent(
                         stringResource(R.string.warning_notifications_disabled), onOpenNotificationSettings)
                 }
             }
-            if (liveUpdatesEnabled && liveUpdatesSupported && !promotedNotificationsEnabled) {
+            item("live-updates") {
+                SettingsSwitchRow(stringResource(R.string.label_lesson_start_live_updates),
+                    stringResource(if (liveUpdatesSupported) R.string.desc_lesson_start_live_updates
+                        else R.string.desc_lesson_start_live_updates_unavailable),
+                    liveUpdatesEnabled, enabled = enabled && liveUpdatesSupported, onCheckedChange = onToggleLiveUpdates)
+            }
+            if (enabled && liveUpdatesEnabled && liveUpdatesSupported && !promotedNotificationsEnabled) {
                 item("promoted-permission") {
                     NavigationPreferenceRow(stringResource(R.string.btn_open_live_updates_settings),
                         stringResource(R.string.warning_promoted_notifications_disabled), onOpenPromotedNotificationSettings)
                 }
             }
-            item("live-updates") {
-                SettingsSwitchRow(
-                    stringResource(R.string.label_lesson_start_live_updates),
-                    stringResource(if (liveUpdatesSupported) R.string.desc_lesson_start_live_updates
-                        else R.string.desc_lesson_start_live_updates_unavailable),
-                    liveUpdatesEnabled, enabled = liveUpdatesSupported, onCheckedChange = onToggleLiveUpdates
-                )
-            }
-            if (liveUpdatesEnabled && liveUpdatesSupported) {
+        }
+        if (enabled && liveUpdatesEnabled && liveUpdatesSupported) {
+            SettingsSection(stringResource(R.string.lesson_notification_live_settings)) {
                 item("early-minutes") {
                     ListSettingRow(
-                        title = stringResource(R.string.label_lesson_start_live_update_early_minutes),
-                        value = liveUpdateEarlyMinutes,
-                        options = listOf(0, 1, 2, 3, 5),
+                        title = stringResource(R.string.lesson_notification_live_display_timing),
+                        value = liveUpdateEarlyMinutes, options = listOf(0, 1, 2, 3, 5),
                         optionLabel = { minutes ->
                             if (minutes == 0) stringResource(R.string.lesson_start_live_update_early_none)
                             else stringResource(R.string.lesson_start_live_update_early_value, minutes)
                         },
-                        summary = stringResource(R.string.desc_lesson_start_live_update_early_minutes),
-                        onSelect = onUpdateLiveUpdateEarlyMinutes
-                    )
+                        summary = stringResource(R.string.lesson_notification_live_display_timing_summary),
+                        onSelect = onUpdateLiveUpdateEarlyMinutes)
                 }
-                item("display-details") {
-                    AppSettingsExpandableItem(
-                        stringResource(R.string.label_lesson_start_live_update_display_details),
-                        stringResource(R.string.desc_lesson_start_live_update_display_details),
-                        showLiveUpdateDisplayDetails,
-                        { showLiveUpdateDisplayDetails = !showLiveUpdateDisplayDetails }
-                    )
+                item("progress-direction") {
+                    ListSettingRow(title = stringResource(R.string.label_lesson_start_progress_direction),
+                        value = progressCountsDown, options = listOf(false, true),
+                        optionLabel = { stringResource(if (it) R.string.label_lesson_start_progress_decreasing
+                            else R.string.label_lesson_start_progress_increasing) },
+                        optionSummary = { stringResource(if (it) R.string.desc_lesson_start_progress_decreasing
+                            else R.string.desc_lesson_start_progress_increasing) },
+                        onSelect = onToggleProgressCountsDown)
                 }
-                if (showLiveUpdateDisplayDetails) {
-                    item("progress-direction") {
-                        ListSettingRow(
-                            title = stringResource(R.string.label_lesson_start_progress_direction),
-                            value = progressCountsDown,
-                            options = listOf(false, true),
-                            optionLabel = { stringResource(if (it) R.string.label_lesson_start_progress_decreasing
-                                else R.string.label_lesson_start_progress_increasing) },
-                            optionSummary = { stringResource(if (it) R.string.desc_lesson_start_progress_decreasing
-                                else R.string.desc_lesson_start_progress_increasing) },
-                            onSelect = onToggleProgressCountsDown
-                        )
-                    }
-                    item("chip-mode") {
-                        ListSettingRow(
-                            title = stringResource(R.string.label_lesson_start_chip_mode),
-                            value = chipMode,
-                            options = listOf(LessonStartNotificationChipMode.CHRONOMETER, LessonStartNotificationChipMode.MINUTE_TEXT),
-                            optionLabel = { stringResource(if (it == LessonStartNotificationChipMode.CHRONOMETER)
-                                R.string.label_lesson_start_chip_mode_chronometer else R.string.label_lesson_start_chip_mode_minute_text) },
-                            optionSummary = { stringResource(if (it == LessonStartNotificationChipMode.CHRONOMETER)
-                                R.string.desc_lesson_start_chip_mode_chronometer else R.string.desc_lesson_start_chip_mode_minute_text) },
-                            onSelect = onUpdateChipMode
-                        )
-                    }
-                }
-            }
-            item("add-exclusion") {
-                NavigationPreferenceRow(
-                    stringResource(R.string.btn_add_lesson_start_notification_exclusion),
-                    stringResource(R.string.desc_lesson_start_notification_exclusions),
-                    { showExclusionEditor = true }
-                )
-            }
-            if (exclusions.isEmpty()) {
-                item("no-exclusions") {
-                    SettingsContentCard {
-                        Text(stringResource(R.string.msg_no_lesson_start_notification_exclusions),
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            } else {
-                item("exclusions-heading") {
-                    SettingsContentCard {
-                        Text(stringResource(R.string.label_lesson_start_notification_exclusions),
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                    }
-                }
-                exclusions.forEach { exclusion ->
-                    item("exclusion-${exclusion.id}") {
-                        SettingsButtonItem(
-                            title = exclusion.subject,
-                            summary = if (exclusion.matchTeacher && !exclusion.teacher.isNullOrBlank())
-                                stringResource(R.string.label_lesson_start_notification_exclusion_teacher, exclusion.teacher) else null,
-                            actionLabel = stringResource(R.string.btn_delete),
-                            onClick = { onDeleteExclusion(exclusion) }
-                        )
-                    }
+                item("chip-mode") {
+                    ListSettingRow(title = stringResource(R.string.label_lesson_start_chip_mode),
+                        value = chipMode,
+                        options = listOf(LessonStartNotificationChipMode.CHRONOMETER, LessonStartNotificationChipMode.MINUTE_TEXT),
+                        optionLabel = { stringResource(if (it == LessonStartNotificationChipMode.CHRONOMETER)
+                            R.string.label_lesson_start_chip_mode_chronometer else R.string.label_lesson_start_chip_mode_minute_text) },
+                        optionSummary = { stringResource(if (it == LessonStartNotificationChipMode.CHRONOMETER)
+                            R.string.desc_lesson_start_chip_mode_chronometer else R.string.desc_lesson_start_chip_mode_minute_text) },
+                        onSelect = onUpdateChipMode)
                 }
             }
         }
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SettingsSection(stringResource(R.string.lesson_notification_excluded_lessons)) {
+                if (exclusions.isEmpty()) {
+                    item("no-exclusions") {
+                        SettingsContentCard {
+                            Text(stringResource(R.string.msg_no_lesson_start_notification_exclusions),
+                                modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                } else exclusions.forEach { exclusion ->
+                    item("exclusion-${exclusion.id}") {
+                        SettingsContentCard {
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(exclusion.subject, style = MaterialTheme.typography.bodyLarge)
+                                    if (exclusion.matchTeacher && !exclusion.teacher.isNullOrBlank()) {
+                                        Text(stringResource(R.string.label_lesson_start_notification_exclusion_teacher, exclusion.teacher),
+                                            style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                }
+                                TextButton(onClick = { onDeleteExclusion(exclusion) }, enabled = enabled) {
+                                    Text(stringResource(R.string.btn_delete))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            FilledTonalButton(onClick = { showExclusionEditor = true }, enabled = enabled) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                Text(stringResource(R.string.lesson_notification_add_exclusion))
+            }
+        }
     }
-    if (showExclusionEditor) {
+    if (enabled && showExclusionEditor) {
         LessonNotificationExclusionDialog(subjectSuggestions, subjectTeacherCandidates,
             onDismiss = { showExclusionEditor = false }, onAdd = onAddExclusion)
     }

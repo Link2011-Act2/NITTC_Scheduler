@@ -23,6 +23,25 @@ import org.junit.Test
 
 class PyriteNotificationMigrationTest {
     @get:Rule val compose = createComposeRule()
+    @Test fun additionKeepsSubjectSearchTeacherCompletionAndTeacherMatching() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        var added: Triple<String, String?, Boolean>? = null
+        compose.setContent {
+            AppTheme(UiDesignMode.MATERIAL_3_EXPRESSIVE, darkTheme = true) {
+                Column(Modifier.width(320.dp).verticalScroll(rememberScrollState())) {
+                    LessonStartNotificationSettingsContent(true, true, true, false, true, false, 1,
+                        LessonStartNotificationChipMode.MINUTE_TEXT, "10", emptyList(), listOf("数学"), mapOf("数学" to listOf("先生")),
+                        {}, {}, {}, {}, {}, {}, {}, {}, { subject, teacher, match -> added = Triple(subject, teacher, match) }, {})
+                }
+            }
+        }
+        compose.onNodeWithText(context.getString(R.string.lesson_notification_add_exclusion)).performScrollTo().performClick()
+        compose.onNode(hasSetTextAction() and hasText(context.getString(R.string.label_task_subject))).performTextInput("数学")
+        compose.onNodeWithText(context.getString(R.string.label_lesson_start_notification_match_teacher)).performScrollTo().performClick()
+        compose.onNode(hasSetTextAction() and hasText(context.getString(R.string.label_task_teacher))).assertTextContains("先生")
+        compose.onNode(hasClickAction() and hasText(context.getString(R.string.btn_add_lesson_start_notification_exclusion))).performClick()
+        compose.runOnIdle { assertEquals(Triple("数学", "先生", true), added) }
+    }
     @Test fun deleteButtonIsIndependentAndConditionalGroupRecomputesAtLargeFonts() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         var deletes = 0

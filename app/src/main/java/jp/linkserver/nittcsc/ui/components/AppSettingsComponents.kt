@@ -423,7 +423,11 @@ private fun AppSettingsActionItem(
 
 /** 値は要約として表示し、編集UIはタップしたときだけ開く。 */
 @Composable
-fun ValuePreferenceRow(title: String, value: String, onClick: () -> Unit, summary: String? = null) {
+fun ValuePreferenceRow(title: String, value: String, onClick: () -> Unit, summary: String? = null, enabled: Boolean = true) {
+    if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+        SettingsActionItem(title, onClick, summary = listOfNotNull(value.takeIf { it.isNotBlank() }, summary).joinToString("\n"), enabled = enabled)
+        return
+    }
     PreferenceRow(title = title, summary = listOfNotNull(value.takeIf { it.isNotBlank() }, summary).joinToString("\n"), onClick = onClick)
 }
 

@@ -45,3 +45,11 @@ fun <T> findUpcomingLesson(
     }
     return UpcomingLessonSelection(candidate = candidate, phase = phase)
 }
+
+/** カード専用。共通の次の授業検索（ウィジェットなど）の検索範囲は変えない。 */
+fun <T> findTodaysUpcomingLesson(
+    candidates: Iterable<UpcomingLessonCandidate<T>>,
+    now: LocalDateTime,
+    displayedDate: LocalDate
+): UpcomingLessonSelection<T>? = if (displayedDate != now.toLocalDate()) null else
+    findUpcomingLesson(candidates.filter { it.date == now.toLocalDate() }, now)

@@ -69,6 +69,7 @@ data class InitialSetupDraft(
             useKosenMode = labelStyle == PeriodLabelStyle.PAIR_KOSHI,
             arrivalHour = if (tsuruokaPreset) 8 else -1,
             arrivalMinute = if (tsuruokaPreset) 30 else -1,
+            arrivalTimeAuto = true,
             departureHour = -1, departureMinute = -1,
             examPeriodsPerDay = testTime.count, examFirstPeriodStartHour = testTime.hour,
             examFirstPeriodStartMinute = testTime.minute, examPeriodDurationMin = testTime.duration,

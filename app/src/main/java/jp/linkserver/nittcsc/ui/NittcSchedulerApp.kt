@@ -200,9 +200,6 @@ import jp.linkserver.nittcsc.logic.ExportResult
 import jp.linkserver.nittcsc.logic.LessonKey
 import jp.linkserver.nittcsc.logic.NaturalLanguageTaskParser
 import jp.linkserver.nittcsc.logic.TimetableTerm
-import jp.linkserver.nittcsc.logic.UpcomingLessonCandidate
-import jp.linkserver.nittcsc.logic.UpcomingLessonPhase
-import jp.linkserver.nittcsc.logic.UpcomingLessonSelection
 import jp.linkserver.nittcsc.logic.academicYearEnd
 import jp.linkserver.nittcsc.logic.academicYearForDate
 import jp.linkserver.nittcsc.logic.academicYearStart
@@ -213,7 +210,9 @@ import jp.linkserver.nittcsc.logic.shouldUseTwoPaneLayout
 import jp.linkserver.nittcsc.logic.buildLessonAutocompleteOptions
 import jp.linkserver.nittcsc.logic.updateTeacherAutoFill
 import jp.linkserver.nittcsc.logic.findTaskLessonSlotIndex
-import jp.linkserver.nittcsc.logic.findUpcomingLesson
+import jp.linkserver.nittcsc.logic.findTodaysUpcomingLesson
+import jp.linkserver.nittcsc.data.EffectiveSchoolSchedule
+import jp.linkserver.nittcsc.data.departureTime
 import jp.linkserver.nittcsc.logic.formatExamPeriodLabel
 import jp.linkserver.nittcsc.logic.forExamTimetable
 import jp.linkserver.nittcsc.logic.generateClassSlots
@@ -229,7 +228,6 @@ import jp.linkserver.nittcsc.logic.usesNoLessonAppearance
 import jp.linkserver.nittcsc.ml.ModelDownloadManager
 import jp.linkserver.nittcsc.ml.VlmInferenceEngine
 import jp.linkserver.nittcsc.ml.VlmInferenceService
-import jp.linkserver.nittcsc.reminder.LessonStartNotificationWorker
 import jp.linkserver.nittcsc.reminder.PlanReminderWorker
 import jp.linkserver.nittcsc.reminder.TaskReminderWorker
 import jp.linkserver.nittcsc.ui.components.AppBottomNavigation
@@ -241,7 +239,6 @@ import jp.linkserver.nittcsc.ui.components.AppIconButton
 import jp.linkserver.nittcsc.ui.components.AppSplitButton
 import jp.linkserver.nittcsc.ui.components.AppTopAppBar
 import jp.linkserver.nittcsc.ui.components.AppVibrantFabMenu
-import jp.linkserver.nittcsc.ui.theme.ExpressiveLessonHeroShape
 import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
 import jp.linkserver.nittcsc.ui.theme.Typography as StandardTypography
 import jp.linkserver.nittcsc.viewmodel.SchedulerUiState
@@ -930,7 +927,6 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
     ) {
         if (uiState.initialized) {
             delay(300)
-            LessonStartNotificationWorker.rescheduleAll(context)
             jp.linkserver.nittcsc.widget.WidgetUpdater.updateAll(context)
         }
     }
@@ -984,7 +980,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
         if (isGranted) {
             android.util.Log.d("NittcSchedulerApp", "通知権限が許可されました")
             appScope.launch {
-                LessonStartNotificationWorker.rescheduleAll(context)
+                jp.linkserver.nittcsc.reminder.NotificationScheduleCoordinator.refresh(context)
             }
         } else {
             android.util.Log.w("NittcSchedulerApp", "通知権限が拒否されました")
@@ -3608,49 +3604,15 @@ private fun OutputScreen(
     }
     val useExpressiveDesign = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
     val currentDateTime = rememberCurrentDateTime(useExpressiveDesign)
-    val upcomingLesson = if (currentDateTime != null) {
-        val termStart = state.settings?.termStart ?: today
-        val termEnd = state.settings?.termEnd ?: today.plusDays(14)
-        val searchStart = maxOf(today, termStart)
-        val searchEnd = minOf(today.plusDays(14), termEnd)
-        val candidates = if (searchStart <= searchEnd) {
-            buildList {
-                var date = searchStart
-                while (!date.isAfter(searchEnd)) {
-                    val isExamDate = isExamScheduleDate(date)
-                    if (isExamDate || dayTypeForDate(date) != DayType.HOLIDAY) {
-                        val slots = if (isExamDate) examSlotsForDate(date) else classSlots
-                        slots.forEach { slot ->
-                            if (!isExamDate && isLessonCancelled(date, slot.index)) return@forEach
-                            val lesson = if (isExamDate) {
-                                resolveExamLesson(date, slot.index)
-                            } else {
-                                resolveLesson(date, slot.index)
-                            }
-                            if (lesson?.subject?.isNotBlank() == true) {
-                                add(
-                                    UpcomingLessonCandidate(
-                                        date = date,
-                                        slotIndex = slot.index,
-                                        slotLabel = slot.label,
-                                        start = slot.start,
-                                        end = slot.end,
-                                        content = lesson
-                                    )
-                                )
-                            }
-                        }
-                    }
-                    date = date.plusDays(1)
-                }
-            }
-        } else {
-            emptyList()
+    val schoolSchedule = remember(state.settings, state.lessons, state.dayTypeEntities,
+        state.changedLessons, state.cancelledLessons, state.examLessons, state.examDaySchedules) {
+        state.settings?.let { settings ->
+            EffectiveSchoolSchedule(settings, state.dayTypeEntities, state.lessons.values.toList(),
+                state.changedLessons, state.cancelledLessons, state.examDaySchedules, examLessonsByDate)
         }
-        findUpcomingLesson(candidates, currentDateTime)
-    } else {
-        null
     }
+    val todayCandidates = remember(schoolSchedule, today) { schoolSchedule?.lessonsOn(today).orEmpty() }
+    val upcomingLesson = currentDateTime?.let { findTodaysUpcomingLesson(todayCandidates, it, today) }
     val visibleDates = if (displayMode == OutputDisplayMode.DAY) {
         listOf(selectedDate)
     } else {
@@ -3674,18 +3636,8 @@ private fun OutputScreen(
         }
     }
 
-    val arrivalMin: Int? = remember(state.settings, classSlots) {
-        val s = state.settings
-        if (s != null && s.arrivalHour >= 0) s.arrivalHour * 60 + s.arrivalMinute
-        else 8 * 60 + 30
-    }
-    val departureMin: Int? = remember(state.settings, classSlots) {
-        val s = state.settings
-        if (s != null && s.departureHour >= 0) s.departureHour * 60 + s.departureMinute
-        else classSlots.lastOrNull()?.let { slot ->
-            val endH = slot.end.hour + if (slot.end.minute > 0) 1 else 0
-            endH * 60
-        }
+    val departureMin = remember(state.settings, classSlots) {
+        state.settings?.departureTime()?.let { it.hour * 60 + it.minute }
     }
 
     var showResultDatePicker by rememberSaveable { mutableStateOf(false) }
@@ -3822,29 +3774,6 @@ private fun OutputScreen(
                 }
                 }
             }
-            if (
-                useExpressiveDesign &&
-                currentDateTime != null &&
-                displayMode == OutputDisplayMode.DAY &&
-                selectedDate == today &&
-                upcomingLesson != null
-            ) {
-                item(key = "expressive-upcoming-lesson") {
-                    ExpressiveUpcomingLessonHero(
-                        selection = upcomingLesson,
-                        now = currentDateTime,
-                        onClick = if (upcomingLesson.candidate.date != today) {
-                            {
-                                displayMode = OutputDisplayMode.DAY
-                                onPickDate(upcomingLesson.candidate.date)
-                            }
-                        } else {
-                            null
-                        }
-                    )
-                }
-        }
-
         item {
                 val pagerPageCount = 51
                 val centerPage = pagerPageCount / 2
@@ -3934,7 +3863,6 @@ private fun OutputScreen(
                             val pagePlans = plansByDueDate[pageDate].orEmpty()
                             val isExamDate = isExamScheduleDate(pageDate)
                             val pageClassSlots = if (isExamDate) examSlotsForDate(pageDate) else classSlots
-                            val examSchedule = state.examDaySchedules[pageDate]
                             val examMemos = if (isExamDate) {
                                 examLessonsByDate[pageDate]
                                     .orEmpty()
@@ -3945,46 +3873,45 @@ private fun OutputScreen(
                             } else {
                                 emptyMap()
                             }
-                            DayScheduleTable(
-                                date = pageDate,
-                                dayType = dayTypeForDate(pageDate),
-                                resolveLesson = { date, slotIndex ->
-                                    if (isExamDate && date == pageDate) {
-                                        resolveExamLesson(date, slotIndex)
-                                    } else {
-                                        resolveLesson(date, slotIndex)
-                                    }
-                                },
-                                resolveOriginalLesson = resolveOriginalLesson,
-                                changedLessonForDate = changedLessonForDate,
-                                tasks = pageTasks,
-                                plans = pagePlans,
-                                lessonNotes = lessonNotes,
-                                lessonNotesEnabled = lessonNotesEnabled,
-                                onOpenTask = onOpenTask,
-                                onOpenPlan = onOpenPlan,
-                                classSlots = pageClassSlots,
-                                arrivalMin = if (isExamDate && examSchedule != null) {
-                                    examSchedule.arrivalHour * 60 + examSchedule.arrivalMinute
-                                } else {
-                                    arrivalMin
-                                },
-                                departureMin = if (isExamDate) null else departureMin,
-                                isExamSchedule = isExamDate,
-                                examMemos = examMemos,
-                                showCurrentTimeMarker = showCurrentTimeMarker && pageDate == today,
-                                showTaskPlanDetails = shouldRenderPageDetails,
-                                onAddFromLesson = onAddFromLesson,
-                                onSetLessonCancelled = onSetLessonCancelled,
-                                onEditChangedLesson = onEditChangedLesson,
-                                onSaveLessonNote = onSaveLessonNote,
-                                onDeleteLessonNote = onDeleteLessonNote,
-                                onSaveExamMemo = onSaveExamMemo,
-                                isLessonCancelled = isLessonCancelled,
-                                requestedSlotIndex = if (pageDate == selectedDate) requestedSlotIndex else null,
-                                onRequestedSlotHandled = onRequestedSlotHandled,
-                                modifier = Modifier.fillMaxWidth()
-                            )
+                            TimetableDayPage(pageDate, currentDateTime, upcomingLesson, useExpressiveDesign) {
+                                DayScheduleTable(
+                                    date = pageDate,
+                                    dayType = dayTypeForDate(pageDate),
+                                    resolveLesson = { date, slotIndex ->
+                                        if (isExamDate && date == pageDate) {
+                                            resolveExamLesson(date, slotIndex)
+                                        } else {
+                                            resolveLesson(date, slotIndex)
+                                        }
+                                    },
+                                    resolveOriginalLesson = resolveOriginalLesson,
+                                    changedLessonForDate = changedLessonForDate,
+                                    tasks = pageTasks,
+                                    plans = pagePlans,
+                                    lessonNotes = lessonNotes,
+                                    lessonNotesEnabled = lessonNotesEnabled,
+                                    onOpenTask = onOpenTask,
+                                    onOpenPlan = onOpenPlan,
+                                    classSlots = pageClassSlots,
+                                    arrivalMin = remember(schoolSchedule, pageDate) { schoolSchedule?.arrivalTime(pageDate) }
+                                        ?.let { it.hour * 60 + it.minute },
+                                    departureMin = if (isExamDate) null else departureMin,
+                                    isExamSchedule = isExamDate,
+                                    examMemos = examMemos,
+                                    showCurrentTimeMarker = showCurrentTimeMarker && pageDate == today,
+                                    showTaskPlanDetails = shouldRenderPageDetails,
+                                    onAddFromLesson = onAddFromLesson,
+                                    onSetLessonCancelled = onSetLessonCancelled,
+                                    onEditChangedLesson = onEditChangedLesson,
+                                    onSaveLessonNote = onSaveLessonNote,
+                                    onDeleteLessonNote = onDeleteLessonNote,
+                                    onSaveExamMemo = onSaveExamMemo,
+                                    isLessonCancelled = isLessonCancelled,
+                                    requestedSlotIndex = if (pageDate == selectedDate) requestedSlotIndex else null,
+                                    onRequestedSlotHandled = onRequestedSlotHandled,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
                         } else {
                             val pageWeekStart = pageDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
                             val pageWeekDates = remember(pageDate) {
@@ -4068,213 +3995,6 @@ private fun OutputScreen(
             }
         }
 
-    }
-}
-
-@Composable
-private fun ExpressiveUpcomingLessonHero(
-    selection: UpcomingLessonSelection<ResolvedLesson>,
-    now: LocalDateTime,
-    onClick: (() -> Unit)?
-) {
-    val candidate = selection.candidate
-    val isOngoing = selection.phase == UpcomingLessonPhase.ONGOING
-    val containerColor = if (isOngoing) {
-        MaterialTheme.colorScheme.tertiaryContainer
-    } else {
-        MaterialTheme.colorScheme.primaryContainer
-    }
-    val contentColor = if (isOngoing) {
-        MaterialTheme.colorScheme.onTertiaryContainer
-    } else {
-        MaterialTheme.colorScheme.onPrimaryContainer
-    }
-    val transitionAt = if (isOngoing) candidate.endsAt else candidate.startsAt
-    val remainingMinutes = Duration.between(now, transitionAt).toMinutes().coerceAtLeast(1L)
-    val remainingDays = remainingMinutes / (24L * 60L)
-    val remainingHours = (remainingMinutes % (24L * 60L)) / 60L
-    val trailingMinutes = remainingMinutes % 60L
-    val remainingText = when {
-        remainingDays > 0L && remainingHours > 0L -> stringResource(
-            R.string.m3e_duration_days_hours,
-            remainingDays,
-            remainingHours
-        )
-        remainingDays > 0L -> stringResource(R.string.m3e_duration_days, remainingDays)
-        remainingHours > 0L && trailingMinutes > 0L -> stringResource(
-            R.string.m3e_duration_hours_minutes,
-            remainingHours,
-            trailingMinutes
-        )
-        remainingHours > 0L -> stringResource(R.string.m3e_duration_hours, remainingHours)
-        else -> stringResource(R.string.m3e_duration_minutes, remainingMinutes)
-    }
-    val countdownText = stringResource(
-        if (isOngoing) R.string.m3e_lesson_ends_in else R.string.m3e_lesson_starts_in,
-        remainingText
-    )
-    val dateLabel = if (candidate.date == now.toLocalDate()) {
-        stringResource(R.string.m3e_lesson_today)
-    } else {
-        stringResource(
-            R.string.m3e_lesson_date,
-            candidate.date.monthValue,
-            candidate.date.dayOfMonth,
-            stringResource(dayOfWeekRes(candidate.date.dayOfWeek))
-        )
-    }
-    val timeFormatter = remember { DateTimeFormatter.ofPattern("H:mm") }
-    val scheduleText = stringResource(
-        R.string.m3e_lesson_date_time,
-        dateLabel,
-        candidate.slotLabel,
-        candidate.start.format(timeFormatter),
-        candidate.end.format(timeFormatter)
-    )
-    val supportingText = listOfNotNull(
-        candidate.content.teacher.trim().takeIf { it.isNotBlank() },
-        candidate.content.location?.trim()?.takeIf { it.isNotBlank() }
-    ).joinToString(" ・ ")
-
-    val clickableModifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .animateContentSize(animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec())
-            .then(clickableModifier),
-        shape = ExpressiveLessonHeroShape,
-        color = containerColor,
-        contentColor = contentColor,
-        tonalElevation = 4.dp,
-        shadowElevation = 2.dp
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Surface(
-                    shape = CircleShape,
-                    color = contentColor.copy(alpha = 0.12f),
-                    contentColor = contentColor
-                ) {
-                    Text(
-                        text = stringResource(
-                            if (isOngoing) R.string.m3e_lesson_ongoing else R.string.m3e_lesson_next
-                        ),
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                }
-                Text(
-                    text = countdownText,
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                if (onClick != null) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = null
-                    )
-                }
-            }
-
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                val compact = maxWidth < 280.dp
-                if (compact) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Surface(
-                            modifier = Modifier.size(48.dp),
-                            shape = RoundedCornerShape(
-                                topStart = 18.dp,
-                                topEnd = 18.dp,
-                                bottomEnd = 6.dp,
-                                bottomStart = 18.dp
-                            ),
-                            color = contentColor,
-                            contentColor = containerColor
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Filled.School,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(26.dp)
-                                )
-                            }
-                        }
-                        Text(
-                            text = candidate.content.subject,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.ExtraBold,
-                            maxLines = 3,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = scheduleText,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        Surface(
-                            modifier = Modifier.size(58.dp),
-                            shape = RoundedCornerShape(
-                                topStart = 22.dp,
-                                topEnd = 22.dp,
-                                bottomEnd = 7.dp,
-                                bottomStart = 22.dp
-                            ),
-                            color = contentColor,
-                            contentColor = containerColor
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Filled.School,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(30.dp)
-                                )
-                            }
-                        }
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Text(
-                                text = candidate.content.subject,
-                                style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.ExtraBold,
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = scheduleText,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-                }
-            }
-
-            if (supportingText.isNotBlank()) {
-                Text(
-                    text = supportingText,
-                    style = MaterialTheme.typography.bodyLarge,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
     }
 }
 

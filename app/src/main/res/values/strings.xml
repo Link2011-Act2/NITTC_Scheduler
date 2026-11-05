@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="task_auto_reminder_tomorrow">「%1$s」の期日は明日です</string>
+    <string name="task_auto_reminder_today">「%1$s」の期日は今日です</string>
+    <string name="lesson_notification_basic_settings">基本設定</string>
+    <string name="lesson_notification_live_settings">ライブアップデートの詳細設定</string>
+    <string name="lesson_notification_live_display_timing">表示開始タイミング</string>
+    <string name="lesson_notification_live_display_timing_summary">通常の通知より何分早く表示を開始するかを設定します。カウントダウンは授業開始時刻まで続きます</string>
+    <string name="lesson_notification_excluded_lessons">通知しない授業</string>
+    <string name="lesson_notification_add_exclusion">通知しない授業を追加</string>
     <string name="app_name">NITTC Scheduler</string>
 
     <!-- Phase Labels -->
@@ -610,8 +618,8 @@
     <string name="m3e_duration_days">%1$d日</string>
     <string name="m3e_duration_days_hours">%1$d日%2$d時間</string>
     <string name="lesson_start_live_update_body">次は「%1$s」です。</string>
-    <string name="label_lesson_start_live_update_early_minutes">授業開始時間を早める</string>
-    <string name="desc_lesson_start_live_update_early_minutes">カウントダウン終了時刻を何分か早めます</string>
+    <string name="label_lesson_start_live_update_early_minutes">ライブアップデートの表示開始</string>
+    <string name="desc_lesson_start_live_update_early_minutes">通常の通知より何分早く表示を開始するかを設定します。カウントダウンは授業開始時刻まで続きます</string>
     <string name="lesson_start_live_update_early_none">早めない</string>
     <string name="lesson_start_live_update_early_value">%1$d分早める</string>
     <string name="lesson_start_live_update_chip_minutes">%1$d分</string>

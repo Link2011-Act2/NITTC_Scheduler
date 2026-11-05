@@ -13,9 +13,7 @@ import androidx.core.view.WindowCompat
 import jp.linkserver.nittcsc.data.AppDatabase
 import jp.linkserver.nittcsc.data.SchedulerRepository
 import jp.linkserver.nittcsc.data.UiDesignPreferences
-import jp.linkserver.nittcsc.reminder.LessonStartNotificationWorker
 import jp.linkserver.nittcsc.reminder.PlanReminderWorker
-import jp.linkserver.nittcsc.reminder.TaskReminderWorker
 import jp.linkserver.nittcsc.sync.LocalSyncManager
 import jp.linkserver.nittcsc.sync.NearbySyncManager
 import jp.linkserver.nittcsc.ui.NittcSchedulerApp
@@ -51,9 +49,7 @@ class MainActivity : ComponentActivity() {
         // WorkManager による定期ウィジェット更新をスケジュール
         WidgetUpdateWorker.schedule(this)
         lifecycleScope.launch {
-            TaskReminderWorker.rescheduleAll(this@MainActivity)
             PlanReminderWorker.rescheduleAll(this@MainActivity)
-            LessonStartNotificationWorker.rescheduleAll(this@MainActivity)
         }
     }
 
@@ -70,6 +66,7 @@ class MainActivity : ComponentActivity() {
         // 年度切替を先に反映してから、ウィジェットと同期を更新する
         lifecycleScope.launch {
             viewModel.refreshAcademicYear()
+            jp.linkserver.nittcsc.reminder.NotificationScheduleCoordinator.refresh(this@MainActivity)
             WidgetUpdater.updateTaskWidgets(this@MainActivity)
             WidgetUpdater.updateAll(this@MainActivity)
             viewModel.runAutoSync()

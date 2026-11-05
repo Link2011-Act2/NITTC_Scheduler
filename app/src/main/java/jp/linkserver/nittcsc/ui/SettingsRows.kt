@@ -49,7 +49,8 @@ internal fun TextSettingRow(
     summary: String? = null,
     unit: String = "",
     keyboardType: KeyboardType = KeyboardType.Text,
-    transform: (String) -> String = { it }
+    transform: (String) -> String = { it },
+    enabled: Boolean = true
 ) {
     var editing by rememberSaveable { mutableStateOf(false) }
     var draft by rememberSaveable { mutableStateOf("") }
@@ -57,9 +58,10 @@ internal fun TextSettingRow(
         title = label,
         value = if (value.isBlank()) stringResource(R.string.settings_value_unset) else "$value$unit",
         summary = summary,
+        enabled = enabled,
         onClick = { draft = value; editing = true }
     )
-    if (editing) {
+    if (editing && enabled) {
         AlertDialog(
             onDismissRequest = { editing = false },
             title = { Text(label) },
@@ -90,9 +92,9 @@ internal fun TextSettingRow(
 }
 
 @Composable
-internal fun NumberSettingRow(label: String, value: String, unit: String, onValueChange: (String) -> Unit) {
+internal fun NumberSettingRow(label: String, value: String, unit: String, onValueChange: (String) -> Unit, enabled: Boolean = true) {
     TextSettingRow(label, value, onValueChange, unit = unit, keyboardType = KeyboardType.Number,
-        transform = { it.filter(Char::isDigit).take(3) })
+        transform = { it.filter(Char::isDigit).take(3) }, enabled = enabled)
 }
 
 @Composable

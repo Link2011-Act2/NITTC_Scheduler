@@ -85,4 +85,15 @@ class UpcomingLessonTest {
     fun emptyCandidates_returnsNull() {
         assertNull(findUpcomingLesson<String>(emptyList(), LocalDateTime.of(date, LocalTime.NOON)))
     }
+
+    @Test fun todayCardDoesNotFallThroughToTomorrow() {
+        val tomorrow = first.copy(date = date.plusDays(1))
+        assertNull(findTodaysUpcomingLesson(listOf(first, second, tomorrow), second.endsAt, date))
+        assertEquals(tomorrow, findUpcomingLesson(listOf(tomorrow), second.endsAt)?.candidate)
+    }
+
+    @Test fun otherDatePageNeverHasTodayCard() {
+        assertNull(findTodaysUpcomingLesson(listOf(first), first.startsAt, date.minusDays(1)))
+        assertEquals(first, findTodaysUpcomingLesson(listOf(first), first.startsAt, date)?.candidate)
+    }
 }

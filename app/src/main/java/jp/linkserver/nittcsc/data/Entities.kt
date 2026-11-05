@@ -69,6 +69,7 @@ data class SettingsEntity(
     val showCurrentTimeMarker: Boolean = false,
     val arrivalHour: Int = 8,
     val arrivalMinute: Int = 30,
+    val arrivalTimeAuto: Boolean = true,
     val departureHour: Int = -1,
     val departureMinute: Int = -1,
     val unifyTaskPlanView: Boolean = false,

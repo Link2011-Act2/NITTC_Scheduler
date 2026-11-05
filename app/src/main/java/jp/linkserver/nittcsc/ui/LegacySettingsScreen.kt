@@ -233,8 +233,8 @@ internal fun LegacySettingsScreen(
     }
     var showPeriodLabelStyleMenu by rememberSaveable { mutableStateOf(false) }
     // 登下校時刻（空文字 = 未設定）
-    var arrivalHour by remember(s) { mutableStateOf(if ((s?.arrivalHour ?: -1) >= 0) s!!.arrivalHour.toString() else "") }
-    var arrivalMinute by remember(s) { mutableStateOf(if ((s?.arrivalMinute ?: -1) >= 0) s!!.arrivalMinute.toString().padStart(2,'0') else "") }
+    var arrivalHour by remember(s) { mutableStateOf(if (s?.arrivalTimeAuto == false && (s.arrivalHour >= 0)) s.arrivalHour.toString() else "") }
+    var arrivalMinute by remember(s) { mutableStateOf(if (s?.arrivalTimeAuto == false && (s.arrivalMinute >= 0)) s.arrivalMinute.toString().padStart(2,'0') else "") }
     var departureHour by remember(s) { mutableStateOf(if ((s?.departureHour ?: -1) >= 0) s!!.departureHour.toString() else "") }
     var departureMinute by remember(s) { mutableStateOf(if ((s?.departureMinute ?: -1) >= 0) s!!.departureMinute.toString().padStart(2,'0') else "") }
     var lessonStartNotificationMinutesBefore by remember(s?.lessonStartNotificationMinutesBefore) {
@@ -533,8 +533,8 @@ internal fun LegacySettingsScreen(
             s.firstPeriodStartHour != h ||
             s.firstPeriodStartMinute != m ||
             s.periodLabelStyle != periodLabelStyle ||
-            s.arrivalHour != ah ||
-            s.arrivalMinute != am ||
+            (if (s.arrivalTimeAuto) -1 else s.arrivalHour) != ah ||
+            (if (s.arrivalTimeAuto) -1 else s.arrivalMinute) != am ||
             s.departureHour != dh ||
             s.departureMinute != dm
 

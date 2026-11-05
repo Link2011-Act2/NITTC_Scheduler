@@ -300,8 +300,7 @@ class SettingsItemInteractionTest {
             }
         }
         composeRule.onNodeWithText(context.getString(R.string.label_lesson_start_notification)).performClick()
-        composeRule.onNodeWithText(context.getString(R.string.label_lesson_start_live_update_display_details))
-            .performScrollTo().performClick()
+        composeRule.onNodeWithText(context.getString(R.string.label_lesson_start_live_update_display_details)).assertDoesNotExist()
         composeRule.onNodeWithText(context.getString(R.string.label_lesson_start_progress_direction))
             .performScrollTo().performClick()
         composeRule.onNodeWithText(context.getString(R.string.label_lesson_start_progress_decreasing))
@@ -309,6 +308,16 @@ class SettingsItemInteractionTest {
         composeRule.runOnIdle { assertEquals(1, directionChanges) }
         composeRule.onNodeWithText(context.getString(R.string.label_lesson_start_notification))
             .performScrollTo().performClick().assertIsOff()
+        composeRule.onNodeWithText(context.getString(R.string.label_lesson_start_notification_minutes))
+            .performScrollTo().assertIsNotEnabled()
+        composeRule.onNodeWithText(context.getString(R.string.label_lesson_start_live_updates))
+            .performScrollTo().assertIsNotEnabled()
+        composeRule.onNodeWithText(context.getString(R.string.label_lesson_start_progress_direction)).assertDoesNotExist()
+        composeRule.onNodeWithText(context.getString(R.string.label_lesson_start_notification))
+            .performScrollTo().performClick().assertIsOn()
+        composeRule.onNodeWithText(context.getString(R.string.label_lesson_start_progress_decreasing))
+            .performScrollTo().assertIsDisplayed()
+        composeRule.runOnIdle { assertEquals(1, directionChanges) }
     }
 
     @Test

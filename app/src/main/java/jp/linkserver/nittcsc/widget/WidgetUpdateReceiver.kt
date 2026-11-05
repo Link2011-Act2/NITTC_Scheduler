@@ -22,7 +22,8 @@ class WidgetUpdateReceiver : BroadcastReceiver() {
             Intent.ACTION_MY_PACKAGE_REPLACED,
             Intent.ACTION_DATE_CHANGED,
             Intent.ACTION_TIME_CHANGED,
-            Intent.ACTION_TIMEZONE_CHANGED -> {
+            Intent.ACTION_TIMEZONE_CHANGED,
+            android.app.AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED -> {
                 // WorkManager の定期スケジュールを（再）登録
                 WidgetUpdateWorker.schedule(appContext)
 
@@ -30,9 +31,11 @@ class WidgetUpdateReceiver : BroadcastReceiver() {
                 val pendingResult = goAsync()
                 CoroutineScope(Dispatchers.IO).launch {
                     try {
-                        TaskReminderWorker.rescheduleAll(appContext)
+                        val clockChanged = intent.action == Intent.ACTION_TIME_CHANGED ||
+                            intent.action == Intent.ACTION_TIMEZONE_CHANGED || intent.action == Intent.ACTION_BOOT_COMPLETED
+                        TaskReminderWorker.rescheduleAll(appContext, forceWorkUpdate = clockChanged)
                         PlanReminderWorker.rescheduleAll(appContext)
-                        LessonStartNotificationWorker.rescheduleAll(appContext)
+                        LessonStartNotificationWorker.rescheduleAll(appContext, forceWorkUpdate = clockChanged)
                         WidgetUpdater.updateAll(appContext)
                     } finally {
                         pendingResult.finish()

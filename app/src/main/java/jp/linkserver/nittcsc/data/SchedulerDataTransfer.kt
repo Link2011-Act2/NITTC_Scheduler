@@ -16,7 +16,7 @@ internal class SchedulerDataTransfer(
     private val dao: SchedulerDao = db.schedulerDao()
 
     private companion object {
-        const val CURRENT_EXPORT_VERSION = 17
+        const val CURRENT_EXPORT_VERSION = 18
         const val MIN_SUPPORTED_IMPORT_VERSION = 1
         const val DATASET_TASKS = SchedulerRepository.DATASET_TASKS
         const val DATASET_PLANS = SchedulerRepository.DATASET_PLANS
@@ -80,6 +80,7 @@ internal class SchedulerDataTransfer(
                 s.put("showCurrentTimeMarker", settings.showCurrentTimeMarker)
                 s.put("arrivalHour", settings.arrivalHour)
                 s.put("arrivalMinute", settings.arrivalMinute)
+                s.put("arrivalTimeAuto", settings.arrivalTimeAuto)
                 s.put("departureHour", settings.departureHour)
                 s.put("departureMinute", settings.departureMinute)
                 s.put("unifyTaskPlanView", settings.unifyTaskPlanView)
@@ -770,6 +771,9 @@ internal class SchedulerDataTransfer(
                 showCurrentTimeMarker = s.optBoolean("showCurrentTimeMarker", false),
                 arrivalHour = s.optInt("arrivalHour", 8),
                 arrivalMinute = s.optInt("arrivalMinute", 30),
+                arrivalTimeAuto = s.optBoolean("arrivalTimeAuto",
+                    jp.linkserver.nittcsc.logic.legacyArrivalTimeIsAutomatic(
+                        s.optInt("arrivalHour", 8), s.optInt("arrivalMinute", 30))),
                 departureHour = s.optInt("departureHour", -1),
                 departureMinute = s.optInt("departureMinute", -1),
                 unifyTaskPlanView = s.optBoolean("unifyTaskPlanView", false),

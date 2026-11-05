@@ -285,6 +285,7 @@ class SchedulerRepository(
                     periodLabelStyle = periodLabelStyle,
                     arrivalHour = arrivalHour,
                     arrivalMinute = arrivalMinute,
+                    arrivalTimeAuto = arrivalHour < 0,
                     departureHour = departureHour,
                     departureMinute = departureMinute
                 )
