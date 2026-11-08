@@ -2,9 +2,6 @@ import java.io.File
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.util.Date
 import java.util.Locale
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
@@ -18,6 +15,7 @@ import java.util.zip.ZipOutputStream
 import javax.xml.parsers.DocumentBuilderFactory
 
 plugins {
+    id("dev.trickuild")
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp") version "2.3.6"
@@ -95,41 +93,8 @@ tasks.register("prepareAiRuntimeRelease") {
     }
 }
 
-val buildNumberFiles = (
-    fileTree("src") {
-        exclude("**/build/**")
-    }.files + listOf(
-        project.file("build.gradle.kts"),
-        rootProject.file("build.gradle.kts"),
-        rootProject.file("settings.gradle.kts"),
-        rootProject.file("gradle/libs.versions.toml")
-    ).filter { it.isFile }
-).sortedBy { it.relativeTo(rootProject.projectDir).invariantSeparatorsPath }
 
-val appCodeName = "Meluna" // トリッカルから取ります
 val appVersionName = "1.2.0-IntDev"
-val buildContentHash = MessageDigest.getInstance("SHA-256").run {
-    buildNumberFiles.forEach { file ->
-        update(file.relativeTo(rootProject.projectDir).invariantSeparatorsPath.toByteArray())
-        update(0)
-        update(file.readBytes())
-        update(0)
-    }
-    digest().joinToString("") { "%02x".format(it) }
-}
-val buildTimestamp = DateTimeFormatter.ofPattern("yyMMdd-HHmm")
-    .withZone(ZoneId.systemDefault())
-    .format(Instant.ofEpochMilli(buildNumberFiles.maxOf { it.lastModified() }))
-val buildNumberVersionPrefix = if (
-    appVersionName.substringAfter('-', missingDelimiterValue = "")
-        .startsWith("IntDev", ignoreCase = true)
-) {
-    "d"
-} else {
-    "v"
-}
-val generatedBuildNumber =
-    "$appCodeName-$buildNumberVersionPrefix${appVersionName.substringBefore('-').removePrefix("v")}-$buildTimestamp-${buildContentHash.take(3)}"
 
 // ── OSS ライセンス生成タスク ──────────────────────────────────────────────
 
@@ -390,6 +355,16 @@ tasks.named("preBuild").configure {
     if (bundleAiRuntime) dependsOn(prepareBundledAiRuntime)
 }
 
+trickuild {
+    codename.set("Meluna")
+    buildNumber {
+        enabled.set(true)
+        hashLength.set(5)
+        timestampSource.set("build")
+        timeZone.set("Asia/Tokyo")
+    }
+}
+
 android {
     namespace = "jp.linkserver.nittcsc"
     compileSdk = 37
@@ -400,7 +375,6 @@ android {
         targetSdk = 36
         versionCode = 21
         versionName = appVersionName
-        buildConfigField("String", "BUILD_NUMBER", "\"$generatedBuildNumber\"")
         buildConfigField("boolean", "BUNDLED_AI_RUNTIME", bundleAiRuntime.toString())
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -443,6 +417,7 @@ kotlin {
 }
 
 dependencies {
+    implementation("com.github.Link2011-Act2.Goldy:elief:27692fc266e82f081406c85c9841226b4aca4733")
     implementation("com.github.Link2011-Act2:Pyrite:508b1cf5131679fee7581acbc7ea55a365b6ff2c")
     implementation("androidx.core:core-ktx:1.18.0")
     implementation("androidx.appcompat:appcompat:1.7.1")

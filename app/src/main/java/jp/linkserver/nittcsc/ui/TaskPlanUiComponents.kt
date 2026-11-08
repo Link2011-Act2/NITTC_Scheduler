@@ -51,7 +51,6 @@ import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.PlanEntity
 import jp.linkserver.nittcsc.data.TaskEntity
 import jp.linkserver.nittcsc.ui.components.AppButtonGroup
-import jp.linkserver.nittcsc.update.AppUpdateInfo
 import jp.linkserver.nittcsc.viewmodel.SchedulerUiState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -109,114 +108,6 @@ internal fun TaskEntity.toPlanEntityLike(existing: PlanEntity? = null): PlanEnti
     reminderCalendarEventId = existing?.reminderCalendarEventId ?: reminderCalendarEventId
 )
 
-
-@Composable
-internal fun UpdateNotificationBanner(
-    updateInfo: AppUpdateInfo,
-    onOpen: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    val scope = rememberCoroutineScope()
-    val density = LocalDensity.current
-    val dismissThresholdPx = with(density) { 56.dp.toPx() }
-    val dismissTargetPx = with(density) { 180.dp.toPx() }
-    val dismissLabel = stringResource(R.string.update_banner_dismiss)
-    var dragOffsetY by remember(updateInfo.tagName) { mutableFloatStateOf(0f) }
-    var dismissing by remember(updateInfo.tagName) { mutableStateOf(false) }
-    var settleJob by remember(updateInfo.tagName) { mutableStateOf<Job?>(null) }
-
-    fun settleBanner(dismiss: Boolean) {
-        if (dismissing) return
-        settleJob?.cancel()
-        settleJob = scope.launch {
-            if (dismiss) {
-                dismissing = true
-                val animation = Animatable(dragOffsetY)
-                animation.animateTo(
-                    targetValue = -dismissTargetPx,
-                    animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
-                ) {
-                    dragOffsetY = value
-                }
-                onDismiss()
-            } else {
-                val animation = Animatable(dragOffsetY)
-                animation.animateTo(
-                    targetValue = 0f,
-                    animationSpec = spring()
-                ) {
-                    dragOffsetY = value
-                }
-            }
-        }
-    }
-
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .graphicsLayer {
-                translationY = dragOffsetY
-                alpha = (1f - (-dragOffsetY / dismissTargetPx) * 0.45f).coerceIn(0.55f, 1f)
-            }
-            .pointerInput(updateInfo.tagName) {
-                detectVerticalDragGestures(
-                    onDragStart = {
-                        if (!dismissing) settleJob?.cancel()
-                    },
-                    onVerticalDrag = { change, dragAmount ->
-                        if (!dismissing) {
-                            change.consume()
-                            dragOffsetY = (dragOffsetY + dragAmount).coerceAtMost(0f)
-                        }
-                    },
-                    onDragEnd = {
-                        settleBanner(dragOffsetY <= -dismissThresholdPx)
-                    },
-                    onDragCancel = {
-                        settleBanner(dismiss = false)
-                    }
-                )
-            }
-            .clickable(onClick = onOpen)
-            .semantics {
-                customActions = listOf(CustomAccessibilityAction(dismissLabel) {
-                    onDismiss()
-                    true
-                })
-            },
-        shape = RoundedCornerShape(20.dp),
-        tonalElevation = 8.dp,
-        shadowElevation = 10.dp,
-        color = MaterialTheme.colorScheme.primaryContainer
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.update_banner_title),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-                Text(
-                    text = stringResource(R.string.update_banner_body, updateInfo.tagName),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.88f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
-}
 
 @Composable
 internal fun NaturalLanguageTaskAddDialog(

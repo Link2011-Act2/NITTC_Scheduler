@@ -1,5 +1,7 @@
 package jp.linkserver.nittcsc.update
 
+import jp.linkserver.nittcsc.legacyreference.*
+
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async

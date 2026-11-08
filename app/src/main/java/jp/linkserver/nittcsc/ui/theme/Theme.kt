@@ -91,6 +91,12 @@ fun AppTheme(
 ) {
     val currentContent = rememberUpdatedState(content)
     val stableContent = remember { movableContentOf { currentContent.value() } }
+    val cards: @Composable () -> Unit = {
+        CompositionLocalProvider(jp.linkserver.goldy.compose.LocalUpdateCardStyle provides
+            jp.linkserver.goldy.compose.UpdateCardStyle(
+                containerColor=if(darkTheme) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainerLowest,
+                shape=MaterialTheme.shapes.large)) { stableContent() }
+    }
     val context = LocalContext.current
     val colorScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
@@ -122,7 +128,7 @@ fun AppTheme(
                 colorScheme = colorScheme,
                 typography = Typography,
                 shapes = Shapes,
-                content = stableContent
+                content = cards
             )
             UiDesignMode.MATERIAL_3_EXPRESSIVE -> PyriteTheme(
                 style = PyriteStyle.Material3Expressive,
@@ -140,7 +146,7 @@ fun AppTheme(
                     typography = MaterialTheme.typography,
                     shapes = MaterialTheme.shapes,
                     motionScheme = MaterialTheme.motionScheme,
-                    content = stableContent
+                    content = cards
                 )
             }
         }

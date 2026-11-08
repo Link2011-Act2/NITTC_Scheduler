@@ -1,4 +1,4 @@
-package jp.linkserver.nittcsc.update
+package jp.linkserver.nittcsc.legacyreference
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers

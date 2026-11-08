@@ -39,7 +39,7 @@ class PyriteAboutMigrationTest(
                 AppTheme(mode, darkTheme = dark, dynamicColor = dynamic) {
                     AboutScreen(onBack = { backs++ }, onCheckForUpdates = {
                         checks++
-                        Result.success(null)
+                        jp.linkserver.goldy.CheckOutcome.UpToDate
                     }, onOssLicenses = { oss++ })
                 }
             }

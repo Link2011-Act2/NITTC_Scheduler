@@ -1,5 +1,7 @@
 package jp.linkserver.nittcsc.ui
 
+import jp.linkserver.nittcsc.TrickuildMetadata
+
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -38,7 +40,6 @@ import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import jp.linkserver.nittcsc.BuildConfig
 import jp.linkserver.pyrite.about.AboutUpdateCard
 import jp.linkserver.pyrite.settings.SettingsContentCard
 import jp.linkserver.pyrite.screen.PyriteScreenScaffold
@@ -48,7 +49,7 @@ import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
 import androidx.compose.foundation.layout.PaddingValues
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.ui.components.AppLoadingIndicator
-import jp.linkserver.nittcsc.update.AppUpdateInfo
+import jp.linkserver.goldy.*
 import jp.linkserver.nittcsc.update.detectReleaseChannel
 import kotlinx.coroutines.launch
 
@@ -56,9 +57,11 @@ import kotlinx.coroutines.launch
 @Composable
 fun AboutScreen(
     onBack: () -> Unit,
-    onCheckForUpdates: suspend () -> Result<AppUpdateInfo?>,
+    onCheckForUpdates: suspend () -> CheckOutcome,
     onOssLicenses: () -> Unit = {},
-    onUpdateAvailable: (AppUpdateInfo) -> Unit = {}
+    onUpdateAvailable: (UpdateCandidate) -> Unit = {},
+    availableUpdate: UpdateCandidate? = null,
+    onOpenUpdateCenter: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val resources = LocalResources.current
@@ -97,21 +100,12 @@ fun AboutScreen(
         scope.launch {
             val result = onCheckForUpdates()
             checkingUpdates = false
-            result
-                .onSuccess { updateInfo ->
-                    if (updateInfo != null) {
-                        updateStatus = resources.getString(R.string.about_update_available, updateInfo.tagName)
-                        onUpdateAvailable(updateInfo)
-                    } else {
-                        updateStatus = resources.getString(R.string.about_update_latest)
-                    }
-                }
-                .onFailure { error ->
-                    updateStatus = resources.getString(
-                        R.string.about_update_check_failed,
-                        error.localizedMessage ?: error.javaClass.simpleName
-                    )
-                }
+            updateStatus = when(result) {
+                is CheckOutcome.Available -> resources.getString(R.string.about_update_available,result.update.release.tag)
+                is CheckOutcome.Failure, is CheckOutcome.Throttled -> resources.getString(R.string.goldy_update_failed)
+                is CheckOutcome.Incomplete -> resources.getString(R.string.goldy_update_incomplete)
+                else -> resources.getString(R.string.about_update_latest)
+            }
         }
     }
 
@@ -135,7 +129,7 @@ fun AboutScreen(
                 versionName = versionName,
                 simpleVersion = simpleVersion,
                 versionCode = versionCode,
-                buildNumber = BuildConfig.BUILD_NUMBER,
+                buildNumber = TrickuildMetadata.BUILD_NUMBER,
                 onVersionClick = { showVersionDetailsDialog = true },
                 onChannelClick = { showChannelDialog = true },
                 modifier = Modifier.align(Alignment.CenterHorizontally)
@@ -187,8 +181,8 @@ fun AboutScreen(
                     AboutUpdateCard(
                         description = stringResource(R.string.about_update_section_help),
                         status = updateStatus.orEmpty(),
-                        actionLabel = stringResource(R.string.about_update_check_button),
-                        onCheck = { startUpdateCheck() }, checking = checkingUpdates, hasResult = updateStatus != null
+                        actionLabel = stringResource(if(availableUpdate!=null) R.string.update_prompt_confirm else R.string.about_update_check_button),
+                        onCheck = { if(availableUpdate!=null) onUpdateAvailable(availableUpdate) else startUpdateCheck() }, checking = checkingUpdates, hasResult = updateStatus != null
                     )
                 }
             } else {
@@ -205,7 +199,7 @@ fun AboutScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 OutlinedButton(
-                    onClick = { startUpdateCheck() },
+                    onClick = { if(availableUpdate!=null) onUpdateAvailable(availableUpdate) else startUpdateCheck() },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !checkingUpdates
                 ) {
@@ -217,7 +211,7 @@ fun AboutScreen(
                             compact = true
                         )
                     }
-                    Text(stringResource(R.string.about_update_check_button))
+                    Text(stringResource(if(availableUpdate!=null) R.string.update_prompt_confirm else R.string.about_update_check_button))
                 }
                 updateStatus?.let { status ->
                     Text(
@@ -227,6 +221,16 @@ fun AboutScreen(
                     )
                 }
             }
+            }
+
+            if (availableUpdate != null) {
+                TextButton(onClick=::startUpdateCheck,enabled=!checkingUpdates) {
+                    Text(stringResource(R.string.about_update_check_button))
+                }
+            }
+
+            TextButton(onClick=onOpenUpdateCenter) {
+                Text(stringResource(R.string.goldy_transfer_open))
             }
 
             // ── オープンソースライセンス ──────────────────────────────
@@ -304,7 +308,7 @@ fun AboutScreen(
                         R.string.about_version_details_message,
                         versionName,
                         versionCode,
-                        BuildConfig.BUILD_NUMBER
+                        TrickuildMetadata.BUILD_NUMBER
                     )
                 )
             },

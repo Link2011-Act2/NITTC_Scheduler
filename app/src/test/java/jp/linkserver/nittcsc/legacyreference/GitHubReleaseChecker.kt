@@ -1,4 +1,4 @@
-package jp.linkserver.nittcsc.update
+package jp.linkserver.nittcsc.legacyreference
 
 import android.content.Context
 import org.json.JSONArray

@@ -18,7 +18,7 @@ import jp.linkserver.nittcsc.sync.LocalSyncManager
 import jp.linkserver.nittcsc.sync.NearbySyncManager
 import jp.linkserver.nittcsc.ui.NittcSchedulerApp
 import jp.linkserver.nittcsc.ui.theme.AppTheme
-import jp.linkserver.nittcsc.update.createAppUpdateRepository
+import jp.linkserver.nittcsc.update.createAppUpdates
 import jp.linkserver.nittcsc.viewmodel.SchedulerViewModel
 import jp.linkserver.nittcsc.viewmodel.SchedulerViewModelFactory
 import jp.linkserver.nittcsc.widget.WidgetUpdateWorker
@@ -26,13 +26,19 @@ import jp.linkserver.nittcsc.widget.WidgetUpdater
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private val transferOpen = kotlinx.coroutines.flow.MutableStateFlow(0L)
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.action == jp.linkserver.nittcsc.update.ApkUpdateProfile.ACTION_VIEW_TRANSFER) transferOpen.value++
+    }
 
     private val viewModel: SchedulerViewModel by viewModels {
         val database = AppDatabase.getInstance(this)
         val repository = SchedulerRepository(database, UiDesignPreferences(this))
         val syncManager = LocalSyncManager(this, repository, database)
         val nearbySyncManager = NearbySyncManager(this, repository)
-        SchedulerViewModelFactory(repository, syncManager, nearbySyncManager, createAppUpdateRepository(this))
+        SchedulerViewModelFactory(repository, syncManager, nearbySyncManager, createAppUpdates(this))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,10 +46,12 @@ class MainActivity : ComponentActivity() {
         // A preserved Android 15 decor can otherwise fit system bars again on recreation.
         WindowCompat.setDecorFitsSystemWindows(window, false)
         enableEdgeToEdge()
+        if (savedInstanceState == null && intent.action == jp.linkserver.nittcsc.update.ApkUpdateProfile.ACTION_VIEW_TRANSFER) transferOpen.value++
         setContent {
             val uiDesignMode by viewModel.uiDesignMode.collectAsStateWithLifecycle()
             AppTheme(uiDesignMode = uiDesignMode) {
-                NittcSchedulerApp(viewModel = viewModel)
+                val request by transferOpen.collectAsStateWithLifecycle()
+                NittcSchedulerApp(viewModel = viewModel, openTransferRequest = request)
             }
         }
         // WorkManager による定期ウィジェット更新をスケジュール

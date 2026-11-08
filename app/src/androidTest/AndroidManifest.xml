@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The signed instrumentation APK doubles as a valid foreign-package negative fixture. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    android:versionCode="1" android:versionName="1.0.0-fixture" />

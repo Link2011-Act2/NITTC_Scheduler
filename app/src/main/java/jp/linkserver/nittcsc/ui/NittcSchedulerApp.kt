@@ -373,7 +373,7 @@ private val LegacyTaskBadgeOnContainer = Color(0xFFFFDAD6)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
+fun NittcSchedulerApp(viewModel: SchedulerViewModel, openTransferRequest: Long = 0L) {
     val state by viewModel.uiState.collectAsState()
     var startOnTimetable by rememberSaveable { mutableStateOf(false) }
     var showSecondTermUnsetDialog by rememberSaveable { mutableStateOf(false) }
@@ -420,7 +420,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel) {
             onOpen = { showSecondTermUnsetDialog = true }
         )
     ) {
-        NittcSchedulerContent(viewModel, startOnTimetable)
+        NittcSchedulerContent(viewModel, startOnTimetable, openTransferRequest)
         if (showSecondTermUnsetDialog) {
             AlertDialog(
                 onDismissRequest = { showSecondTermUnsetDialog = false },
@@ -452,7 +452,7 @@ private val LocalSecondTermUnset = staticCompositionLocalOf { SecondTermUnsetDis
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetable: Boolean) {
+private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetable: Boolean, openTransferRequest: Long) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val resources = LocalResources.current
@@ -491,9 +491,10 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
     var pendingNearbyPerms by remember { mutableStateOf<Array<String>>(emptyArray()) }
     var showVlmImport by rememberSaveable { mutableStateOf(false) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
-    val availableUpdate = uiState.appUpdate.availableUpdate
+    val transferModel: jp.linkserver.nittcsc.update.UpdateDownloadViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val transferSelection by transferModel.selection.collectAsState()
+    val availableUpdate = uiState.appUpdate.availableUpdate ?: transferSelection
     var showUpdateOverview by rememberSaveable { mutableStateOf(false) }
-    val updateNotification = uiState.appUpdate.notificationUpdate
     var showUpdatePrompt by rememberSaveable { mutableStateOf(false) }
     var showOssLicenses by rememberSaveable { mutableStateOf(false) }
     var showLessonSearch by rememberSaveable { mutableStateOf(false) }
@@ -1045,18 +1046,10 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
         if (!showSettings) viewModel.checkForAppUpdates()
     }
 
+    LaunchedEffect(openTransferRequest) { if(openTransferRequest > 0) openUpdateOverview() }
     if (showUpdatePrompt) {
-        updateNotification?.let { update ->
-            AppUpdatePrompt(
-                update = update,
-                onConfirm = { openUpdateOverview() },
-                onIgnore = {
-                    showUpdatePrompt = false
-                    viewModel.ignoreUpdateVersion(update.tagName)
-                },
-                onDismiss = { showUpdatePrompt = false }
-            )
-        }
+        AppUpdatePrompt(uiState.appUpdate,{ appScope.launch { viewModel.checkForAppUpdatesManually() } },
+            { openUpdateOverview() },{ tag -> viewModel.ignoreUpdateVersion(tag) },{ showUpdatePrompt=false })
     }
 
     // Nearby権限の使用目的説明ダイアログ
@@ -1742,16 +1735,13 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                             showSettings = true
                         },
                         onOssLicenses = { showOssLicenses = true },
-                        onUpdateAvailable = { openUpdateOverview() }
+                        onUpdateAvailable = { openUpdateOverview() },
+                        availableUpdate = uiState.appUpdate.availableUpdate,
+                        onOpenUpdateCenter = { openUpdateOverview() }
                     )
                 }
                 "update" -> {
-                    availableUpdate?.let { updateInfo ->
-                        UpdateOverviewScreen(
-                            updateInfo = updateInfo,
-                            onBack = { showUpdateOverview = false }
-                        )
-                    }
+                    UpdateOverviewScreen(updateInfo=availableUpdate,onBack={showUpdateOverview=false})
                 }
                 "lessonChange" -> {
                     val editorState = lessonChangeEditor
@@ -2653,8 +2643,8 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                                                 }
                                             }
                                             if (selectedTab == AppTab.Output) {
-                                                if (updateNotification != null) {
-                                                    AppUpdateAction(onClick = {
+                                                if (uiState.appUpdate.notificationUpdate != null) {
+                                                    AppUpdateAction(state = uiState.appUpdate, onClick = {
                                                         viewModel.hideUpdateBanner()
                                                         showUpdatePrompt = true
                                                     })
@@ -2981,26 +2971,12 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
             }
         }
 
-        AnimatedVisibility(
-            visible = uiState.appUpdate.showBanner && !showUpdatePrompt,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
-        ) {
-            updateNotification?.let { updateInfo ->
-                UpdateNotificationBanner(
-                    updateInfo = updateInfo,
-                    onOpen = {
-                        viewModel.hideUpdateBanner()
-                        showUpdatePrompt = true
-                    },
-                    onDismiss = { viewModel.hideUpdateBanner() }
-                )
-            }
-        }
+        jp.linkserver.goldy.compose.UpdateNotificationBanner(
+            state=uiState.appUpdate.copy(showBanner=uiState.appUpdate.showBanner && !showUpdatePrompt),
+            onOpenDetails={viewModel.hideUpdateBanner();showUpdatePrompt=true},
+            onHideBanner=viewModel::hideUpdateBanner,
+            modifier=Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(horizontal=16.dp,vertical=12.dp),
+            strings=goldyNotificationStrings())
     }
 }
 }
