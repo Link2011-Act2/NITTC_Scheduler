@@ -1155,7 +1155,6 @@
     <string name="goldy_transfer_schedule_failed">ダウンロードを開始できませんでした</string>
     <string name="goldy_transfer_title">NITTC Schedulerの更新</string>
 
-    <string name="goldy_update_allow_install">インストールを許可</string>
     <string name="goldy_update_available">アップデートがあります</string>
     <string name="goldy_update_back">戻る</string>
     <string name="goldy_update_cached">前回の確認結果</string>
@@ -1168,7 +1167,6 @@
     <string name="goldy_update_expand">展開</string>
     <string name="goldy_update_failed">更新の確認に失敗しました</string>
     <string name="goldy_update_handed_off">インストーラーを開きました</string>
-    <string name="goldy_update_handoff_unknown">インストールが終わっていなければ、もう一度開いてください</string>
     <string name="goldy_update_idle">更新を確認できます</string>
     <string name="goldy_update_incomplete">一部の更新履歴を表示できません</string>
     <string name="goldy_update_install_failed">インストールを開始できませんでした</string>
@@ -1177,20 +1175,7 @@
     <string name="goldy_update_open_release">GitHubでリリースを見る</string>
     <string name="goldy_update_preparing">インストールの準備中…</string>
     <string name="goldy_update_ready">インストールできます</string>
-    <string name="goldy_update_release">更新ファイルを削除</string>
-    <string name="goldy_update_release_body">インストール画面を閉じてから削除してください</string>
-    <string name="goldy_update_release_confirm">削除</string>
-    <string name="goldy_update_release_explanation">インストールするか、不要なら削除できます</string>
-    <string name="goldy_update_release_failed">更新ファイルを削除できませんでした</string>
-    <string name="goldy_update_release_request">更新ファイルを削除</string>
-    <string name="goldy_update_release_title">更新ファイルを削除しますか？</string>
-    <string name="goldy_update_reopen">インストール</string>
-    <string name="goldy_update_reopen_body">保存した更新ファイルをインストーラーで開きます</string>
     <string name="goldy_update_restore_failed">更新情報を復元できませんでした</string>
-    <string name="goldy_update_restore_loading">更新情報を読み込み中…</string>
-    <string name="goldy_update_retained">ダウンロード済みの更新</string>
-    <string name="goldy_update_retained_body">保存した更新ファイルを再度インストールできます</string>
-    <string name="goldy_update_retained_title">ダウンロード済みの更新</string>
     <string name="goldy_update_retry">もう一度確認</string>
     <string name="goldy_update_signing_mismatch">署名が異なるため更新できません</string>
     <string name="goldy_update_title">アプリの更新</string>

@@ -21,6 +21,12 @@ import jp.linkserver.goldy.compose.UpdateOverviewScreen as EliefOverviewScreen
 @Composable
 fun UpdateOverviewScreen(updateInfo: UpdateCandidate?, onBack: () -> Unit) {
     val model: UpdateDownloadViewModel = viewModel()
+    UpdateOverviewScreen(updateInfo, onBack, model)
+}
+
+@Composable
+internal fun UpdateOverviewScreen(updateInfo: UpdateCandidate?, onBack: () -> Unit,
+    model: UpdateDownloadViewModel) {
     val state by model.state.collectAsState()
     val pinned by model.selection.collectAsState()
     val candidate = pinned ?: updateInfo
@@ -37,25 +43,16 @@ fun UpdateOverviewScreen(updateInfo: UpdateCandidate?, onBack: () -> Unit) {
         model.onForegroundChanged(owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
         onDispose { owner.lifecycle.removeObserver(observer); model.onForegroundChanged(false) }
     }
-    var releaseConfirmation by remember { mutableStateOf<InstallRequest?>(null) }
-    var reopenConfirmation by remember { mutableStateOf<InstallRequest?>(null) }
-    releaseConfirmation?.let { request ->
-        AlertDialog(onDismissRequest={releaseConfirmation=null},
-            title={Text(stringResource(R.string.goldy_update_release_title))},
-            text={Text(stringResource(R.string.goldy_update_release_body))},
-            confirmButton={TextButton(onClick={releaseConfirmation=null; model.release(request)}) { Text(stringResource(R.string.goldy_update_release_confirm)) }},
-            dismissButton={TextButton(onClick={releaseConfirmation=null}) { Text(stringResource(android.R.string.cancel)) }})
-    }
-    reopenConfirmation?.let { request ->
-        AlertDialog(onDismissRequest={reopenConfirmation=null},
-            title={Text(stringResource(R.string.goldy_update_reopen))},
-            text={Text(stringResource(R.string.goldy_update_reopen_body))},
-            confirmButton={TextButton(onClick={reopenConfirmation=null; model.reopen(request)}) { Text(stringResource(R.string.goldy_transfer_install)) }},
-            dismissButton={TextButton(onClick={reopenConfirmation=null}) { Text(stringResource(android.R.string.cancel)) }})
-    }
-    val cardStyle=LocalUpdateCardStyle.current
     val active=state.releaseIdentity==transferIdentity(candidate)
     val strings=goldyUpdateStrings().let { if(active && state.waiting) it.copy(download=stringResource(R.string.goldy_transfer_restart)) else it }
+    val prepared=state.preparedRequest.takeIf { candidate==null }
+    if(prepared!=null) {
+        EliefOverviewScreen(preparedApk=prepared.metadata,
+            transfer=if(state.restoring) UpdateTransferState.PreparingInstall else state.transfer,
+            onBack=onBack,onAction={model.action(null,it)},strings=strings,
+            message=state.message.takeUnless { state.transfer is UpdateTransferState.Failed })
+        return
+    }
     EliefOverviewScreen(UpdateUiState(candidate,apkAvailable=candidate?.release?.let(ApkUpdateProfile.selection::select)!=null,
         transfer=if(state.restoring) UpdateTransferState.PreparingInstall else if(active) state.transfer else UpdateTransferState.Idle,
         message=state.message.takeUnless { state.transfer is UpdateTransferState.Failed }),onBack,
@@ -63,17 +60,6 @@ fun UpdateOverviewScreen(updateInfo: UpdateCandidate?, onBack: () -> Unit) {
             if(active && state.waiting) {
                 state.retainedProgress?.let { Text(DownloadProgressFormatter.format(it,locale)) }
                 TextButton(onClick=model::cancel) { Text(stringResource(R.string.goldy_update_cancel_download)) }
-            }
-            if(state.requests.isNotEmpty()) Text(stringResource(R.string.goldy_update_retained))
-            state.requests.forEach { request ->
-                Surface(color=cardStyle.containerColor,shape=cardStyle.shape ?: MaterialTheme.shapes.large) {
-                    Column(Modifier.padding(16.dp)) {
-                        Text(request.metadata.versionName)
-                        Text(stringResource(R.string.goldy_update_release_explanation))
-                        TextButton(onClick={reopenConfirmation=request}) { Text(stringResource(R.string.goldy_update_reopen)) }
-                        TextButton(onClick={releaseConfirmation=request}) { Text(stringResource(R.string.goldy_update_release_request)) }
-                    }
-                }
             }
         })
 }
