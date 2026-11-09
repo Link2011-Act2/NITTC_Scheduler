@@ -493,6 +493,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
     var showAbout by rememberSaveable { mutableStateOf(false) }
     val transferModel: jp.linkserver.nittcsc.update.UpdateDownloadViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val transferSelection by transferModel.selection.collectAsState()
+    val updateTransferState by transferModel.state.collectAsState()
     val availableUpdate = uiState.appUpdate.availableUpdate ?: transferSelection
     var showUpdateOverview by rememberSaveable { mutableStateOf(false) }
     var showUpdatePrompt by rememberSaveable { mutableStateOf(false) }
@@ -1737,7 +1738,8 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                         onOssLicenses = { showOssLicenses = true },
                         onUpdateAvailable = { openUpdateOverview() },
                         availableUpdate = uiState.appUpdate.availableUpdate,
-                        onOpenUpdateCenter = { openUpdateOverview() }
+                        onOpenUpdateCenter = { openUpdateOverview() },
+                        hasSavedUpdate = updateTransferState.hasTransfer || updateTransferState.restoring
                     )
                 }
                 "update" -> {

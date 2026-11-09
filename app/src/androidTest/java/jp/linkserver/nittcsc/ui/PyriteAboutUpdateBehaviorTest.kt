@@ -12,8 +12,11 @@ import kotlinx.coroutines.channels.Channel
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.junit.runners.Parameterized
 
-class PyriteAboutUpdateBehaviorTest {
+@RunWith(Parameterized::class)
+class PyriteAboutUpdateBehaviorTest(private val mode: UiDesignMode) {
     @get:Rule val compose = createComposeRule()
     @Test fun checkingDisablesDuplicateRequestsAndFailureCanRetryToAvailable() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -23,7 +26,7 @@ class PyriteAboutUpdateBehaviorTest {
         var available = 0
         var candidate by mutableStateOf<UpdateCandidate?>(null)
         compose.setContent {
-            AppTheme(UiDesignMode.MATERIAL_3_EXPRESSIVE, darkTheme = false, dynamicColor = false) {
+            AppTheme(mode, darkTheme = false, dynamicColor = false) {
                 AboutScreen({}, onCheckForUpdates = { checks++; responses.receive().also { if(it is CheckOutcome.Available) candidate=it.update } },
                     onUpdateAvailable = { available++ }, availableUpdate = candidate)
             }
@@ -42,7 +45,12 @@ class PyriteAboutUpdateBehaviorTest {
         compose.waitUntil(5_000) { candidate != null }
         compose.runOnIdle { assertEquals(0, available) }
         compose.onNodeWithText(context.getString(R.string.about_update_available, info.release.tag)).assertIsDisplayed()
-        compose.onNodeWithText(text(R.string.update_prompt_confirm)).assertIsEnabled().performClick()
+        compose.onNodeWithText(text(R.string.goldy_update_view)).assertIsEnabled().performClick()
         compose.runOnIdle { assertEquals(2, checks); assertEquals(1, available) }
+    }
+
+    companion object {
+        @JvmStatic @Parameterized.Parameters(name = "{0}")
+        fun modes(): List<Array<Any>> = UiDesignMode.entries.map { arrayOf<Any>(it) }
     }
 }

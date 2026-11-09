@@ -8,11 +8,8 @@ import android.net.Uri
 import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -22,7 +19,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -35,20 +31,24 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import jp.linkserver.pyrite.about.AboutUpdateCard
-import jp.linkserver.pyrite.settings.SettingsContentCard
+import jp.linkserver.pyrite.about.AboutAction
+import jp.linkserver.pyrite.about.AboutActionGroup
 import jp.linkserver.pyrite.screen.PyriteScreenScaffold
 import jp.linkserver.pyrite.screen.PyriteBackButton
+import jp.linkserver.pyrite.theme.PyriteTheme
 import jp.linkserver.nittcsc.data.UiDesignMode
 import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
 import androidx.compose.foundation.layout.PaddingValues
 import jp.linkserver.nittcsc.R
-import jp.linkserver.nittcsc.ui.components.AppLoadingIndicator
 import jp.linkserver.goldy.*
 import jp.linkserver.nittcsc.update.detectReleaseChannel
 import kotlinx.coroutines.launch
@@ -61,7 +61,8 @@ fun AboutScreen(
     onOssLicenses: () -> Unit = {},
     onUpdateAvailable: (UpdateCandidate) -> Unit = {},
     availableUpdate: UpdateCandidate? = null,
-    onOpenUpdateCenter: () -> Unit = {}
+    onOpenUpdateCenter: () -> Unit = {},
+    hasSavedUpdate: Boolean = false
 ) {
     val context = LocalContext.current
     val resources = LocalResources.current
@@ -69,7 +70,6 @@ fun AboutScreen(
     val (versionName, versionCode) = remember { resolveAppVersionInfo(context) }
     val (simpleVersion, _) = remember { splitVersionAndChannel(versionName) }
     val normalizedChannelName = remember(versionName) { detectReleaseChannel(versionName) }
-    val repositoryUrl = stringResource(R.string.about_support_site_url)
 
     val channelLabel = when {
         normalizedChannelName.equals("IntDev", ignoreCase = true) -> stringResource(R.string.about_dev_channel_value_intdev)
@@ -117,144 +117,64 @@ fun AboutScreen(
             maxWidth = FormContentMaxWidth
         ) {
             Column(
-                modifier = if (expressive) Modifier.fillMaxSize().verticalScroll(aboutScrollState)
-                    .padding(horizontal = 20.dp, vertical = 18.dp)
-                else Modifier.fillMaxSize().padding(16.dp).verticalScroll(aboutScrollState),
-                verticalArrangement = Arrangement.spacedBy(if (expressive) 28.dp else 24.dp)
+                modifier = Modifier.fillMaxSize().verticalScroll(aboutScrollState)
+                    .padding(horizontal = 20.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(28.dp)
             ) {
-            // ── アプリ概要 ────────────────────────────────────────────
-            AboutOverviewMosaic(
-                channelName = normalizedChannelName,
-                channelLabel = channelLabel,
-                versionName = versionName,
-                simpleVersion = simpleVersion,
-                versionCode = versionCode,
-                buildNumber = TrickuildMetadata.BUILD_NUMBER,
-                onVersionClick = { showVersionDetailsDialog = true },
-                onChannelClick = { showChannelDialog = true },
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            )
+                // ── アプリ概要 ────────────────────────────────────────────
+                AboutOverviewMosaic(
+                    channelName = normalizedChannelName,
+                    channelLabel = channelLabel,
+                    versionName = versionName,
+                    simpleVersion = simpleVersion,
+                    versionCode = versionCode,
+                    buildNumber = TrickuildMetadata.BUILD_NUMBER,
+                    onVersionClick = { showVersionDetailsDialog = true },
+                    onChannelClick = { showChannelDialog = true },
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
 
-            // ── サポート情報 ──────────────────────────────────────────
-            AboutSectionCard {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = stringResource(R.string.about_support_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = stringResource(R.string.about_support_help),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            openUrl(context, resources.getString(R.string.about_support_site_url))
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(stringResource(R.string.about_support_open_site))
-                    }
-                    OutlinedButton(
-                        onClick = {
-                            openUrl(context, resources.getString(R.string.about_support_twitter_url))
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(stringResource(R.string.about_support_open_twitter))
-                    }
-                }
-            }
-            }
-
-            if (expressive) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(stringResource(R.string.about_update_section_title),
-                        style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold)
-                    AboutUpdateCard(
-                        description = stringResource(R.string.about_update_section_help),
-                        status = updateStatus.orEmpty(),
-                        actionLabel = stringResource(if(availableUpdate!=null) R.string.update_prompt_confirm else R.string.about_update_check_button),
-                        onCheck = { if(availableUpdate!=null) onUpdateAvailable(availableUpdate) else startUpdateCheck() }, checking = checkingUpdates, hasResult = updateStatus != null
-                    )
-                }
-            } else {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = stringResource(R.string.about_update_section_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = stringResource(R.string.about_update_section_help),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                OutlinedButton(
-                    onClick = { if(availableUpdate!=null) onUpdateAvailable(availableUpdate) else startUpdateCheck() },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !checkingUpdates
-                ) {
-                    if (checkingUpdates) {
-                        AppLoadingIndicator(
-                            modifier = Modifier
-                                .padding(end = 10.dp)
-                                .size(16.dp),
-                            compact = true
+                AboutCardsTheme {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(stringResource(R.string.about_update_section_title),
+                            modifier = Modifier.semantics { heading() },
+                            style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold)
+                        val canOpenUpdate = availableUpdate != null || hasSavedUpdate
+                        AboutUpdateCard(
+                            description = stringResource(R.string.about_update_section_help),
+                            status = when {
+                                hasSavedUpdate -> stringResource(R.string.about_update_saved)
+                                availableUpdate != null -> stringResource(R.string.about_update_available, availableUpdate.release.tag)
+                                else -> updateStatus ?: stringResource(R.string.goldy_update_idle)
+                            },
+                            actionLabel = stringResource(if (canOpenUpdate) R.string.goldy_update_view else R.string.about_update_check_button),
+                            onCheck = {
+                                if (hasSavedUpdate) onOpenUpdateCenter()
+                                else availableUpdate?.let(onUpdateAvailable) ?: startUpdateCheck()
+                            }, checking = checkingUpdates && !canOpenUpdate,
+                            hasResult = updateStatus != null || canOpenUpdate
                         )
                     }
-                    Text(stringResource(if(availableUpdate!=null) R.string.update_prompt_confirm else R.string.about_update_check_button))
-                }
-                updateStatus?.let { status ->
-                    Text(
-                        text = status,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    AboutActionGroup(
+                        actions = listOf(
+                            AboutAction("github", stringResource(R.string.about_support_github_title),
+                                stringResource(R.string.about_support_help), stringResource(R.string.about_support_open_site)),
+                            AboutAction("x", stringResource(R.string.about_support_x_title),
+                                stringResource(R.string.about_support_x_help), stringResource(R.string.about_support_open_twitter)),
+                            AboutAction("licenses", stringResource(R.string.about_oss_title),
+                                stringResource(R.string.about_oss_help), stringResource(R.string.about_oss_open))
+                        ),
+                        onAction = { action ->
+                            when (action.key) {
+                                "github" -> openUrl(context, resources.getString(R.string.about_support_site_url))
+                                "x" -> openUrl(context, resources.getString(R.string.about_support_twitter_url))
+                                "licenses" -> onOssLicenses()
+                            }
+                        },
+                        title = stringResource(R.string.about_information_title)
                     )
                 }
-            }
-            }
-
-            if (availableUpdate != null) {
-                TextButton(onClick=::startUpdateCheck,enabled=!checkingUpdates) {
-                    Text(stringResource(R.string.about_update_check_button))
-                }
-            }
-
-            TextButton(onClick=onOpenUpdateCenter) {
-                Text(stringResource(R.string.goldy_transfer_open))
-            }
-
-            // ── オープンソースライセンス ──────────────────────────────
-            AboutSectionCard {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = stringResource(R.string.about_oss_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = stringResource(R.string.about_oss_help),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                OutlinedButton(
-                    onClick = onOssLicenses,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(stringResource(R.string.about_oss_open))
-                }
-            }
-            }
             }
         }
     }
@@ -321,6 +241,23 @@ fun AboutScreen(
     }
 }
 
+/** Give Pyrite cards the host's light/dark state without changing the standard M3 palette or type. */
+@Composable
+private fun AboutCardsTheme(content: @Composable () -> Unit) {
+    if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+        content()
+        return
+    }
+    val colors = MaterialTheme.colorScheme
+    val typography = MaterialTheme.typography
+    val shapes = MaterialTheme.shapes
+    val motion = MaterialTheme.motionScheme
+    PyriteTheme(darkTheme = colors.surface.luminance() < 0.5f, dynamicColor = false) {
+        MaterialTheme(colorScheme = colors, typography = typography, shapes = shapes, motionScheme = motion,
+            content = content)
+    }
+}
+
 private fun resolveAppVersionInfo(context: Context): Pair<String, Int> {
     return try {
         val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -362,12 +299,4 @@ private fun openUrl(context: Context, url: String) {
     } catch (_: Exception) {
         // URLを開けない場合は無視
     }
-}
-
-/** M3 retains its uncontained layout; Expressive shares Pyrite's content-card geometry. */
-@Composable
-private fun AboutSectionCard(content: @Composable () -> Unit) {
-    if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
-        SettingsContentCard { androidx.compose.foundation.layout.Box(Modifier.padding(horizontal = 22.dp, vertical = 18.dp)) { content() } }
-    } else content()
 }

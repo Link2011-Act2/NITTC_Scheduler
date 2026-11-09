@@ -836,12 +836,17 @@
     <string name="about_version_details_title">バージョン詳細</string>
     <string name="about_version_details_message">バージョン: %1$s\n内部バージョン番号: %2$d\nビルド番号: %3$s</string>
     <string name="about_support_title">サポート情報</string>
+    <string name="about_information_title">関連情報</string>
+    <string name="about_support_github_title">GitHub</string>
+    <string name="about_support_x_title">X</string>
+    <string name="about_support_x_help">開発者への連絡はこちら</string>
     <string name="about_support_help">不具合報告や連絡先はこちら</string>
     <string name="about_support_open_site">GitHubを開く</string>
-    <string name="about_support_open_twitter">Twitterを開く</string>
+    <string name="about_support_open_twitter">Xを開く</string>
     <string name="about_support_site_url" translatable="false">https://github.com/Link2011-Act2/NITTC_Scheduler/releases</string>
     <string name="about_support_twitter_url" translatable="false">https://x.com/Link_2011A</string>
     <string name="about_update_section_title">アップデート</string>
+    <string name="about_update_saved">ダウンロード・インストールの状況を確認できます</string>
     <string name="about_update_section_help">GitHub Releases から新しいバージョンがないか確認します</string>
     <string name="about_update_check_button">アップデートを確認</string>
     <string name="about_update_checking">GitHub Releases を確認しています…</string>
@@ -1181,4 +1186,6 @@
     <string name="goldy_update_title">アプリの更新</string>
     <string name="goldy_update_verifying">更新ファイルを確認中…</string>
     <string name="settings_open_failed">設定を開けませんでした</string>
+    <string name="goldy_update_view">更新内容を確認</string>
+    <string name="goldy_update_loading">更新情報を読み込み中…</string>
 </resources>
