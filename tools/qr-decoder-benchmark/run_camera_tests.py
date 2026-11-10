@@ -1,14 +1,16 @@
 """Run the production JNI decoder tests on an authorized device and fail on JUnit failures."""
 import argparse
+import os
 import subprocess
 from pathlib import Path
 
 parser=argparse.ArgumentParser()
 parser.add_argument("serial")
+parser.add_argument("--adb", default=os.environ.get("ADB", "adb"), help="ADB executable on PATH or an explicit path")
 args=parser.parse_args()
 root=Path(__file__).resolve().parent
 repo=root.parent.parent
-adb=Path.home()/"AppData/Local/Android/Sdk/platform-tools/adb.exe"
+adb=args.adb
 base=[str(adb),"-s",args.serial]
 for apk in [repo/"app/build/outputs/apk/debug/app-debug.apk",
             repo/"app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"]:

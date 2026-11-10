@@ -8,12 +8,18 @@ from pathlib import Path
 import random
 import string
 import subprocess
+import shutil
 import tempfile
 import uuid
 
 ROOT = Path(__file__).resolve().parent
-JAVA = Path(r"C:\Program Files\Android\Android Studio1\jbr\bin\java.exe")
-CACHE = Path.home() / ".gradle/caches/modules-2/files-2.1/com.google.zxing/core/3.5.4"
+jdk = os.environ.get("JAVA_HOME")
+java_name = "java.exe" if os.name == "nt" else "java"
+java_path = str(Path(jdk) / "bin" / java_name) if jdk else shutil.which("java")
+if not java_path or not Path(java_path).is_file():
+    raise SystemExit("Set JAVA_HOME to the project's JDK, or add its bin directory to PATH")
+JAVA = Path(java_path)
+CACHE = Path(os.environ.get("GRADLE_USER_HOME", Path.home() / ".gradle")) / "caches/modules-2/files-2.1/com.google.zxing/core/3.5.4"
 ZXING = next(p for p in CACHE.rglob("core-3.5.4.jar"))
 randomizer = random.Random(20261003)
 noise = "".join(randomizer.choices(string.ascii_letters + string.digits, k=60000))
@@ -85,7 +91,7 @@ image_path = ROOT / "images.json"
 frame_path.write_text("\n".join(frames), encoding="utf-8")
 try:
     with tempfile.TemporaryDirectory(prefix="skttp-qr-test-") as compiled:
-        subprocess.run([str(JAVA.with_name("javac.exe")), "-encoding", "UTF-8", "-classpath", str(ZXING),
+        subprocess.run([str(JAVA.with_name("javac.exe" if os.name == "nt" else "javac")), "-encoding", "UTF-8", "-classpath", str(ZXING),
                         "-d", compiled, str(ROOT / "QrTestImages.java")], check=True)
         subprocess.run([str(JAVA), "-classpath", compiled + os.pathsep + str(ZXING), "QrTestImages",
                         str(frame_path), str(image_path)], check=True)

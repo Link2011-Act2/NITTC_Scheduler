@@ -83,20 +83,4 @@ JavaはTRY_HARDERと既存の90度回転・反転回復を使用。C++はQRの�
 - 1回目 ZXing-C++: 中央値2.8ms、95百分位6.0ms。
 - 1回目 ML Kit: 中央値16.7ms、95百分位103.5ms。
 
-## ビルド検証
-
-本体の:app:compileDebugKotlinと:app:testDebugUnitTestは成功（既存190テスト、失敗0、GradleのUP-TO-DATE判定）。独立テストアプリのassembleDebug/lintDebugは成功、lintはエラー0・警告5（既存本体と合わせたSDK/Gradleバージョン、テストアプリのバックアップ定義とアイコン）。準備中にテストプロジェクトのKotlinソース指定が原因でcompileDebugKotlinが失敗したが、AGP 9のAndroidSourceSet.kotlin指定へ修正して解消した。
-
-## 本体への差し替え後の検証
-
-- カメラDecoderはC++ 3.1.1へ変更。QR生成と保存画像/GIF読み込みはJava版を維持。
-- ImageProxyのY平面を直接使用。JNIのアドレスはByteBufferのpositionを考慮しないためsliceで基点を揃え、最終行の必要画素がlimit内にあることを事前検証。pixelStrideが1でない場合と非directバッファは再利用バッファへコピー。
-- C++へ画像回転メタデータを渡さず、crop内の元バッファ座標で四隅を受け取る。追跡領域のオフセットとViewPortのオフセットを戻して、既存のCameraX CoordinateTransformで画面へ変換。
-- 既存のCameraX 1.4.2を維持。C++ラッパーの公開ImageProxy APIとの互換性は実機テストで確認。
-- JVMテスト191件は成功。追跡外への即時復帰、5フレーム見失った際の追跡解除、ViewPort縮小、Y平面のstride・position・欠損検証を含む。
-- 修正後の:app:compileDebugKotlin、:app:testDebugUnitTest、:app:lintDebug、:app:assembleDebug、:app:assembleDebugAndroidTest、:app:assembleReleaseはすべて成功。lintはエラー0（全体に既存の警告200・ヒント31があり、新規QR経路の診断は0）。
-- 開発用スマホ（上記Android 16）で、本体のQrCameraDecoderTestの8件に成功。15度刻みの全24方向、ぼけとノイズを含む四半回転、反転、追跡外への移動、crop・向き・pixelStride・direct/heap・buffer position/paddingの組み合わせ、連続断片のSHA-256/GZIP/元データ復元を検証。
-- 最初の実機テストはテスト用PlaneProxyのgetBufferが自身を参照してStackOverflowErrorとなり失敗。外側のバッファを明示し、本体アダプターの引数名もgetBuffer/getRowStrideと衝突しない名前へ変更して解消。修正した本体・テストAPKを再インストールして8件を再実行した。
-- C++のOSSライセンス（Apache 2.0）は自動生成一覧へ反映。AARのconsumer ProGuard rulesでJNIクラスを保持。R8適用APKにJNIクラス名・参照フィールド・メソッドが残ることと、全4 ABIのELF LOADアラインメントが16KiBであることを確認。
-- R8適用の未署名リリースAPKは12,395,202バイト（約12.4MB）。C++のネイティブ部分は全4 ABI合計6,643,356バイト。更新したデバッグAPKを開発用スマホへインストールし、起動後に本体プロセスが継続していることも確認。
-- この検証も合成画像をImageProxyとして入力するテスト。実カメラのピント・反射・表示更新周期との関係は別途確認が必要。
+再現手順と制約は[ベンチマークツール](../tools/qr-decoder-benchmark/README.md)を参照してください。カメラ経路の回帰検証には`QrCameraDecoderTest`を使用します。

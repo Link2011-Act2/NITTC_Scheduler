@@ -10,15 +10,20 @@ ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent.parent
 OUT = ROOT / "out"
 ASSETS = OUT / "assets"
-JAVA = Path(r"C:\Program Files\Android\Android Studio1\jbr\bin\java.exe")
-CACHE = Path.home() / ".gradle/caches/modules-2/files-2.1"
+jdk = os.environ.get("JAVA_HOME")
+java_name = "java.exe" if os.name == "nt" else "java"
+java_path = str(Path(jdk) / "bin" / java_name) if jdk else shutil.which("java")
+if not java_path or not Path(java_path).is_file():
+    raise SystemExit("Set JAVA_HOME to the project's JDK, or add its bin directory to PATH")
+JAVA = Path(java_path)
+CACHE = Path(os.environ.get("GRADLE_USER_HOME", Path.home() / ".gradle")) / "caches/modules-2/files-2.1"
 classes = REPO / "app/build/intermediates/built_in_kotlinc/debug/compileDebugKotlin/classes"
 stdlib = next((CACHE / "org.jetbrains.kotlin/kotlin-stdlib/2.3.20").rglob("kotlin-stdlib-2.3.20.jar"))
 zxing = next((CACHE / "com.google.zxing/core/3.5.4").rglob("core-3.5.4.jar"))
 cp = os.pathsep.join(map(str, [classes, stdlib, zxing]))
 OUT.mkdir(exist_ok=True)
 ASSETS.mkdir(exist_ok=True)
-subprocess.run([str(JAVA.with_name("javac.exe")), "-encoding", "UTF-8", "-cp", cp,
+subprocess.run([str(JAVA.with_name("javac.exe" if os.name == "nt" else "javac")), "-encoding", "UTF-8", "-cp", cp,
                 "-d", str(OUT), str(ROOT / "BenchmarkImages.java")], check=True)
 subprocess.run([str(JAVA), "-cp", str(OUT)+os.pathsep+cp,
                 "BenchmarkImages", str(OUT / "base")], check=True)

@@ -63,3 +63,5 @@ python tools/qr-loop-test/verify_protocol.py
 公式配布: https://github.com/nayuki/QR-Code-generator/releases/tag/v1.8.0
 `vendor/qrcodegen.js`を改変せず同梱し、ライセンス全文を生成ページにも埋め込む。
 SHA-256: `6a1116192ed1dd67fa1bf31e77f5817103d71c23bbac24c382e698b7668bdd01`
+
+再生成とJava検証には、本体のビルドと同じJDKを`JAVA_HOME`に設定するか、その`bin`をPATHに追加する。Gradleキャッシュは`GRADLE_USER_HOME`、未設定なら標準のユーザーキャッシュを使用する。

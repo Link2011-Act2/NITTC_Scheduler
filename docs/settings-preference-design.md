@@ -18,7 +18,7 @@ AOSP `android16-qpr1-release` を参照。内部クラスやSettingsLibへの依
 
 `ui/components/AppSettingsComponents.kt` に `SettingsSection`、`PreferenceGroup`、`PreferenceRow`、`SwitchPreferenceRow`、`NavigationPreferenceRow`、`ValuePreferenceRow` を用意。設定画面は`LocalUiDesignMode`で切り替える。
 
-- 依頼に合わせ、展開型の大見出しを使わず、通常サイズの固定TopAppBarを使用。
+- 展開型の大見出しを使わず、通常サイズの固定TopAppBarを使用。
 - PreferenceごとにsurfaceContainerLowの行Surfaceを置き、2dpの間隔と20dp/4dpの角丸でsingle / first / middle / lastを描き分ける。shape判定は共通化する。
 - 行は最低72dp、横16dp・縦16dpのpaddingを持ち、縦方向は内容に合わせて伸ばす。テキストは中央揃えの行内で折り返す。
 - タイトルはSansSerif 16sp / lineHeight 24sp・最大2行、要約は14sp / lineHeight 21sp。Categoryは14sp / Primary。色はMaterialThemeから取得し、Dynamic Colorとダークテーマに追従。

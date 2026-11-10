@@ -1,12 +1,14 @@
 """Pull only this benchmark's files, preserving UTF-8 bytes through ADB."""
 import argparse
+import os
 import subprocess
 from pathlib import Path
 
 parser=argparse.ArgumentParser()
 parser.add_argument("serial",help="Authorized development device serial")
+parser.add_argument("--adb", default=os.environ.get("ADB", "adb"), help="ADB executable on PATH or an explicit path")
 args=parser.parse_args()
-adb=Path.home()/"AppData/Local/Android/Sdk/platform-tools/adb.exe"
+adb=args.adb
 out=Path(__file__).resolve().parent/"out"
 def read(name):
     return subprocess.run([str(adb),"-s",args.serial,"exec-out","run-as",

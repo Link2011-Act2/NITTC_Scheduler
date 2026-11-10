@@ -7,12 +7,12 @@ packageは`jp.linkserver.nittcsc.qrbenchmark`。本体のDBにはアクセスし
 
 1. 本体で`:app:compileDebugKotlin`を実行する。
 2. Pillow・NumPyがあるPythonで`generate.py`を実行する。
-   GradleキャッシュとAndroid Studio1のJBRを使って本体のエンコーダーを呼び出す。
+   `JAVA_HOME`で指定したJDKとGradleキャッシュを使って本体のエンコーダーを呼び出す。
    参照用Java版Decoderと現行Collectorのソースを`out/app-sources`へコピーする。
 3. ルートのGradle Wrapperから以下を実行する。
 
 ```powershell
-$env:ANDROID_HOME='C:\Users\wwwri\AppData\Local\Android\Sdk'
+# JAVA_HOME と ANDROID_HOME を使用するJDK・Android SDKに設定しておく
 .\gradlew.bat -p tools/qr-decoder-benchmark/android assembleDebug lintDebug
 ```
 
@@ -27,7 +27,9 @@ adb exec-out run-as jp.linkserver.nittcsc.qrbenchmark cat files/device.txt
 adb exec-out run-as jp.linkserver.nittcsc.qrbenchmark cat files/done.txt
 ```
 
-8. `analyze.py`で`docs/qr-decoder-benchmark-results.md`を生成する。
+8. `analyze.py`で`out/report.md`を生成する。
+
+`adb`はPATH上の実行ファイルを使用する。別の場所にある場合は`--adb`で指定できる。
 
 手順7は`python collect.py <許可された端末のserial>`でも実行できる。
 

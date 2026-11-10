@@ -43,3 +43,46 @@ classes.jar
 APK/
 
 verification/
+
+# Local coding-assistant instructions and state
+AGENTS.md
+AGENTS.override.md
+CLAUDE.md
+GEMINI.md
+.agents/
+.codex/
+.claude/
+/design-qa.md
+/BUG_FIX_PLAN.md
+
+# Local editor settings and credentials
+.vscode/
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.key
+*.pem
+.env
+.env.*
+!.env.example
+
+# Generated build and benchmark records
+/build_out*.txt
+/docs/security-audit-*.md
+/tools/qr-decoder-benchmark/out/
+/tools/qr-loop-test/out/
+/tools/qr-loop-test/preview.png
+/verification/**/*.json
+/verification/**/*.log
+/verification/**/*.png
+__pycache__/
+*.py[cod]
+
+# Local diagnostics and exported build artifacts
+*.pk8
+*.hprof
+*.tmp
+
+# Local document archives
+.local-notes/

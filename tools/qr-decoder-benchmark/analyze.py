@@ -68,9 +68,7 @@ if first_path.exists():
     for e in engines:
         times=[float(r['first_ms']) for r in first_rows if r['engine']==e and r['group'] not in ['stream','negative'] and int(r['id'][4:])>=20]
         lines.append(f"- 1回目 {names[e]}: 中央値{np.median(times):.1f}ms、95百分位{np.percentile(times,95):.1f}ms。")
-lines += ["", "## ビルド検証", "",
-          "本体の:app:compileDebugKotlinと:app:testDebugUnitTestは成功（既存190テスト、失敗0、GradleのUP-TO-DATE判定）。独立テストアプリのassembleDebug/lintDebugは成功、lintはエラー0・警告5（既存本体と合わせたSDK/Gradleバージョン、テストアプリのバックアップ定義とアイコン）。準備中にテストプロジェクトのKotlinソース指定が原因でcompileDebugKotlinが失敗したが、AGP 9のAndroidSourceSet.kotlin指定へ修正して解消した。"]
-report=ROOT.parent.parent/"docs/qr-decoder-benchmark-results.md"
+report=OUT/"report.md"
 report.write_text("\n".join(lines)+"\n",encoding="utf-8")
 print("\n".join(lines[:25]))
 print(f"Report: {report}")
