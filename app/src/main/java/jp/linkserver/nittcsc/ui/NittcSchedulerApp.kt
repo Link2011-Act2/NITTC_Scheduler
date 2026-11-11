@@ -3552,8 +3552,11 @@ internal fun OutputScreen(
                         }
                     ) { DatePicker(state = state) }
                 }
+                val dateBarColor = timetableDateBarColor(isCurrentRangeToday)
                 AppFloatingToolbar(
-                    containerColor = timetableDateBarColor(isCurrentRangeToday)
+                    containerColor = dateBarColor,
+                    contentColor = if (useExpressiveDesign) MaterialTheme.colorScheme.onSurface
+                        else androidx.compose.material3.contentColorFor(dateBarColor)
                 ) {
                     Row(
                         modifier = Modifier
@@ -3564,6 +3567,9 @@ internal fun OutputScreen(
                     ) {
                         Box(
                             modifier = Modifier
+                                .then(if (useExpressiveDesign) {
+                                    Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
+                                } else Modifier)
                                 .background(
                                     MaterialTheme.colorScheme.surfaceContainerHighest,
                                     CircleShape

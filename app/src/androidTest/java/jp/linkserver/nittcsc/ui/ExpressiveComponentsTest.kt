@@ -8,6 +8,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.ToggleButtonDefaults
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -31,6 +33,7 @@ import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.ui.components.AppConnectedButtonGroup
 import jp.linkserver.nittcsc.ui.components.AppBottomNavigation
 import jp.linkserver.nittcsc.ui.components.AppBottomNavigationItem
+import jp.linkserver.nittcsc.ui.components.AppFloatingToolbar
 import jp.linkserver.nittcsc.logic.QrDisplaySpeed
 import jp.linkserver.nittcsc.ui.theme.AppTheme
 import org.junit.Assert.assertNotEquals
@@ -73,7 +76,7 @@ class ExpressiveComponentsTest {
         compose.mainClock.advanceTimeBy(1000)
         val after = outline()
         val textAfter = compose.onNodeWithText("水", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
-        assertEquals("Selection must not move the text", textBefore.left, textAfter.left, 1f)
+        assertTrue("Selection must make room for the check", textAfter.left > textBefore.left)
         assertNotEquals("Selection must change the outline", before, after)
         assertNotEquals("The outline must start morphing", before, during)
         assertNotEquals("The outline must not snap to its destination", after, during)
@@ -198,7 +201,7 @@ class ExpressiveComponentsTest {
                 assertNotEquals(background, empty)
                 assertNotEquals(background, dateBar)
                 assertNotEquals(normal, empty)
-                assertNotEquals(todayBar, dateBar)
+                assertEquals(todayBar, dateBar)
                 assertTrue(normal.alpha == 1f)
                 colors.appendText("$dark,$dynamic," + listOf(background, previous, normal, empty, dateBar, todayBar)
                     .joinToString(",") { "%08X".format(it.toArgb()) } + "\n")
@@ -207,6 +210,36 @@ class ExpressiveComponentsTest {
                 compose.onRoot().captureToImage().asAndroidBitmap()
                     .compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
             }
+        }
+    }
+
+    @Test fun toolbarExplicitForegroundSurvivesAliasedSurfaceRoles() {
+        var inferred = Color.Unspecified
+        var actual = Color.Unspecified
+        var expected = Color.Unspecified
+        var variant = Color.Unspecified
+        compose.setContent {
+            AppTheme(UiDesignMode.MATERIAL_3_EXPRESSIVE, dynamicColor = false) {
+                val scheme = MaterialTheme.colorScheme
+                MaterialTheme(colorScheme = scheme.copy(surfaceVariant = scheme.surfaceContainerHighest)) {
+                    val automatic = contentColorFor(scheme.surfaceContainerHighest)
+                    AppFloatingToolbar(containerColor = scheme.surfaceContainerHighest, contentColor = scheme.onSurface) {
+                        val foreground = LocalContentColor.current
+                        SideEffect {
+                            inferred = automatic
+                            actual = foreground
+                            expected = scheme.onSurface
+                            variant = scheme.onSurfaceVariant
+                        }
+                        Text("日付")
+                    }
+                }
+            }
+        }
+        compose.runOnIdle {
+            assertEquals(variant, inferred)
+            assertNotEquals(expected, inferred)
+            assertEquals(expected, actual)
         }
     }
 

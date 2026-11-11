@@ -7,7 +7,6 @@ package jp.linkserver.nittcsc.ui.components
 
 import androidx.compose.foundation.clickable
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
@@ -92,8 +91,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -102,6 +102,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import jp.linkserver.nittcsc.data.UiDesignMode
 import jp.linkserver.nittcsc.ui.theme.ExpressiveFabShape
 import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
@@ -567,6 +568,7 @@ fun AppFabMenu(
 fun AppFloatingToolbar(
     modifier: Modifier = Modifier,
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainer,
+    contentColor: Color = contentColorFor(containerColor),
     content: @Composable () -> Unit
 ) {
     if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
@@ -575,13 +577,13 @@ fun AppFloatingToolbar(
             modifier = modifier,
             colors = FloatingToolbarDefaults.standardFloatingToolbarColors(
                 toolbarContainerColor = containerColor,
-                toolbarContentColor = contentColorFor(containerColor)
+                toolbarContentColor = contentColor
             )
         ) { content() }
     } else {
         Card(
             modifier = modifier,
-            colors = CardDefaults.cardColors(containerColor = containerColor)
+            colors = CardDefaults.cardColors(containerColor = containerColor, contentColor = contentColor)
         ) { content() }
     }
 }
@@ -631,6 +633,9 @@ fun AppConnectedButtonGroup(
     iconSize: Dp = ToggleButtonDefaults.IconSize,
     iconSpacing: Dp = ToggleButtonDefaults.IconSpacing
 ) {
+    val checkOrigin = TransformOrigin(
+        if (LocalLayoutDirection.current == LayoutDirection.Ltr) 0f else 1f, 0.5f
+    )
     Row(
         modifier = modifier.fillMaxWidth().selectableGroup(),
         horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
@@ -653,18 +658,32 @@ fun AppConnectedButtonGroup(
                     .weight(1f)
                     .semantics { role = Role.RadioButton }
             ) {
-                // 幅を変えずにチェックだけをフェードさせ、公式の形状Morphと文字位置を安定させる。
-                val checkAlpha = animateFloatAsState(
-                    targetValue = if (selected) 1f else 0f,
-                    animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
-                    label = "ConnectedButtonCheckAlpha"
-                )
-                Icon(
-                    imageVector = Icons.Filled.Check,
-                    contentDescription = null,
-                    modifier = Modifier.size(iconSize).graphicsLayer { alpha = checkAlpha.value }
-                )
-                Spacer(modifier = Modifier.width(iconSpacing))
+                // 形状Morphと同じFastSpatialで領域を開閉し、チェックと文字を一緒に動かす。
+                AnimatedVisibility(
+                    visible = selected,
+                    enter = expandHorizontally(
+                        expandFrom = Alignment.Start,
+                        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()
+                    ) + scaleIn(
+                        initialScale = 0f,
+                        transformOrigin = checkOrigin,
+                        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()
+                    ) + fadeIn(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()),
+                    exit = shrinkHorizontally(
+                        shrinkTowards = Alignment.Start,
+                        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()
+                    ) + scaleOut(
+                        targetScale = 0f,
+                        transformOrigin = checkOrigin,
+                        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()
+                    ) + fadeOut(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()),
+                    label = "ConnectedButtonCheckVisibility"
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(iconSize))
+                        Spacer(Modifier.width(iconSpacing))
+                    }
+                }
                 Text(option, maxLines = 1)
             }
         }
