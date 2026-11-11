@@ -121,8 +121,7 @@ fun TaskScreen(
     val listState = rememberLazyListState()
     val useExpressiveDesign = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
     val initialToday = remember { LocalDate.now() }
-    val currentDateTime = rememberCurrentDateTime(useExpressiveDesign)
-    val today = currentDateTime?.toLocalDate() ?: initialToday
+    val today = if (useExpressiveDesign) rememberCurrentDate() else initialToday
 
     val overdueTasks = remember(tasks, today) { tasks.filter { it.dueDate.isBefore(today) } }
     val todayTasks = remember(tasks, today) { tasks.filter { it.dueDate == today } }
@@ -134,17 +133,6 @@ fun TaskScreen(
                 .thenBy { it.dueHour }
                 .thenBy { it.dueMinute }
         )
-    }
-    val expressiveDeadlineTask = remember(tasks, currentDateTime) {
-        val now = currentDateTime ?: return@remember null
-        val overdue = tasks
-            .asSequence()
-            .filter { it.dueDateTime().isBefore(now) }
-            .maxByOrNull { it.dueDateTime() }
-        overdue ?: tasks
-            .asSequence()
-            .filter { !it.dueDateTime().isBefore(now) }
-            .minByOrNull { it.dueDateTime() }
     }
 
     LaunchedEffect(focusTaskId, tasks, completedTasksSorted, expandCompleted) {
@@ -211,18 +199,12 @@ fun TaskScreen(
             if (tasks.isNotEmpty()) {
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        if (
-                            useExpressiveDesign &&
-                            !isPlan &&
-                            expressiveDeadlineTask != null &&
-                            currentDateTime != null
-                        ) {
-                            ExpressiveTaskDeadlineHero(
-                                task = expressiveDeadlineTask,
-                                now = currentDateTime,
+                        if (useExpressiveDesign && !isPlan) {
+                            CurrentTaskDeadlineHero(
+                                tasks = tasks,
                                 showWeekdayOnDates = showWeekdayOnDates,
-                                onOpen = { onOpenTaskEditor(expressiveDeadlineTask) },
-                                onComplete = { onMarkComplete(expressiveDeadlineTask) }
+                                onOpen = { onOpenTaskEditor(it) },
+                                onComplete = onMarkComplete
                             )
                         }
                         Text(
@@ -422,6 +404,32 @@ fun TaskScreen(
 
 private fun TaskEntity.dueDateTime(): LocalDateTime =
     dueDate.atTime(dueHour.coerceIn(0, 23), dueMinute.coerceIn(0, 59))
+
+/** 分単位の更新と期限検索は、表示中の先頭カード内だけで行う。 */
+@Composable
+private fun CurrentTaskDeadlineHero(
+    tasks: List<TaskEntity>,
+    showWeekdayOnDates: Boolean,
+    onOpen: (TaskEntity) -> Unit,
+    onComplete: (TaskEntity) -> Unit
+) {
+    val currentDateTime = rememberCurrentDateTime(enabled = true)
+    val expressiveDeadlineTask = remember(tasks, currentDateTime) {
+        val now = currentDateTime ?: return@remember null
+        val overdue = tasks
+            .asSequence()
+            .filter { it.dueDateTime().isBefore(now) }
+            .maxByOrNull { it.dueDateTime() }
+        overdue ?: tasks
+            .asSequence()
+            .filter { !it.dueDateTime().isBefore(now) }
+            .minByOrNull { it.dueDateTime() }
+    }
+    val task = expressiveDeadlineTask ?: return
+    val now = currentDateTime ?: return
+    ExpressiveTaskDeadlineHero(task, now, showWeekdayOnDates,
+        onOpen = { onOpen(task) }, onComplete = { onComplete(task) })
+}
 
 @Composable
 private fun ExpressiveTaskDeadlineHero(

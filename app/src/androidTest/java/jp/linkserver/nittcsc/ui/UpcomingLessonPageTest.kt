@@ -36,15 +36,15 @@ class UpcomingLessonPageTest {
                 pager = rememberPagerState(pageCount = { 2 })
                 HorizontalPager(pager, verticalAlignment = androidx.compose.ui.Alignment.Top,
                     beyondViewportPageCount = 1, modifier = Modifier.width(320.dp)) { index ->
-                    TimetableDayPage(today.plusDays(index.toLong()), now, selection, true) {
+                    TimetableDayPage(today.plusDays(index.toLong()), listOf(selection.candidate), true, { now }) {
                         Text("時間割", Modifier.fillMaxWidth().height(80.dp).testTag("day-$index"))
                     }
                 }
             }
         }
-        val initialLeft = compose.onNodeWithTag("upcoming-lesson-card").fetchSemanticsNode().boundsInRoot.left
+        val initialLeft = compose.onNodeWithTag("upcoming-lesson-card").getUnclippedBoundsInRoot().left
         compose.runOnIdle { runBlocking { pager.scrollToPage(0, 0.4f) } }
-        val duringLeft = compose.onNodeWithTag("upcoming-lesson-card").fetchSemanticsNode().boundsInRoot.left
+        val duringLeft = compose.onNodeWithTag("upcoming-lesson-card").getUnclippedBoundsInRoot().left
         assertTrue(duringLeft < initialLeft)
         compose.runOnIdle { runBlocking { pager.scrollToPage(1) } }
         compose.onNodeWithTag("upcoming-lesson-card").assertIsNotDisplayed()
@@ -71,8 +71,8 @@ class UpcomingLessonPageTest {
     @Test fun standardModeAndFinishedDayDoNotReserveHeroSpace() {
         compose.setContent {
             Column {
-                TimetableDayPage(today, now, selection, false) { Text("通常M3") }
-                TimetableDayPage(today, now, null, true) { Text("全授業終了") }
+                TimetableDayPage(today, listOf(selection.candidate), false, { now }) { Text("通常M3") }
+                TimetableDayPage(today, emptyList(), true, { now }) { Text("全授業終了") }
             }
         }
         compose.onNodeWithTag("upcoming-lesson-card").assertDoesNotExist()

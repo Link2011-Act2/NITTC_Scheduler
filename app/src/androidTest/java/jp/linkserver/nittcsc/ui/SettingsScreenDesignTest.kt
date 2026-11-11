@@ -140,6 +140,12 @@ class SettingsScreenDesignTest(
         composeRule.onNodeWithText(label(R.string.label_ui_design)).performScrollTo().performClick()
         composeRule.onNodeWithText(label(R.string.dialog_ui_design_title)).assertIsDisplayed()
         composeRule.onNodeWithText(label(R.string.btn_close)).performClick()
+        composeRule.onNodeWithText(label(R.string.btn_export_json)).performScrollTo().assertHasClickAction()
+        val export = composeRule.onNodeWithText(label(R.string.btn_export_json)).fetchSemanticsNode().boundsInRoot
+        val import = composeRule.onNodeWithText(label(R.string.btn_import_json)).assertHasClickAction().fetchSemanticsNode().boundsInRoot
+        assertEquals(export.width, import.width, 1f)
+        assertEquals(export.top, import.top, 1f)
+        org.junit.Assert.assertTrue(export.right < import.left)
         composeRule.onNodeWithContentDescription(label(R.string.cd_back)).performClick()
         composeRule.runOnIdle { assertEquals(1, backCount) }
     }

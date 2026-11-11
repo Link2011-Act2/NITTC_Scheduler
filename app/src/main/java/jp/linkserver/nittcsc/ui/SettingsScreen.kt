@@ -36,6 +36,7 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -915,53 +916,61 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                item("btn_export_json") {
-                    PreferenceRow(
-                        title = stringResource(R.string.btn_export_json),
-                        onClick = {
-                            scope.launch {
-                                runCatching {
-                                    val stamp = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
-                                        .format(LocalDateTime.now())
-                                    val filename = "nittcsc_settings_${stamp}.json"
-                                    val json = onExportAllAsJson()
-                                    val exportFile = withContext(Dispatchers.IO) {
-                                        File(context.cacheDir, filename).apply {
-                                            writeText(json)
+                item("btn_export_json", contentPadding = PaddingValues(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    runCatching {
+                                        val stamp = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
+                                            .format(LocalDateTime.now())
+                                        val filename = "nittcsc_settings_${stamp}.json"
+                                        val json = onExportAllAsJson()
+                                        val exportFile = withContext(Dispatchers.IO) {
+                                            File(context.cacheDir, filename).apply {
+                                                writeText(json)
+                                            }
                                         }
-                                    }
-                                    val uri = FileProvider.getUriForFile(
-                                        context,
-                                        "${context.packageName}.provider",
-                                        exportFile
-                                    )
-                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "application/json"
-                                        putExtra(Intent.EXTRA_STREAM, uri)
-                                        putExtra(Intent.EXTRA_SUBJECT, filename)
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    }
-                                    context.startActivity(
-                                        Intent.createChooser(
-                                            shareIntent,
-                                            resources.getString(R.string.btn_export_json)
+                                        val uri = FileProvider.getUriForFile(
+                                            context,
+                                            "${context.packageName}.provider",
+                                            exportFile
                                         )
-                                    )
-                                }.onSuccess {
-                                    Toast.makeText(context, resources.getString(R.string.msg_export_success), Toast.LENGTH_SHORT).show()
-                                }.onFailure {
-                                    Toast.makeText(context, resources.getString(R.string.msg_export_failed), Toast.LENGTH_SHORT).show()
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "application/json"
+                                            putExtra(Intent.EXTRA_STREAM, uri)
+                                            putExtra(Intent.EXTRA_SUBJECT, filename)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        context.startActivity(
+                                            Intent.createChooser(
+                                                shareIntent,
+                                                resources.getString(R.string.btn_export_json)
+                                            )
+                                        )
+                                    }.onSuccess {
+                                        Toast.makeText(context, resources.getString(R.string.msg_export_success), Toast.LENGTH_SHORT).show()
+                                    }.onFailure {
+                                        Toast.makeText(context, resources.getString(R.string.msg_export_failed), Toast.LENGTH_SHORT).show()
+                                    }
                                 }
-                            }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(stringResource(R.string.btn_export_json))
                         }
-                    )
-                }
-                item("btn_import_json") {
-                    NavigationPreferenceRow(
-                        title = stringResource(R.string.btn_import_json),
-                        summary = null,
-                        onClick = { importJsonLauncher.launch(arrayOf("application/json", "text/plain")) }
-                    )
+                        OutlinedButton(
+                            onClick = {
+                                importJsonLauncher.launch(arrayOf("application/json", "text/plain"))
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(stringResource(R.string.btn_import_json))
+                        }
+                    }
                 }
 
             }

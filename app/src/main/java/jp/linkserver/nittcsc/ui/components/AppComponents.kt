@@ -7,6 +7,7 @@ package jp.linkserver.nittcsc.ui.components
 
 import androidx.compose.foundation.clickable
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
@@ -29,6 +30,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -61,6 +63,10 @@ import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.NavigationItemIconPosition
+import androidx.compose.material3.ShortNavigationBar
+import androidx.compose.material3.ShortNavigationBarArrangement
+import androidx.compose.material3.ShortNavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
@@ -86,6 +92,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -232,6 +239,26 @@ fun AppFlexibleTopAppBar(
 @Composable
 fun AppBottomNavigation(
     modifier: Modifier = Modifier,
+    content: @Composable AppBottomNavigationScope.() -> Unit
+) {
+    if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+        ShortNavigationBar(
+            modifier = modifier,
+            arrangement = ShortNavigationBarArrangement.EqualWeight
+        ) {
+            ShortBottomNavigationScope.content()
+        }
+    } else {
+        NavigationBar(modifier = modifier) {
+            StandardBottomNavigationScope(this).content()
+        }
+    }
+}
+
+/** 再利用用の旧フローティングナビゲーション。通常の画面からは呼び出さない。 */
+@Composable
+fun AppFloatingBottomNavigation(
+    modifier: Modifier = Modifier,
     floatingActionButton: (@Composable () -> Unit)? = null,
     content: @Composable AppBottomNavigationScope.() -> Unit
 ) {
@@ -311,6 +338,8 @@ private data class StandardBottomNavigationScope(
 
 private object ExpressiveBottomNavigationScope : AppBottomNavigationScope
 
+private object ShortBottomNavigationScope : AppBottomNavigationScope
+
 private class RetainedFloatingActionButton {
     var content: (@Composable () -> Unit)? = null
 }
@@ -326,7 +355,17 @@ fun AppBottomNavigationScope.AppBottomNavigationItem(
     enabled: Boolean = true,
     selectedIndicatorColor: Color = MaterialTheme.colorScheme.secondaryContainer
 ) {
-    if (this is ExpressiveBottomNavigationScope) {
+    if (this is ShortBottomNavigationScope) {
+        ShortNavigationBarItem(
+            selected = selected,
+            onClick = onClick,
+            icon = icon,
+            label = label,
+            iconPosition = NavigationItemIconPosition.Top,
+            modifier = modifier,
+            enabled = enabled
+        )
+    } else if (this is ExpressiveBottomNavigationScope) {
         val containerColor = if (selected) selectedIndicatorColor else Color.Transparent
         val contentColor = if (selected) {
             contentColorFor(selectedIndicatorColor)
@@ -593,7 +632,7 @@ fun AppConnectedButtonGroup(
     iconSpacing: Dp = ToggleButtonDefaults.IconSpacing
 ) {
     Row(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().selectableGroup(),
         horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -604,7 +643,7 @@ fun AppConnectedButtonGroup(
                 onCheckedChange = { onSelectedIndexChange(index) },
                 enabled = enabled,
                 colors = colorsForIndex?.invoke(index) ?: ToggleButtonDefaults.colors(),
-                contentPadding = contentPadding ?: ButtonDefaults.contentPaddingFor(ButtonDefaults.MinHeight),
+                contentPadding = contentPadding ?: PaddingValues(horizontal = 4.dp, vertical = 10.dp),
                 shapes = when (index) {
                     0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
                     options.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
@@ -614,37 +653,18 @@ fun AppConnectedButtonGroup(
                     .weight(1f)
                     .semantics { role = Role.RadioButton }
             ) {
-                AnimatedVisibility(
-                    visible = selected,
-                    enter = expandHorizontally(
-                        expandFrom = Alignment.CenterHorizontally,
-                        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()
-                    ) + fadeIn(
-                        animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()
-                    ) + scaleIn(
-                        initialScale = 0.6f,
-                        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()
-                    ),
-                    exit = shrinkHorizontally(
-                        shrinkTowards = Alignment.CenterHorizontally,
-                        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()
-                    ) + fadeOut(
-                        animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()
-                    ) + scaleOut(
-                        targetScale = 0.6f,
-                        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()
-                    ),
-                    label = "ConnectedButtonCheckVisibility"
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Filled.Check,
-                            contentDescription = null,
-                            modifier = Modifier.size(iconSize)
-                        )
-                        Spacer(modifier = Modifier.width(iconSpacing))
-                    }
-                }
+                // 幅を変えずにチェックだけをフェードさせ、公式の形状Morphと文字位置を安定させる。
+                val checkAlpha = animateFloatAsState(
+                    targetValue = if (selected) 1f else 0f,
+                    animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+                    label = "ConnectedButtonCheckAlpha"
+                )
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = null,
+                    modifier = Modifier.size(iconSize).graphicsLayer { alpha = checkAlpha.value }
+                )
+                Spacer(modifier = Modifier.width(iconSpacing))
                 Text(option, maxLines = 1)
             }
         }

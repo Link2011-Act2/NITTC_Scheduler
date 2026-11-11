@@ -210,7 +210,6 @@ import jp.linkserver.nittcsc.logic.shouldUseTwoPaneLayout
 import jp.linkserver.nittcsc.logic.buildLessonAutocompleteOptions
 import jp.linkserver.nittcsc.logic.updateTeacherAutoFill
 import jp.linkserver.nittcsc.logic.findTaskLessonSlotIndex
-import jp.linkserver.nittcsc.logic.findTodaysUpcomingLesson
 import jp.linkserver.nittcsc.data.EffectiveSchoolSchedule
 import jp.linkserver.nittcsc.data.departureTime
 import jp.linkserver.nittcsc.logic.formatExamPeriodLabel
@@ -233,12 +232,10 @@ import jp.linkserver.nittcsc.reminder.TaskReminderWorker
 import jp.linkserver.nittcsc.ui.components.AppBottomNavigation
 import jp.linkserver.nittcsc.ui.components.AppBottomNavigationItem
 import jp.linkserver.nittcsc.ui.components.AppConnectedButtonGroup
-import jp.linkserver.nittcsc.ui.components.AppFabMenuAction
 import jp.linkserver.nittcsc.ui.components.AppFloatingToolbar
 import jp.linkserver.nittcsc.ui.components.AppIconButton
 import jp.linkserver.nittcsc.ui.components.AppSplitButton
 import jp.linkserver.nittcsc.ui.components.AppTopAppBar
-import jp.linkserver.nittcsc.ui.components.AppVibrantFabMenu
 import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
 import jp.linkserver.nittcsc.ui.theme.Typography as StandardTypography
 import jp.linkserver.nittcsc.viewmodel.SchedulerUiState
@@ -522,7 +519,6 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
     var transientTabOrigin by rememberSaveable { mutableStateOf<AppTab?>(null) }
     var transientTabTarget by rememberSaveable { mutableStateOf<AppTab?>(null) }
     var unifiedTaskPlanSelectedTabIndex by rememberSaveable { mutableStateOf(0) }
-    var attachedFabMenuExpanded by remember { mutableStateOf(false) }
     var lessonChangeEditor by remember { mutableStateOf<LessonChangeEditorState?>(null) }
     var pendingLessonMoveDialog by remember { mutableStateOf<PendingLessonMoveDialogState?>(null) }
 
@@ -628,10 +624,6 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
             target.timetableTerm == selectedTimetableTerm
     }.takeIf { it >= 0 } ?: 0
     val selectedTimetableTarget = timetableTargets[selectedTimetableTargetIndex]
-
-    LaunchedEffect(selectedTab, unifiedTaskPlanSelectedTabIndex) {
-        attachedFabMenuExpanded = false
-    }
 
     LaunchedEffect(
         selectedTab,
@@ -2334,10 +2326,6 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                             }
                         )
                     } else {
-                        val useExpressiveAttachedCreateAction =
-                            LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE &&
-                                !useDrawerNavigation &&
-                                !useNavigationRail
                         val tabContent: @Composable (PaddingValues) -> Unit = { padding ->
                             Crossfade(
                                 targetState = selectedTab,
@@ -2465,7 +2453,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                                                 },
                                                 onMarkPlanComplete = ::markPlanCompleteWithIntegrations,
                                                 onMarkPlanIncomplete = viewModel::markPlanAsIncomplete,
-                                                showCreateAction = !useExpressiveAttachedCreateAction
+                                                showCreateAction = tab == selectedTab
                                             )
                                         } else {
                                             // 従来のビュー：課題のみ
@@ -2492,7 +2480,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                                                     showTaskEditor = false
                                                     naturalLanguageTaskDraft = null
                                                 },
-                                                showCreateAction = !useExpressiveAttachedCreateAction,
+                                                showCreateAction = tab == selectedTab,
                                                 onDeleteTask = ::deleteTaskWithIntegrations,
                                                 onMarkComplete = ::markTaskCompleteWithIntegrations,
                                                 onMarkIncomplete = viewModel::markTaskAsIncomplete
@@ -2530,7 +2518,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                                             showPlanEditor = false
                                             naturalLanguageTaskDraft = null
                                         },
-                                        showCreateAction = !useExpressiveAttachedCreateAction,
+                                        showCreateAction = tab == selectedTab,
                                         isPlan = true
                                     )
 
@@ -2677,91 +2665,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                                 },
                                 bottomBar = {
                                     if (!useDrawerNavigation && !useNavigationRail) {
-                                        val attachedFabIsPlan =
-                                            selectedTab == AppTab.Plans ||
-                                                (
-                                                    selectedTab == AppTab.Tasks &&
-                                                        unifyTaskPlanView &&
-                                                        unifiedTaskPlanSelectedTabIndex == 1
-                                                )
-                                        val showAttachedCreateFab =
-                                            useExpressiveAttachedCreateAction && showTaskPlanActions
-                                        val currentCreateLabel = stringResource(
-                                            if (attachedFabIsPlan) R.string.cd_add_plan else R.string.cd_add_task
-                                        )
-                                        val alternateCreateLabel = stringResource(
-                                            if (attachedFabIsPlan) R.string.cd_add_task else R.string.cd_add_plan
-                                        )
-                                        val attachedFabActions = buildList {
-                                            if (showAttachedCreateFab) {
-                                                add(
-                                                    AppFabMenuAction(
-                                                        label = currentCreateLabel,
-                                                        icon = Icons.Filled.Add,
-                                                        onClick = {
-                                                            if (attachedFabIsPlan) {
-                                                                editingPlanId = null
-                                                                showPlanEditor = true
-                                                                showTaskEditor = false
-                                                            } else {
-                                                                editingTaskId = null
-                                                                showTaskEditor = true
-                                                                showPlanEditor = false
-                                                            }
-                                                            naturalLanguageTaskDraft = null
-                                                        }
-                                                    )
-                                                )
-                                                add(
-                                                    AppFabMenuAction(
-                                                        label = alternateCreateLabel,
-                                                        icon = Icons.Filled.Edit,
-                                                        onClick = {
-                                                            if (attachedFabIsPlan) {
-                                                                editingTaskId = null
-                                                                showTaskEditor = true
-                                                                showPlanEditor = false
-                                                            } else {
-                                                                editingPlanId = null
-                                                                showPlanEditor = true
-                                                                showTaskEditor = false
-                                                            }
-                                                            naturalLanguageTaskDraft = null
-                                                        }
-                                                    )
-                                                )
-                                                if (
-                                                    !attachedFabIsPlan &&
-                                                    InternalFeatureFlags.NATURAL_LANGUAGE_TASK_ADD &&
-                                                    uiState.settings?.enableNaturalLanguageTaskAdd == true
-                                                ) {
-                                                    add(
-                                                        AppFabMenuAction(
-                                                            label = stringResource(R.string.btn_add_task_from_natural_language),
-                                                            icon = Icons.Filled.AutoFixHigh,
-                                                            onClick = { showNaturalLanguageTaskAddDialog = true }
-                                                        )
-                                                    )
-                                                }
-                                            }
-                                        }
-                                        val attachedFabContent: (@Composable () -> Unit)? =
-                                            if (showAttachedCreateFab) {
-                                                {
-                                                    AppVibrantFabMenu(
-                                                        actions = attachedFabActions,
-                                                        expanded = attachedFabMenuExpanded,
-                                                        onExpandedChange = { attachedFabMenuExpanded = it },
-                                                        expandContentDescription = stringResource(R.string.cd_expand_create_menu),
-                                                        collapseContentDescription = stringResource(R.string.cd_collapse_create_menu)
-                                                    )
-                                                }
-                                            } else {
-                                                null
-                                            }
-                                        AppBottomNavigation(
-                                            floatingActionButton = attachedFabContent
-                                        ) {
+                                        AppBottomNavigation {
                                             AppTab.entries.forEach { tab ->
                                                 // 統合ビューが有効な場合、Plans タブを非表示
                                                 if (unifyTaskPlanView && tab == AppTab.Plans) return@forEach
@@ -3265,7 +3169,7 @@ private fun LessonEditorCard(
 
     Card(
         modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        colors = CardDefaults.cardColors(containerColor = timetableLessonContainerColor()),
         shape = RoundedCornerShape(20.dp)
     ) {
         Column(
@@ -3452,7 +3356,7 @@ private fun LessonEditorCard(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-private fun OutputScreen(
+internal fun OutputScreen(
     modifier: Modifier,
     state: SchedulerUiState,
     dayTypeForDate: (LocalDate) -> DayType,
@@ -3485,7 +3389,8 @@ private fun OutputScreen(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
-    val today = LocalDate.now()
+    val useExpressiveDesign = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
+    val today = if (useExpressiveDesign) rememberCurrentDate() else LocalDate.now()
     val defaultWeekFocusDate = remember(today) {
         when (today.dayOfWeek) {
             DayOfWeek.SATURDAY -> today.plusDays(2)
@@ -3580,8 +3485,6 @@ private fun OutputScreen(
             location = lesson.location.takeIf { it.isNotBlank() }
         )
     }
-    val useExpressiveDesign = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
-    val currentDateTime = rememberCurrentDateTime(useExpressiveDesign)
     val schoolSchedule = remember(state.settings, state.lessons, state.dayTypeEntities,
         state.changedLessons, state.cancelledLessons, state.examLessons, state.examDaySchedules) {
         state.settings?.let { settings ->
@@ -3590,7 +3493,6 @@ private fun OutputScreen(
         }
     }
     val todayCandidates = remember(schoolSchedule, today) { schoolSchedule?.lessonsOn(today).orEmpty() }
-    val upcomingLesson = currentDateTime?.let { findTodaysUpcomingLesson(todayCandidates, it, today) }
     val visibleDates = if (displayMode == OutputDisplayMode.DAY) {
         listOf(selectedDate)
     } else {
@@ -3651,11 +3553,7 @@ private fun OutputScreen(
                     ) { DatePicker(state = state) }
                 }
                 AppFloatingToolbar(
-                    containerColor = if (isCurrentRangeToday) {
-                        MaterialTheme.colorScheme.surfaceContainer
-                    } else {
-                        MaterialTheme.colorScheme.surfaceContainerLow
-                    }
+                    containerColor = timetableDateBarColor(isCurrentRangeToday)
                 ) {
                     Row(
                         modifier = Modifier
@@ -3851,7 +3749,11 @@ private fun OutputScreen(
                             } else {
                                 emptyMap()
                             }
-                            TimetableDayPage(pageDate, currentDateTime, upcomingLesson, useExpressiveDesign) {
+                            TimetableDayPage(
+                                date = pageDate,
+                                candidates = todayCandidates,
+                                showUpcoming = useExpressiveDesign && pageDate == today
+                            ) {
                                 DayScheduleTable(
                                     date = pageDate,
                                     dayType = dayTypeForDate(pageDate),
@@ -5035,7 +4937,7 @@ private fun CalendarPagerCard(
                 .fillMaxWidth(),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                containerColor = timetableLessonContainerColor()
             )
         ) {
             Column(
@@ -5436,8 +5338,7 @@ private fun LessonSearchSelectedDaySchedule(
                 val matches = lesson != null && lessonMatchesSearchQuery(query, date, slot, lesson)
                 val cardColor = when {
                     matches -> MaterialTheme.colorScheme.primaryContainer
-                    usesNoLessonAppearance -> MaterialTheme.colorScheme.surfaceContainer
-                    else -> MaterialTheme.colorScheme.surfaceContainerLow
+                    else -> timetableLessonContainerColor(usesNoLessonAppearance)
                 }
                 val mainContentColor = when {
                     matches -> MaterialTheme.colorScheme.onPrimaryContainer
@@ -6340,10 +6241,7 @@ private fun DayScheduleTable(
                                     } else null
                                 ),
                             colors = CardDefaults.cardColors(
-                                containerColor = if (usesNoLessonAppearance)
-                                    MaterialTheme.colorScheme.surfaceContainer
-                                else
-                                    MaterialTheme.colorScheme.surfaceContainerLow
+                                containerColor = timetableLessonContainerColor(usesNoLessonAppearance)
                             ),
                             shape = RoundedCornerShape(12.dp)
                         ) {
@@ -7019,8 +6917,7 @@ private fun WeekScheduleTable(
                     val lessonMemo = examMemoForDate(date, slot.index)
                         ?: lessonNotesByDateSlot[date to slot.index]?.text?.trim()?.ifBlank { null }
                     val isCancelled = !isHoliday && !isExamDate && isLessonCancelled(date, slot.index)
-                    val bgColor = if (usesNoLessonAppearance) MaterialTheme.colorScheme.surfaceContainer
-                                  else MaterialTheme.colorScheme.surfaceContainerLow
+                    val bgColor = timetableLessonContainerColor(usesNoLessonAppearance)
                     val contentColor = if (usesNoLessonAppearance) MaterialTheme.colorScheme.onSurfaceVariant
                                        else MaterialTheme.colorScheme.onSurface
 

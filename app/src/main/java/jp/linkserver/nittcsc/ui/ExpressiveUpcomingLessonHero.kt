@@ -17,24 +17,37 @@ import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.ResolvedLesson
 import jp.linkserver.nittcsc.logic.UpcomingLessonPhase
 import jp.linkserver.nittcsc.logic.UpcomingLessonSelection
+import jp.linkserver.nittcsc.logic.UpcomingLessonCandidate
+import jp.linkserver.nittcsc.logic.findTodaysUpcomingLesson
 import java.time.Duration
 import java.time.LocalDateTime
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import kotlin.math.ceil
 
+/** 時計の読み取りをカード内に閉じ、時間割全体を毎分再コンポーズしない。 */
+@Composable
+internal fun CurrentUpcomingLessonHero(
+    date: LocalDate,
+    candidates: List<UpcomingLessonCandidate<ResolvedLesson>>,
+    currentDateTime: @Composable () -> LocalDateTime?
+) {
+    val now = currentDateTime() ?: return
+    val selection = findTodaysUpcomingLesson(candidates, now, date) ?: return
+    ExpressiveUpcomingLessonHero(selection, now)
+}
+
 @Composable
 internal fun TimetableDayPage(
     date: LocalDate,
-    now: LocalDateTime?,
-    selection: UpcomingLessonSelection<ResolvedLesson>?,
+    candidates: List<UpcomingLessonCandidate<ResolvedLesson>>,
     showUpcoming: Boolean,
+    currentDateTime: @Composable () -> LocalDateTime? = { rememberCurrentDateTime(enabled = true) },
     content: @Composable () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (showUpcoming && now != null && date == now.toLocalDate() &&
-            selection?.candidate?.date == date) {
-            ExpressiveUpcomingLessonHero(checkNotNull(selection), now)
+        if (showUpcoming && candidates.isNotEmpty()) {
+            CurrentUpcomingLessonHero(date, candidates, currentDateTime)
         }
         content()
     }

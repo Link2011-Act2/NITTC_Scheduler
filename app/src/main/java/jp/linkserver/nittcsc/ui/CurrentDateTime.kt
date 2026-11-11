@@ -11,11 +11,13 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZonedDateTime
+import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.delay
 
 /**
@@ -26,11 +28,21 @@ import kotlinx.coroutines.delay
 internal fun rememberCurrentDateTime(enabled: Boolean): LocalDateTime? {
     if (!enabled) return null
 
-    val currentDateTime by produceState(initialValue = LocalDateTime.now()) {
-        while (true) {
-            value = LocalDateTime.now()
-            val delayMs = 60_000L - (System.currentTimeMillis() % 60_000L) + 50L
-            delay(delayMs)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val currentDateTime by produceState(
+        initialValue = LocalDateTime.now(),
+        key1 = lifecycleOwner
+    ) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            val resumedAt = LocalDateTime.now()
+            if (value.truncatedTo(ChronoUnit.MINUTES) != resumedAt.truncatedTo(ChronoUnit.MINUTES)) {
+                value = resumedAt
+            }
+            while (true) {
+                val delayMs = 60_000L - (System.currentTimeMillis() % 60_000L) + 50L
+                delay(delayMs)
+                value = LocalDateTime.now()
+            }
         }
     }
     return currentDateTime

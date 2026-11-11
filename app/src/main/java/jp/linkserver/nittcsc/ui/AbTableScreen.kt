@@ -79,7 +79,7 @@ internal fun AbTableScreen(
     var showBreakDialog by remember { mutableStateOf(false) }
     var showPrepareNextAcademicYearDialog by rememberSaveable { mutableStateOf(false) }
 
-    val today = checkNotNull(rememberCurrentDateTime(enabled = true)).toLocalDate()
+    val today = rememberCurrentDate()
     val nextAcademicYearStart = remember(preparedNextAcademicYear) {
         preparedNextAcademicYear?.let { LocalDate.of(it, 4, 1) }
     }
