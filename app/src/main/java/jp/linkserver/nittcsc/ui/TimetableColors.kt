@@ -18,8 +18,17 @@ internal fun timetableLessonContainerColor(empty: Boolean = false): Color = when
 @Composable
 internal fun timetableDateBarColor(today: Boolean): Color =
     if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
-        MaterialTheme.colorScheme.surfaceContainer
+        if (today) MaterialTheme.colorScheme.surfaceContainerHigh
+        else MaterialTheme.colorScheme.surfaceContainer
     } else {
         if (today) MaterialTheme.colorScheme.surfaceContainer
         else MaterialTheme.colorScheme.surfaceContainerLow
+    }
+
+@Composable
+internal fun timetableDisplayModeContainerColor(): Color =
+    if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+        MaterialTheme.colorScheme.surfaceContainerLowest
+    } else {
+        MaterialTheme.colorScheme.surfaceContainerHighest
     }

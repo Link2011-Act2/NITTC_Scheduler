@@ -57,10 +57,11 @@ class TimetableAppearanceTest {
             AppTheme(mode, darkTheme = dark, dynamicColor = dynamic) {
                 val scheme = MaterialTheme.colorScheme
                 val bar = timetableDateBarColor(currentRangeToday)
+                val toggle = timetableDisplayModeContainerColor()
                 val previousAutomaticText = contentColorFor(scheme.surfaceContainerHighest)
                 SideEffect {
                     expectedTextColor = scheme.onSurface
-                    schemeInfo = listOf(bar, scheme.surfaceContainerHighest, previousAutomaticText, scheme.onSurfaceVariant)
+                    schemeInfo = listOf(bar, toggle, previousAutomaticText, scheme.onSurfaceVariant)
                         .joinToString(",") { "%08X".format(it.toArgb()) }
                 }
                 Surface {

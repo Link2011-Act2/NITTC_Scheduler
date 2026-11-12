@@ -170,6 +170,7 @@ class ExpressiveComponentsTest {
         var empty = Color.Unspecified
         var dateBar = Color.Unspecified
         var todayBar = Color.Unspecified
+        var toggle = Color.Unspecified
         var previous = Color.Unspecified
         val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
         val output = File(context.getExternalFilesDir(null), "m3e-ui").apply { mkdirs() }
@@ -184,6 +185,7 @@ class ExpressiveComponentsTest {
                 empty = timetableLessonContainerColor(empty = true)
                 dateBar = timetableDateBarColor(today = false)
                 todayBar = timetableDateBarColor(today = true)
+                toggle = timetableDisplayModeContainerColor()
                 Surface(color = background) {
                     Column(Modifier.width(320.dp).padding(16.dp)) {
                         Surface(color = todayBar) { Text("今日", Modifier.padding(16.dp)) }
@@ -201,7 +203,9 @@ class ExpressiveComponentsTest {
                 assertNotEquals(background, empty)
                 assertNotEquals(background, dateBar)
                 assertNotEquals(normal, empty)
-                assertEquals(todayBar, dateBar)
+                assertNotEquals(todayBar, dateBar)
+                assertNotEquals(toggle, todayBar)
+                assertNotEquals(toggle, dateBar)
                 assertTrue(normal.alpha == 1f)
                 colors.appendText("$dark,$dynamic," + listOf(background, previous, normal, empty, dateBar, todayBar)
                     .joinToString(",") { "%08X".format(it.toArgb()) } + "\n")

@@ -3112,41 +3112,30 @@ private fun TimetableInputScreen(
 }
 
 @Composable
-private fun LessonEditorCard(
+internal fun LessonEditorCard(
     modifier: Modifier = Modifier,
     title: String,
     lesson: LessonEntity?,
     onAutoSave: (LessonDraft) -> Unit,
     onSave: (LessonDraft) -> Unit
 ) {
-    var mode by remember { mutableStateOf(lesson?.mode ?: LessonMode.WEEKLY) }
-    var weeklySubject by remember { mutableStateOf(lesson?.weeklySubject.orEmpty()) }
-    var weeklyTeacher by remember { mutableStateOf(lesson?.weeklyTeacher.orEmpty()) }
-    var weeklyLocation by remember { mutableStateOf(lesson?.weeklyLocation.orEmpty()) }
-    var aSubject by remember { mutableStateOf(lesson?.aSubject.orEmpty()) }
-    var aTeacher by remember { mutableStateOf(lesson?.aTeacher.orEmpty()) }
-    var aLocation by remember { mutableStateOf(lesson?.aLocation.orEmpty()) }
-    var bSubject by remember { mutableStateOf(lesson?.bSubject.orEmpty()) }
-    var bTeacher by remember { mutableStateOf(lesson?.bTeacher.orEmpty()) }
-    var bLocation by remember { mutableStateOf(lesson?.bLocation.orEmpty()) }
-
-    LaunchedEffect(lesson?.id, title) {
-        mode = lesson?.mode ?: LessonMode.WEEKLY
-        weeklySubject = lesson?.weeklySubject.orEmpty()
-        weeklyTeacher = lesson?.weeklyTeacher.orEmpty()
-        weeklyLocation = lesson?.weeklyLocation.orEmpty()
-        aSubject = lesson?.aSubject.orEmpty()
-        aTeacher = lesson?.aTeacher.orEmpty()
-        aLocation = lesson?.aLocation.orEmpty()
-        bSubject = lesson?.bSubject.orEmpty()
-        bTeacher = lesson?.bTeacher.orEmpty()
-        bLocation = lesson?.bLocation.orEmpty()
-    }
+    // 授業切り替え時は最初の描画から新しい入力状態を使う。
+    // 描画後の一括代入による再コンポーズ・再計測が曜日Morphと競合するのを避ける。
+    var mode by remember(lesson?.id, title) { mutableStateOf(lesson?.mode ?: LessonMode.WEEKLY) }
+    var weeklySubject by remember(lesson?.id, title) { mutableStateOf(lesson?.weeklySubject.orEmpty()) }
+    var weeklyTeacher by remember(lesson?.id, title) { mutableStateOf(lesson?.weeklyTeacher.orEmpty()) }
+    var weeklyLocation by remember(lesson?.id, title) { mutableStateOf(lesson?.weeklyLocation.orEmpty()) }
+    var aSubject by remember(lesson?.id, title) { mutableStateOf(lesson?.aSubject.orEmpty()) }
+    var aTeacher by remember(lesson?.id, title) { mutableStateOf(lesson?.aTeacher.orEmpty()) }
+    var aLocation by remember(lesson?.id, title) { mutableStateOf(lesson?.aLocation.orEmpty()) }
+    var bSubject by remember(lesson?.id, title) { mutableStateOf(lesson?.bSubject.orEmpty()) }
+    var bTeacher by remember(lesson?.id, title) { mutableStateOf(lesson?.bTeacher.orEmpty()) }
+    var bLocation by remember(lesson?.id, title) { mutableStateOf(lesson?.bLocation.orEmpty()) }
 
     // 入力があるたびに500ms後に自動保存
-    val isInitialized = remember { mutableStateOf(false) }
-    LaunchedEffect(lesson?.id, title) { isInitialized.value = false }
+    val isInitialized = remember(lesson?.id, title) { mutableStateOf(false) }
     LaunchedEffect(
+        lesson?.id, title,
         mode, weeklySubject, weeklyTeacher, weeklyLocation,
         aSubject, aTeacher, aLocation, bSubject, bTeacher, bLocation
     ) {
@@ -3567,11 +3556,8 @@ internal fun OutputScreen(
                     ) {
                         Box(
                             modifier = Modifier
-                                .then(if (useExpressiveDesign) {
-                                    Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
-                                } else Modifier)
                                 .background(
-                                    MaterialTheme.colorScheme.surfaceContainerHighest,
+                                    timetableDisplayModeContainerColor(),
                                     CircleShape
                                 )
                                 .padding(2.dp)

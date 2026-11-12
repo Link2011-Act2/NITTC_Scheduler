@@ -38,8 +38,9 @@ class ConnectedButtonMotionTest {
         val output = File(context.getExternalFilesDir(null), "m3e-revision/$run/${if (qr) "qr" else "weekday"}").apply { mkdirs() }
         var selected by mutableIntStateOf(0)
         var speed by mutableStateOf(QrDisplaySpeed.STANDARD)
-        val target = if (qr) context.getString(R.string.qr_speed_fast) else "水"
-        val alternate = if (qr) context.getString(R.string.qr_speed_stable) else "月"
+        val labels = if (qr) listOf(R.string.qr_speed_stable, R.string.qr_speed_standard,
+            R.string.qr_speed_fast, R.string.qr_speed_ultra_fast).map(context::getString)
+            else listOf("月", "火", "水", "木", "金")
         compose.setContent {
             AppTheme(UiDesignMode.MATERIAL_3_EXPRESSIVE, dynamicColor = false) {
                 Surface {
@@ -53,7 +54,7 @@ class ConnectedButtonMotionTest {
         compose.waitForIdle()
         compose.mainClock.autoAdvance = false
         val positions = File(output, "positions.csv").apply { writeText("frame,textLeftDp\n") }
-        fun capture(frame: String): Float {
+        fun capture(target: String, frame: String): Float {
             val left = compose.onNodeWithText(target, useUnmergedTree = true).getUnclippedBoundsInRoot().left.value
             positions.appendText("$frame,$left\n")
             File(output, "$frame.png").outputStream().use {
@@ -61,32 +62,60 @@ class ConnectedButtonMotionTest {
             }
             return left
         }
-        val before = capture("00-before")
-        compose.onNodeWithText(target).performTouchInput { down(center) }
-        compose.mainClock.advanceTimeBy(32)
-        capture("01-press-32ms")
-        compose.mainClock.advanceTimeBy(96)
-        capture("02-press-held")
-        compose.onNodeWithText(target).performTouchInput { up() }
-        capture("03-release")
-        var elapsed = 0L
-        var during = before
-        for (time in listOf(16L, 32L, 64L, 112L, 192L, 400L, 800L)) {
-            compose.mainClock.advanceTimeBy(time - elapsed)
-            elapsed = time
-            val left = capture("04-select-${time}ms")
-            if (time == 64L) during = left
+        // A semantic click omits PressInteraction. Exercise both a quick tap and a held press.
+        // Sample the target AND the previously selected button, so reverse Morph is measured too.
+        for (index in listOf(0, labels.size / 2, labels.lastIndex)) for (hold in listOf(16L, 240L)) {
+            val previous = if (index == 0) 1 else 0
+            compose.runOnIdle { selected = previous; speed = QrDisplaySpeed.entries[previous] }
+            compose.mainClock.advanceTimeBy(1000)
+            val target = labels[index]
+            val prefix = "$index-hold-$hold"
+            val node = compose.onNodeWithText(target)
+            val oldNode = compose.onNodeWithText(labels[previous])
+            val corners = File(output, "corners/$prefix")
+            val before = saveCornerContour(node, corners, "before", index == 0)
+            val oldBefore = saveCornerContour(oldNode, corners, "old-before", previous == 0)
+            val textBefore = capture(target, "$prefix-before")
+            node.performTouchInput { down(center) }
+            compose.mainClock.advanceTimeBy(hold)
+            val pressed = saveCornerContour(node, corners, "pressed-$hold", index == 0)
+            capture(target, "$prefix-pressed")
+            node.performTouchInput { up() }
+            val release = saveCornerContour(node, corners, "release", index == 0)
+            capture(target, "$prefix-release")
+            val forward = mutableListOf<String>()
+            val reverse = mutableListOf<String>()
+            val textPositions = mutableListOf<Float>()
+            var elapsed = 0L
+            for (time in morphFrameTimes + 640L + 800L) {
+                compose.mainClock.advanceTimeBy(time - elapsed)
+                elapsed = time
+                forward += saveCornerContour(node, corners, "select-$time", index == 0)
+                reverse += saveCornerContour(oldNode, corners, "clear-$time", previous == 0)
+                textPositions += capture(target, "$prefix-select-$time")
+            }
+            val after = forward.last()
+            val oldAfter = reverse.last()
+            assertTrue("$prefix must change the corner, independently of label/check", before != after)
+            assertTrue("$prefix must not reach the selected shape while held", pressed != after)
+            assertTrue("$prefix must not jump to the selected shape on release", release != after)
+            assertTrue("$prefix needs multiple selection contours after release",
+                forward.filter { it != release && it != after }.distinct().size >= 2)
+            assertTrue("$prefix needs multiple deselection contours after release",
+                reverse.filter { it != oldBefore && it != oldAfter }.distinct().size >= 2)
+            val textAfter = textPositions.last()
+            assertTrue("$prefix check must move the label", textAfter > textBefore + 1f)
+            assertTrue("$prefix label must pass through an intermediate position",
+                textPositions.any { it > textBefore && it < textAfter })
         }
-        val after = capture("05-selected")
         repeat(6) { index ->
-            compose.onNodeWithText(if (index % 2 == 0) alternate else target).performTouchInput { click() }
+            compose.onNodeWithText(if (index % 2 == 0) labels.first() else labels.last()).performTouchInput { click() }
             compose.mainClock.advanceTimeBy(32)
-            capture("06-interrupt-$index")
+            capture(labels.last(), "interrupt-$index")
+            saveCornerContour(compose.onNodeWithText(labels.last()), File(output, "corners/interrupt"), "$index", false)
         }
         compose.mainClock.advanceTimeBy(1000)
-        capture("07-settled")
-        assertTrue("The check must make room by moving the label", after > before + 1f)
-        assertTrue("Label movement must pass through an intermediate position: $before, $during, $after",
-            during > before && during < after)
+        capture(labels.last(), "settled")
+        compose.onNodeWithText(labels.last()).assertIsOn()
     }
 }
