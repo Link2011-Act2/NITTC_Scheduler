@@ -810,6 +810,11 @@
     <string name="dialog_exam_memo_title">試験メモ</string>
     <string name="hint_exam_memo_text">持ち込み可能物品などを入力</string>
     <string name="label_exam_no_test">試験なし</string>
+    <string name="label_exam_unset">未設定</string>
+    <string name="dialog_exam_unset_title">試験時間割が未設定です</string>
+    <string name="dialog_exam_unset_message">試験時間割は、編集タブ上部のこのアイコンから設定できます。</string>
+    <string name="dialog_exam_unset_question">設定画面を開きますか？</string>
+    <string name="btn_configure_exam_timetable">設定する</string>
 
     <!-- About Screen -->
     <string name="about_screen_title">このアプリについて</string>

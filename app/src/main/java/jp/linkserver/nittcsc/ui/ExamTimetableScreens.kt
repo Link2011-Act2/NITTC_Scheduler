@@ -85,6 +85,10 @@ data class ExamPeriod(
     val dates: List<LocalDate>
 )
 
+/** 期間内の通常の休日を、試験日として誤って選択しない。 */
+internal fun examPeriodContainingDate(periods: List<ExamPeriod>, date: LocalDate): ExamPeriod? =
+    periods.firstOrNull { date in it.dates }
+
 fun buildExamPeriods(dayTypes: Collection<DayTypeEntity>): List<ExamPeriod> {
     val holidays = dayTypes.filter { it.dayType == DayType.HOLIDAY }.mapTo(mutableSetOf()) { it.date }
     val examDays = dayTypes

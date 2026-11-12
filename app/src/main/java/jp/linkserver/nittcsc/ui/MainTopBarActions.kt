@@ -133,16 +133,7 @@ internal fun TimetableTargetDropdown(
     val selectedLabel = options.getOrNull(selectedIndex).orEmpty()
     Box {
         TextButton(onClick = { expanded = true }) {
-            Text(
-                text = selectedLabel,
-                modifier = Modifier.widthIn(max = 140.dp),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Icon(
-                imageVector = Icons.Filled.ArrowDropDown,
-                contentDescription = null
-            )
+            TimetableTargetLabel(selectedLabel)
         }
         DropdownMenu(
             expanded = expanded,
@@ -170,4 +161,15 @@ internal fun TimetableTargetDropdown(
             }
         }
     }
+}
+
+@Composable
+internal fun TimetableTargetLabel(label: String, modifier: Modifier = Modifier) {
+    Text(
+        text = label,
+        modifier = modifier.widthIn(max = 140.dp),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
+    Icon(imageVector = Icons.Filled.ArrowDropDown, contentDescription = null)
 }

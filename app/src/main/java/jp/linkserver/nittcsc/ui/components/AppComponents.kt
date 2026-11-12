@@ -17,11 +17,13 @@ import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -72,8 +74,9 @@ import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.SplitButtonLayout
 import androidx.compose.material3.SplitButtonDefaults
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -87,6 +90,7 @@ import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.material3.ToggleButtonColors
 import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -702,24 +706,27 @@ fun AppSplitButton(
     primaryEnabled: Boolean = true,
     secondaryEnabled: Boolean = true
 ) {
-    SplitButtonLayout(
-        leadingButton = {
+    Row(
+        modifier = modifier.minimumInteractiveComponentSize().height(IntrinsicSize.Min),
+        horizontalArrangement = Arrangement.spacedBy(SplitButtonDefaults.Spacing)
+    ) {
+        // 公式Layoutと同じく操作領域は親で確保し、内側へ余白を重ねない。
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
             SplitButtonDefaults.LeadingButton(
                 onClick = onPrimaryClick,
+                modifier = Modifier.weight(1f).fillMaxHeight(),
                 enabled = primaryEnabled,
                 content = primaryLabel
             )
-        },
-        trailingButton = {
             SplitButtonDefaults.OutlinedTrailingButton(
                 checked = false,
                 onCheckedChange = { onSecondaryClick() },
+                modifier = Modifier.weight(1f).fillMaxHeight(),
                 enabled = secondaryEnabled,
                 content = secondaryLabel
             )
-        },
-        modifier = modifier
-    )
+        }
+    }
 }
 
 @Composable
