@@ -1112,6 +1112,9 @@
     <string name="qr_import_notes_review">異なるメモを確認</string>
     <string name="qr_import_all_years">全年度</string>
     <string name="qr_import_days_and_breaks">A/B表</string>
+    <string name="qr_import_first_days_and_breaks">前期A/B表・休暇</string>
+    <string name="qr_import_second_days_and_breaks">後期A/B表・休暇</string>
+    <string name="qr_import_year_days_and_breaks">年度全体のA/B表・休暇</string>
     <string name="qr_import_all_years_warning">すべての年度のデータを置き換えます</string>
     <string name="qr_import_duplicates_skipped">%1$d件が重複</string>
     <string name="qr_import_number">%1$d件</string>

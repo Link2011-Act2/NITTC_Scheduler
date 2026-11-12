@@ -1,7 +1,6 @@
 package jp.linkserver.nittcsc.ui
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -44,6 +43,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -62,6 +62,10 @@ import jp.linkserver.nittcsc.logic.QrShareMerge
 import jp.linkserver.nittcsc.logic.academicYearForDate
 import jp.linkserver.nittcsc.logic.qrShareMerge
 import jp.linkserver.nittcsc.logic.qrDayTypesRange
+import jp.linkserver.nittcsc.logic.QrImportPeriod
+import jp.linkserver.nittcsc.logic.QrImportScopeGroup
+import jp.linkserver.nittcsc.logic.qrImportScopeGroups
+import jp.linkserver.nittcsc.ui.theme.appCardContainerColor
 import jp.linkserver.nittcsc.viewmodel.SchedulerUiState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -206,33 +210,12 @@ private fun LazyListScope.qrImportSummary(
             stringResource(R.string.qr_import_note_choices, selectedReplacements, merge.noteConflicts.size - selectedReplacements),
             enabled = !busy, onClick = onNotes)
     }
-    val yearSections = listOf(QrShareSection.FIRST, QrShareSection.SECOND, QrShareSection.CANCELLATIONS,
-        QrShareSection.CHANGES, QrShareSection.EXAMS).filter { it in data.sections }
-    if (yearSections.isNotEmpty() || QrShareSection.DAY_TYPES in data.sections) item {
+    val scopes = qrImportScopeGroups(data)
+    if (scopes.isNotEmpty()) item {
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             QrImportHeading(stringResource(R.string.qr_import_replace))
-            if (yearSections.isNotEmpty()) {
-                val bothTerms = QrShareSection.FIRST in yearSections && QrShareSection.SECOND in yearSections
-                val timetableLabels = if (bothTerms) listOf(stringResource(R.string.qr_import_both_terms))
-                    else yearSections.filter { it == QrShareSection.FIRST || it == QrShareSection.SECOND }
-                        .map { stringResource(it.labelRes()) }
-                val otherLabels = yearSections.filter { it != QrShareSection.FIRST && it != QrShareSection.SECOND }
-                    .map { stringResource(it.labelRes()) }
-                QrImportScope(stringResource(R.string.qr_image_year, data.academicYear),
-                    listOf(timetableLabels.joinToString("・"), otherLabels.joinToString("・")).filter { it.isNotEmpty() }.joinToString("\n"))
-            }
-            if (QrShareSection.DAY_TYPES in data.sections) {
-                val range = data.qrDayTypesRange()
-                QrImportScope(
-                    if (range == null) stringResource(R.string.qr_import_all_years)
-                    else stringResource(data.dayTypesScope.labelRes()),
-                    stringResource(R.string.qr_import_days_and_breaks),
-                    warning = if (range == null) stringResource(R.string.qr_import_all_years_warning) else null
-                )
-                if (range != null) Text(stringResource(R.string.qr_days_range, range.start.toString(), range.endInclusive.toString()),
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            scopes.forEach { QrImportScope(it) }
         }
     }
     item { QrImportNavigationRow(stringResource(R.string.qr_import_details), enabled = !busy, onClick = onDetails) }
@@ -268,34 +251,61 @@ private fun QrImportAdditionRow(section: QrShareSection, added: Int?, duplicates
 }
 
 @Composable
-private fun QrImportScope(tag: String, text: String, warning: String? = null) {
+internal fun QrImportScope(group: QrImportScopeGroup) {
     val colors = MaterialTheme.colorScheme
-    // 動的テーマの警告背景はダークモードでも明色。薄めず、暗い本文色でコントラストを保つ。
-    val lightWarningOnDark = colors.surface.luminance() < 0.5f && colors.errorContainer.luminance() > 0.5f
-    Surface(shape = RoundedCornerShape(16.dp), color = if (warning == null) appDialogSectionColor(colors.surfaceContainerLow)
-        else colors.errorContainer.copy(alpha = if (lightWarningOnDark) 1f else 0.5f)) {
-        BoxWithConstraints(Modifier.fillMaxWidth().padding(if (warning == null) 0.dp else 12.dp)) {
-            val badge: @Composable () -> Unit = {
-                Surface(shape = RoundedCornerShape(12.dp), color = if (warning == null) colors.primaryContainer else colors.errorContainer) {
-                    Text(tag, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
+    val warning = group.period == QrImportPeriod.ALL_YEARS
+    // テーマによって警告面が明色になる場合も、面に対して読めるテーマ色を選ぶ。
+    val warningContent = if (qrScopeContrast(colors.onErrorContainer, colors.errorContainer) >= 4.5f) colors.onErrorContainer
+        else listOf(colors.onSurface, colors.surface).maxBy { qrScopeContrast(it, colors.errorContainer) }
+    val contentColor = if (warning) warningContent else colors.onSurface
+    Surface(
+        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp),
+        color = if (warning) colors.errorContainer else appCardContainerColor(standardColor = colors.surfaceContainerLow),
+        contentColor = contentColor
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                val tags = listOfNotNull(group.academicYear?.let { stringResource(R.string.qr_image_year, it) },
+                    stringResource(when (group.period) {
+                        QrImportPeriod.FIRST -> R.string.qr_days_first
+                        QrImportPeriod.SECOND -> R.string.qr_days_second
+                        QrImportPeriod.YEAR -> R.string.qr_days_year
+                        QrImportPeriod.ALL_YEARS -> R.string.qr_import_all_years
+                    }))
+                tags.forEach { tag ->
+                    Surface(shape = CircleShape,
+                        color = if (warning) warningContent else colors.primaryContainer,
+                        contentColor = if (warning) colors.errorContainer else colors.onPrimaryContainer) {
+                        Text(tag, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+                    }
                 }
             }
-            val description: @Composable () -> Unit = {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(text, style = MaterialTheme.typography.bodyMedium,
-                        color = if (warning != null && lightWarningOnDark) colors.surface else colors.onSurface)
-                    if (warning != null) Text(warning, style = MaterialTheme.typography.bodySmall, color = colors.onErrorContainer)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                group.sections.forEach { section ->
+                    val label = if (section != QrShareSection.DAY_TYPES) section.labelRes() else when (group.period) {
+                        QrImportPeriod.FIRST -> R.string.qr_import_first_days_and_breaks
+                        QrImportPeriod.SECOND -> R.string.qr_import_second_days_and_breaks
+                        QrImportPeriod.YEAR -> R.string.qr_import_year_days_and_breaks
+                        QrImportPeriod.ALL_YEARS -> R.string.qr_import_days_and_breaks
+                    }
+                    Text(stringResource(label), style = MaterialTheme.typography.bodyMedium, color = contentColor)
                 }
             }
-            if (maxWidth < 300.dp || LocalDensity.current.fontScale > 1.3f) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { badge(); description() }
-            } else Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
-                badge()
-                Column(Modifier.weight(1f)) { description() }
+            group.dayTypesRange?.let { range ->
+                Text(stringResource(R.string.qr_days_range, range.start.toString(), range.endInclusive.toString()),
+                    style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
             }
+            if (warning) Text(stringResource(R.string.qr_import_all_years_warning),
+                style = MaterialTheme.typography.bodySmall, color = warningContent)
         }
     }
+}
+
+private fun qrScopeContrast(foreground: Color, background: Color): Float {
+    val light = maxOf(foreground.luminance(), background.luminance())
+    val dark = minOf(foreground.luminance(), background.luminance())
+    return (light + 0.05f) / (dark + 0.05f)
 }
 
 @Composable

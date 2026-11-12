@@ -2,8 +2,6 @@ package jp.linkserver.nittcsc.ui
 
 import jp.linkserver.nittcsc.ui.theme.appInsetContainerColor
 import jp.linkserver.nittcsc.ui.theme.appCardContainerColor
-import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
-import jp.linkserver.nittcsc.data.UiDesignMode
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -603,7 +601,7 @@ private fun NextAcademicYearHeader(academicYear: Int) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun WeekRow(
+internal fun WeekRow(
     abEnabled: Boolean,
     row: WeekRow,
     settingsStart: LocalDate,
@@ -622,11 +620,10 @@ private fun WeekRow(
     onDragCancel: () -> Unit = {}
 ) {
     val rowBoundsRef = remember { arrayOfNulls<Rect>(1) }
-    val expressiveColors = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .alpha(if (isPast && !expressiveColors) 0.38f else 1f)
+            .alpha(if (isPast) 0.38f else 1f)
             .background(appCardContainerColor(standardColor = Color.Transparent, subdued = isPast), RoundedCornerShape(8.dp))
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
             .padding(8.dp),
@@ -777,7 +774,7 @@ private fun AddBreakDialog(
     )
 }
 
-private data class WeekRow(
+internal data class WeekRow(
     val weekStart: LocalDate,
     val weekEnd: LocalDate,
     val days: List<LocalDate>

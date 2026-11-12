@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -36,6 +37,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -57,6 +60,9 @@ import jp.linkserver.nittcsc.logic.QrDayTypesScope
 import jp.linkserver.nittcsc.logic.qrShareAcademicYears
 import jp.linkserver.nittcsc.logic.TimetableTerm
 import jp.linkserver.nittcsc.ui.components.AppSettingsGroup
+import jp.linkserver.nittcsc.ui.components.AppSettingsItem
+import jp.linkserver.nittcsc.data.UiDesignMode
+import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
 import jp.linkserver.nittcsc.ui.theme.appCardContainerColor
 import jp.linkserver.nittcsc.ui.theme.appInsetContainerColor
 import jp.linkserver.nittcsc.viewmodel.SchedulerUiState
@@ -117,6 +123,7 @@ internal fun QrShareSelectionScreen(
     onGenerate: (QrShareSelection) -> Unit
 ) {
     val today = LocalDate.now()
+    val expressive = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
     val settings = state.settings
     val currentYear = settings?.activeAcademicYear?.takeIf { it > 0 } ?: academicYearForDate(today)
     var year by remember(currentYear) { mutableIntStateOf(currentYear) }
@@ -171,7 +178,7 @@ internal fun QrShareSelectionScreen(
                     }
                 }
                 items(qrShareChoiceGroups, key = { it.first().section.name }) { choices ->
-                    AppSettingsGroup(Modifier.padding(horizontal = 16.dp), connectedRows = true, expressiveStyle = false) {
+                    AppSettingsGroup(Modifier.padding(horizontal = 16.dp), connectedRows = true) {
                         choices.forEach { choice ->
                             item("${choice.section.name}/${choice.daysScope?.name.orEmpty()}") {
                                 val section = choice.section
@@ -189,14 +196,16 @@ internal fun QrShareSelectionScreen(
                                 val interaction = if (personal) Modifier.clickable(enabled = selecting, role = Role.Button) {
                                     selected += section; onPick(section)
                                 } else Modifier.toggleable(value = checked, enabled = selecting, role = Role.Checkbox, onValueChange = ::changeSelection)
+                                AppSettingsItem {
                                 Row(
-                                    Modifier.fillMaxWidth().then(interaction).padding(horizontal = 12.dp, vertical = 6.dp),
+                                    Modifier.fillMaxWidth().heightIn(min = if (expressive) 72.dp else 0.dp)
+                                        .then(interaction).padding(horizontal = 12.dp, vertical = 6.dp),
                                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                                 ) {
                                     Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
                                         Checkbox(checked = checked, onCheckedChange = if (personal) ::changeSelection else null, enabled = selecting)
                                     }
-                                    Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                                    Column(Modifier.weight(1f).padding(horizontal = 8.dp).alpha(if (expressive && !selecting) 0.6f else 1f)) {
                                         Text(stringResource(when (choice.daysScope) {
                                             QrDayTypesScope.FIRST -> R.string.qr_first_days
                                             QrDayTypesScope.SECOND -> R.string.qr_second_days
@@ -208,11 +217,13 @@ internal fun QrShareSelectionScreen(
                                             QrShareSection.EXAMS -> R.string.qr_exams_scope
                                             QrShareSection.NOTES, QrShareSection.PLANS, QrShareSection.TASKS -> R.string.qr_personal_scope
                                             else -> R.string.qr_year_scope
-                                        }), style = MaterialTheme.typography.bodySmall)
+                                        }), style = MaterialTheme.typography.bodySmall,
+                                            color = if (expressive) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified)
                                     }
                                     if (personal) TextButton(onClick = { selected += section; onPick(section) }, enabled = selecting) {
                                         Text(stringResource(R.string.qr_pick_count, keys(section).size))
                                     }
+                                }
                                 }
                             }
                         }
