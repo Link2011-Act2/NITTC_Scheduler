@@ -3418,9 +3418,9 @@ internal fun OutputScreen(
     val weekDates = remember(weekDisplayReferenceDate) { (0L..4L).map { weekStart.plusDays(it) } }
     val tasksByDueDate = remember(state.tasks) { state.tasks.groupBy { it.dueDate } }
     val plansByDueDate = remember(state.plans) { state.plans.groupBy { it.dueDate } }
-    val isCurrentRangeToday = remember(displayMode, selectedDate, weekDates, today) {
+    val isCurrentRangeToday = remember(displayMode, selectedDate, weekDates, today, useExpressiveDesign) {
         if (displayMode == OutputDisplayMode.DAY) selectedDate == today
-        else weekDates.contains(currentWeekReferenceDate)
+        else weekDates.contains(if (useExpressiveDesign) today else currentWeekReferenceDate)
     }
     val displayModeIndicatorOffset by animateDpAsState(
         targetValue = if (displayMode == OutputDisplayMode.DAY) 0.dp else 42.dp,
@@ -3618,6 +3618,11 @@ internal fun OutputScreen(
                         } else null
                         val shortFmt = remember { DateTimeFormatter.ofPattern("MM/dd") }
                         TimetableDateNavigation(
+                            isWeekRange = displayMode == OutputDisplayMode.WEEK,
+                            todayIndicatorDescription = if (useExpressiveDesign && isCurrentRangeToday) {
+                                stringResource(if (displayMode == OutputDisplayMode.DAY) R.string.m3e_lesson_today
+                                    else R.string.a11y_timetable_contains_today)
+                            } else null,
                             dateLabel = if (displayMode == OutputDisplayMode.DAY) selectedDate.format(dateFormatter)
                                 else "${weekDates.first().format(shortFmt)}-${weekDates.last().format(shortFmt)}",
                             detailLabel = if (displayMode == OutputDisplayMode.DAY) {
@@ -3824,6 +3829,7 @@ internal fun OutputScreen(
                                 pageWeekDates.flatMap { plansByDueDate[it].orEmpty() }
                             }
                             WeekScheduleTable(
+                                todayOverride = if (useExpressiveDesign) today else null,
                                 dates = pageWeekDates,
                                 dayTypeForDate = dayTypeForDate,
                                 dayTypeEntityForDate = dayTypeEntityForDate,
@@ -6685,6 +6691,7 @@ private fun WeekendCurrentDayMarker(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun WeekScheduleTable(
+    todayOverride: LocalDate?,
     dates: List<LocalDate>,
     dayTypeForDate: (LocalDate) -> DayType,
     dayTypeEntityForDate: (LocalDate) -> DayTypeEntity?,
@@ -6715,7 +6722,7 @@ private fun WeekScheduleTable(
     onDayClick: (LocalDate) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val today = LocalDate.now()
+    val today = todayOverride ?: LocalDate.now()
     val currentTime = if (showCurrentTimeMarker) rememberCurrentTime() else null
     val haptic = LocalHapticFeedback.current
     data class WeekLessonActionDialogData(

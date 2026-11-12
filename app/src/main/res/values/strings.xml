@@ -606,6 +606,7 @@
     <string name="m3e_lesson_ongoing">授業中</string>
     <string name="m3e_lesson_next">次の授業</string>
     <string name="m3e_lesson_today">今日</string>
+    <string name="a11y_timetable_contains_today">今日を含む</string>
     <string name="m3e_lesson_date">%1$d/%2$d（%3$s）</string>
     <string name="m3e_lesson_date_time">%1$s・%2$s  %3$s–%4$s</string>
     <string name="m3e_lesson_starts_in">開始まで %1$s</string>

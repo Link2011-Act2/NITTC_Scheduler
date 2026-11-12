@@ -8,18 +8,22 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Density
 import androidx.test.platform.app.InstrumentationRegistry
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.*
@@ -45,27 +49,40 @@ class TimetableAppearanceTest {
         var dark by mutableStateOf(false)
         var dynamic by mutableStateOf(false)
         var mode by mutableStateOf(UiDesignMode.MATERIAL_3_EXPRESSIVE)
+        var narrow by mutableStateOf(false)
+        var indicatorStyle by mutableStateOf(TodayIndicatorStyle.PILL)
         var currentRangeToday by mutableStateOf(true)
         var expectedTextColor = Color.Unspecified
+        var pillTextColor = Color.Unspecified
         var schemeInfo = ""
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val output = File(context.getExternalFilesDir(null), "m3e-revision/toolbar").apply { mkdirs() }
+        val output = File(context.getExternalFilesDir(null), "today-indicator").apply { mkdirs() }
         val colors = File(output, "colors.csv").apply {
-            writeText("mode,dark,dynamic,case,text,expected,bar,toggle,oldAutomaticText,onSurfaceVariant\n")
+            writeText("style,mode,dark,dynamic,case,text,expected,bar,toggle,oldAutomaticText,onSurfaceVariant\n")
         }
         compose.setContent {
             AppTheme(mode, darkTheme = dark, dynamicColor = dynamic) {
                 val scheme = MaterialTheme.colorScheme
                 val bar = timetableDateBarColor(currentRangeToday)
                 val toggle = timetableDisplayModeContainerColor()
+                if (mode == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+                    assertEquals(timetableLessonContainerColor(), bar)
+                    assertNotEquals(bar, toggle)
+                }
                 val previousAutomaticText = contentColorFor(scheme.surfaceContainerHighest)
                 SideEffect {
                     expectedTextColor = scheme.onSurface
+                    pillTextColor = scheme.onPrimaryContainer
                     schemeInfo = listOf(bar, toggle, previousAutomaticText, scheme.onSurfaceVariant)
                         .joinToString(",") { "%08X".format(it.toArgb()) }
                 }
                 Surface {
-                    Box(Modifier.width(360.dp).height(680.dp)) {
+                    val density = LocalDensity.current
+                    CompositionLocalProvider(
+                        LocalDensity provides Density(density.density, if (narrow) 2f else density.fontScale),
+                        LocalTodayIndicatorStyle provides indicatorStyle
+                    ) {
+                    Box(Modifier.width(if (narrow) 320.dp else 360.dp).height(680.dp)) {
                         OutputScreen(
                             modifier = Modifier,
                             state = SchedulerUiState(
@@ -86,11 +103,12 @@ class TimetableAppearanceTest {
                             isLessonCancelled = { _, _ -> false }, onLessonDayVisibilityChanged = {}
                         )
                     }
+                    }
                 }
             }
         }
         fun capture(name: String) {
-            File(output, "timetable-$mode-$dark-$dynamic-$name.png").outputStream().use {
+            File(output, "timetable-$indicatorStyle-$mode-$dark-$dynamic-$name.png").outputStream().use {
                 compose.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
             }
         }
@@ -101,8 +119,8 @@ class TimetableAppearanceTest {
         }
         val dayFormatter = DateTimeFormatter.ofPattern("yyyy/MM/dd")
         val weekFormatter = DateTimeFormatter.ofPattern("MM/dd")
-        for (design in UiDesignMode.entries) for (night in listOf(false, true)) for (wallpaper in listOf(false, true)) {
-            compose.runOnIdle { mode = design; dark = night; dynamic = wallpaper }
+        for (style in TodayIndicatorStyle.entries) for (design in UiDesignMode.entries) for (night in listOf(false, true)) for (wallpaper in listOf(false, true)) {
+            compose.runOnIdle { indicatorStyle = style; mode = design; dark = night; dynamic = wallpaper }
             for ((name, selected) in listOf("today-day" to today, "other-day" to today.plusDays(1),
                 "this-week" to today, "other-week" to today.plusWeeks(2))) {
                 compose.runOnIdle {
@@ -112,17 +130,33 @@ class TimetableAppearanceTest {
                 val week = name.endsWith("week")
                 compose.onNodeWithContentDescription(context.getString(if (week) R.string.display_mode_week else R.string.display_mode_day)).performClick()
                 assertLessonVisible()
+                compose.mainClock.advanceTimeBy(700)
                 capture(name)
                 val reference = if (week && selected == today && today.dayOfWeek in listOf(DayOfWeek.SATURDAY, DayOfWeek.SUNDAY))
                     today.with(TemporalAdjusters.next(DayOfWeek.MONDAY)) else selected
                 val monday = reference.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
                 val label = if (week) "${monday.format(weekFormatter)}-${monday.plusDays(4).format(weekFormatter)}"
                     else selected.format(dayFormatter)
+                val containsToday = if (week) today in monday..monday.plusDays(4) else selected == today
+                val todayState = context.getString(if (week) R.string.a11y_timetable_contains_today else R.string.m3e_lesson_today)
+                val indicator = compose.onAllNodes(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, todayState))
+                indicator.assertCountEquals(if (design == UiDesignMode.MATERIAL_3_EXPRESSIVE && containsToday) 1 else 0)
                 val layouts = mutableListOf<TextLayoutResult>()
                 compose.onNodeWithText(label, useUnmergedTree = true).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
                 val actual = layouts.single().layoutInput.style.color
-                colors.appendText("$mode,$dark,$dynamic,$name,%08X,%08X,$schemeInfo\n".format(actual.toArgb(), expectedTextColor.toArgb()))
-                if (mode == UiDesignMode.MATERIAL_3_EXPRESSIVE) assertEquals(expectedTextColor, actual)
+                val expected = if (design == UiDesignMode.MATERIAL_3_EXPRESSIVE && style == TodayIndicatorStyle.PILL && !week && containsToday) pillTextColor else expectedTextColor
+                colors.appendText("$style,$mode,$dark,$dynamic,$name,%08X,%08X,$schemeInfo\n".format(actual.toArgb(), expected.toArgb()))
+                if (mode == UiDesignMode.MATERIAL_3_EXPRESSIVE) assertEquals(expected, actual)
+            }
+            if (design == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+                compose.runOnIdle { narrow = true; date = today }
+                for (week in listOf(false, true)) {
+                    compose.onNodeWithContentDescription(context.getString(if (week) R.string.display_mode_week else R.string.display_mode_day)).performClick()
+                    compose.mainClock.advanceTimeBy(700)
+                    assertLessonVisible()
+                    capture(if (week) "narrow-week" else "narrow-day")
+                }
+                compose.runOnIdle { narrow = false }
             }
             compose.runOnIdle { date = today }
             compose.onNodeWithContentDescription(context.getString(R.string.display_mode_day)).performClick()

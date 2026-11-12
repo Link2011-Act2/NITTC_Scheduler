@@ -1,7 +1,6 @@
 package jp.linkserver.nittcsc.ui
 
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -16,6 +15,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
@@ -32,7 +33,9 @@ internal fun TimetableDateNavigation(
     onNext: () -> Unit,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    todayIndicatorDescription: String? = null,
+    isWeekRange: Boolean = false
 ) {
     BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
         val compact = maxWidth < 200.dp * LocalDensity.current.fontScale
@@ -42,22 +45,21 @@ internal fun TimetableDateNavigation(
         val minimumDateWidthPx = remember(dateLabel, minimumDateStyle, textMeasurer) {
             textMeasurer.measure(dateLabel, style = minimumDateStyle, softWrap = false, maxLines = 1).size.width
         }
-        val minimumDateWidth = with(LocalDensity.current) { minimumDateWidthPx.toDp() }
+        val minimumDateWidth = with(LocalDensity.current) { minimumDateWidthPx.toDp() } + todayDateLabelPadding(isWeekRange) * 2
         val stackNavigation = maxWidth < minimumDateWidth + arrowWidth * 2
         val labels: @Composable (Modifier) -> Unit = { labelModifier ->
             Column(
-                labelModifier.combinedClickable(onClick = onClick, onLongClick = onLongClick),
+                labelModifier
+                    .then(if (todayIndicatorDescription != null) Modifier.semantics {
+                        stateDescription = todayIndicatorDescription
+                    } else Modifier)
+                    .combinedClickable(onClick = onClick, onLongClick = onLongClick),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    dateLabel,
-                    modifier = Modifier.fillMaxWidth(),
-                    style = MaterialTheme.typography.titleMedium,
-                    autoSize = TextAutoSize.StepBased(minFontSize = 12.sp, maxFontSize = MaterialTheme.typography.titleMedium.fontSize),
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                TimetableTodayDateLabel(
+                    text = dateLabel,
+                    isToday = todayIndicatorDescription != null,
+                    isWeekRange = isWeekRange
                 )
                 detailLabel?.let {
                     Text(it, Modifier.fillMaxWidth(), style = MaterialTheme.typography.labelSmall,
