@@ -1,5 +1,6 @@
 package jp.linkserver.nittcsc.ui
 
+import jp.linkserver.nittcsc.ui.theme.appCardContainerColor
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -70,7 +71,7 @@ internal fun AboutOverviewMosaic(
         )
         return
     }
-    val cardColor = MaterialTheme.colorScheme.surfaceContainerHigh
+    val cardColor = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerHigh)
     val gutterColor = MaterialTheme.colorScheme.background
     val cardShape = RoundedCornerShape(20.dp)
     val gap = 3.dp

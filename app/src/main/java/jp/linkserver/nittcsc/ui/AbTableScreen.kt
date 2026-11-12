@@ -1,5 +1,9 @@
 package jp.linkserver.nittcsc.ui
 
+import jp.linkserver.nittcsc.ui.theme.appInsetContainerColor
+import jp.linkserver.nittcsc.ui.theme.appCardContainerColor
+import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
+import jp.linkserver.nittcsc.data.UiDesignMode
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -197,7 +201,7 @@ internal fun AbTableScreen(
         ) {
 
         item {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+            Card(colors = CardDefaults.cardColors(containerColor = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow))) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -212,7 +216,7 @@ internal fun AbTableScreen(
                         Text(stringResource(R.string.label_not_registered), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
                         state.longBreaks.forEach { longBreak ->
-                            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                            Card(colors = CardDefaults.cardColors(containerColor = appInsetContainerColor(standardColor = MaterialTheme.colorScheme.surface))) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -311,7 +315,7 @@ internal fun AbTableScreen(
         }
 
         item {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+            Card(colors = CardDefaults.cardColors(containerColor = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow))) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(stringResource(R.string.label_period_settings), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(
@@ -463,7 +467,7 @@ private fun DayTypeLegend(
     onOpenExamTimetables: () -> Unit,
     onPrepareNextAcademicYear: (() -> Unit)?
 ) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+    Card(colors = CardDefaults.cardColors(containerColor = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow))) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -519,7 +523,7 @@ private fun DayChip(label: String, visual: DayTypeVisual) {
 @Composable
 private fun WeekHeader() {
     Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        colors = CardDefaults.cardColors(containerColor = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow)),
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -618,10 +622,12 @@ private fun WeekRow(
     onDragCancel: () -> Unit = {}
 ) {
     val rowBoundsRef = remember { arrayOfNulls<Rect>(1) }
+    val expressiveColors = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .alpha(if (isPast) 0.38f else 1f)
+            .alpha(if (isPast && !expressiveColors) 0.38f else 1f)
+            .background(appCardContainerColor(standardColor = Color.Transparent, subdued = isPast), RoundedCornerShape(8.dp))
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
             .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically

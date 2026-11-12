@@ -1,5 +1,7 @@
 package jp.linkserver.nittcsc.ui
 
+import jp.linkserver.nittcsc.ui.theme.appInsetContainerColor
+import jp.linkserver.nittcsc.ui.theme.appCardContainerColor
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -150,7 +152,7 @@ fun ExamTimetablePeriodListScreen(
                 item {
                     Surface(
                         shape = MaterialTheme.shapes.large,
-                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        color = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
@@ -172,7 +174,7 @@ fun ExamTimetablePeriodListScreen(
                             .clickable { onOpenPeriod(period) },
                         shape = MaterialTheme.shapes.large,
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                            containerColor = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow)
                         )
                     ) {
                         Row(
@@ -534,7 +536,7 @@ fun ExamTimetableEditorScreen(
                                     color = if (selected) {
                                         MaterialTheme.colorScheme.primary
                                     } else {
-                                        MaterialTheme.colorScheme.surfaceContainerHigh
+                                        appInsetContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerHigh)
                                     }
                                 ) {
                                     Text(
@@ -653,7 +655,7 @@ private fun ExamSlotEditorCard(
         modifier = modifier,
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+            containerColor = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow)
         )
     ) {
         Column(

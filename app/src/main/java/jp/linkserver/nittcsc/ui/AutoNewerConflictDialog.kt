@@ -1,5 +1,6 @@
 package jp.linkserver.nittcsc.ui
 
+import jp.linkserver.nittcsc.ui.theme.appDialogSectionColor
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -81,7 +82,7 @@ internal fun AutoNewerConflictDialog(
                     val overwrittenAt = if (remoteWins) conflict.localUpdatedAt else conflict.remoteUpdatedAt
                     val winningAt = if (remoteWins) conflict.remoteUpdatedAt else conflict.localUpdatedAt
                     Surface(
-                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        color = appDialogSectionColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow),
                         shape = MaterialTheme.shapes.medium
                     ) {
                         Column(

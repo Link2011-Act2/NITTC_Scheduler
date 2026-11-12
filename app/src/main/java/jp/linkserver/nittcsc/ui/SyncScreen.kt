@@ -1,5 +1,8 @@
 package jp.linkserver.nittcsc.ui
 
+import jp.linkserver.nittcsc.ui.theme.appDialogSectionColor
+import jp.linkserver.nittcsc.ui.theme.appInsetContainerColor
+import jp.linkserver.nittcsc.ui.theme.appCardContainerColor
 import android.Manifest
 import androidx.compose.animation.AnimatedVisibility
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -189,7 +192,7 @@ fun SyncScreen(
             ) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+                    colors = CardDefaults.cardColors(containerColor = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainer))
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp),
@@ -410,7 +413,7 @@ fun SyncScreen(
             ) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+                colors = CardDefaults.cardColors(containerColor = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainer))
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -439,7 +442,7 @@ fun SyncScreen(
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+                colors = CardDefaults.cardColors(containerColor = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainer))
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -499,7 +502,7 @@ fun SyncScreen(
                             val selectionMode = selectedDeviceIds.isNotEmpty()
                             Surface(
                                 modifier = Modifier.fillMaxWidth(),
-                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else appInsetContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow),
                                 shape = MaterialTheme.shapes.medium
                             ) {
                                 Column(
@@ -610,7 +613,7 @@ fun SyncScreen(
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+                colors = CardDefaults.cardColors(containerColor = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainer))
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -814,7 +817,7 @@ fun SyncScreen(
                         (activeSyncStatus.phase == WifiSyncPhase.DONE || activeSyncStatus.phase == WifiSyncPhase.ERROR)
                     ) {
                         Surface(
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            color = appDialogSectionColor(standardColor = MaterialTheme.colorScheme.surfaceContainerHigh),
                             shape = MaterialTheme.shapes.small,
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -836,7 +839,7 @@ fun SyncScreen(
                     )
                     if (activeSyncStatus.phase == WifiSyncPhase.ERROR && shouldShowWifiErrorGuide(activeSyncStatus.message)) {
                         Surface(
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            color = appDialogSectionColor(standardColor = MaterialTheme.colorScheme.surfaceContainerHigh),
                             shape = MaterialTheme.shapes.small,
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -1034,7 +1037,7 @@ fun SyncScreen(
                     }
                     pendingConflicts.forEach { conflict ->
                         Surface(
-                            color = MaterialTheme.colorScheme.surfaceContainerLow,
+                            color = appDialogSectionColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow),
                             shape = MaterialTheme.shapes.medium
                         ) {
                             Column(
@@ -1140,7 +1143,7 @@ private fun SyncConflictChip(
     Surface(
         modifier = modifier.toggleable(value = selected, onValueChange = { onClick() }),
         shape = MaterialTheme.shapes.small,
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else appDialogSectionColor(standardColor = MaterialTheme.colorScheme.surfaceContainerHigh)
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),

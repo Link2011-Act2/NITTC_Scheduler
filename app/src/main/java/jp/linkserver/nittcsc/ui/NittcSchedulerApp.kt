@@ -1,5 +1,7 @@
 package jp.linkserver.nittcsc.ui
 
+import jp.linkserver.nittcsc.ui.theme.appDialogSectionColor
+import jp.linkserver.nittcsc.ui.theme.appCardContainerColor
 import jp.linkserver.pyrite.screen.PyriteScreenTransition
 
 import android.Manifest
@@ -1655,7 +1657,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                         fontWeight = FontWeight.SemiBold
                     )
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                        colors = CardDefaults.cardColors(containerColor = appDialogSectionColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow)),
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -4315,6 +4317,7 @@ private fun TaskPlanCalendarDayCell(
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(16.dp)
+    val expressiveColors = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
     val containerColor = when {
         isSelected -> MaterialTheme.colorScheme.primaryContainer
         isToday -> MaterialTheme.colorScheme.secondaryContainer
@@ -4370,12 +4373,12 @@ private fun TaskPlanCalendarDayCell(
                         color = if (allTasksCompleted) {
                             MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
                         } else {
-                            MaterialTheme.colorScheme.error
+                            if (expressiveColors) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.error
                         },
                         contentColor = if (allTasksCompleted) {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         } else {
-                            Color.White
+                            if (expressiveColors) MaterialTheme.colorScheme.onErrorContainer else Color.White
                         }
                     )
                 }
@@ -4390,7 +4393,7 @@ private fun TaskPlanCalendarDayCell(
                         contentColor = if (allPlansCompleted) {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         } else {
-                            Color.White
+                            if (expressiveColors) MaterialTheme.colorScheme.onPrimary else Color.White
                         }
                     )
                 }
@@ -4451,13 +4454,14 @@ private fun TaskPlanCalendarItem(
     accentColor: Color,
     onClick: () -> Unit
 ) {
+    val expressiveColors = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .alpha(if (completed) 0.42f else 1f)
+            .alpha(if (completed && !expressiveColors) 0.42f else 1f)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow
+        color = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow, subdued = completed)
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
@@ -5191,7 +5195,7 @@ private fun LessonSearchListView(
                         .fillMaxWidth()
                         .clickable { onSelectLesson(result.date, result.slot.index) },
                     shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerLow
+                    color = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow)
                 ) {
                     Column(
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
@@ -7379,7 +7383,7 @@ private fun ChangeLessonScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
             Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                colors = CardDefaults.cardColors(containerColor = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow)),
                 shape = RoundedCornerShape(20.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -7420,7 +7424,7 @@ private fun ChangeLessonScreen(
             }
 
             Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                colors = CardDefaults.cardColors(containerColor = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow)),
                 shape = RoundedCornerShape(20.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -7591,7 +7595,7 @@ private fun LessonActionDialog(
                     }
                 }
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                    colors = CardDefaults.cardColors(containerColor = appDialogSectionColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow)),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -7852,7 +7856,7 @@ internal fun LessonOverrideDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                    colors = CardDefaults.cardColors(containerColor = appDialogSectionColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow)),
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {

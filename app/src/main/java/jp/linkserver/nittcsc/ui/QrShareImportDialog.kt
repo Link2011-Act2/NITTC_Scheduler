@@ -27,6 +27,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import jp.linkserver.nittcsc.ui.theme.appDialogSectionColor
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.SheetValue
@@ -271,7 +272,7 @@ private fun QrImportScope(tag: String, text: String, warning: String? = null) {
     val colors = MaterialTheme.colorScheme
     // 動的テーマの警告背景はダークモードでも明色。薄めず、暗い本文色でコントラストを保つ。
     val lightWarningOnDark = colors.surface.luminance() < 0.5f && colors.errorContainer.luminance() > 0.5f
-    Surface(shape = RoundedCornerShape(16.dp), color = if (warning == null) colors.surfaceContainerLow
+    Surface(shape = RoundedCornerShape(16.dp), color = if (warning == null) appDialogSectionColor(colors.surfaceContainerLow)
         else colors.errorContainer.copy(alpha = if (lightWarningOnDark) 1f else 0.5f)) {
         BoxWithConstraints(Modifier.fillMaxWidth().padding(if (warning == null) 0.dp else 12.dp)) {
             val badge: @Composable () -> Unit = {
@@ -300,7 +301,7 @@ private fun QrImportScope(tag: String, text: String, warning: String? = null) {
 @Composable
 private fun QrImportNavigationRow(label: String, description: String? = null, enabled: Boolean, onClick: () -> Unit) {
     Surface(onClick = onClick, enabled = enabled, shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
+        color = appDialogSectionColor(MaterialTheme.colorScheme.surfaceContainerHigh), modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.AutoMirrored.Outlined.Assignment, contentDescription = null)
             Column(Modifier.weight(1f)) {

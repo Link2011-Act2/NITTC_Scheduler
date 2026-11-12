@@ -1,5 +1,10 @@
 package jp.linkserver.nittcsc.ui
 
+import jp.linkserver.nittcsc.ui.theme.appDialogSectionColor
+import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
+import jp.linkserver.nittcsc.data.UiDesignMode
+import jp.linkserver.nittcsc.ui.theme.appInsetContainerColor
+import jp.linkserver.nittcsc.ui.theme.appCardContainerColor
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.PickVisualMediaRequest
@@ -584,7 +589,7 @@ fun VlmImportScreen(
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+                        colors = CardDefaults.cardColors(containerColor = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow))
                     ) {
                         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(stringResource(R.string.title_ai_center), style = MaterialTheme.typography.titleMedium)
@@ -597,6 +602,8 @@ fun VlmImportScreen(
                                 OutlinedCard(
                                     modifier = Modifier.fillMaxWidth(),
                                     onClick = { if (recognizedModels.size > 1) showModelMenu = true },
+                                    colors = CardDefaults.outlinedCardColors(containerColor = appInsetContainerColor(
+                                        standardColor = CardDefaults.outlinedCardColors().containerColor)),
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(12.dp),
@@ -652,7 +659,9 @@ fun VlmImportScreen(
                             Box {
                                 OutlinedCard(
                                     modifier = Modifier.fillMaxWidth(),
-                                    onClick = { if (recognizedModels.isNotEmpty()) showJsonCorrectionModelMenu = true }
+                                    onClick = { if (recognizedModels.isNotEmpty()) showJsonCorrectionModelMenu = true },
+                                    colors = CardDefaults.outlinedCardColors(containerColor = appInsetContainerColor(
+                                        standardColor = CardDefaults.outlinedCardColors().containerColor))
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(12.dp),
@@ -799,7 +808,7 @@ fun VlmImportScreen(
                         
                         Card(
                             modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+                            colors = CardDefaults.cardColors(containerColor = appInsetContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerHigh))
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -839,7 +848,7 @@ fun VlmImportScreen(
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         onClick = { expandedFamilies[family] = !isExpanded },
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+                        colors = CardDefaults.cardColors(containerColor = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow))
                     ) {
                         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(family, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
@@ -857,7 +866,7 @@ fun VlmImportScreen(
                         
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+                            colors = CardDefaults.cardColors(containerColor = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow))
                         ) {
                             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(model.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
@@ -935,12 +944,15 @@ fun VlmImportScreen(
 
             if (unknownModels.isNotEmpty()) {
                 item {
+                    val warningContentColor = if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE) {
+                        MaterialTheme.colorScheme.onErrorContainer
+                    } else MaterialTheme.colorScheme.error
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
                     ) {
                         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(stringResource(R.string.msg_old_models_title), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                            Text(stringResource(R.string.msg_old_models_title), fontWeight = FontWeight.Bold, color = warningContentColor)
                             Text(stringResource(R.string.msg_old_models_desc), style = MaterialTheme.typography.bodySmall)
                             
                             unknownModels.forEach { fileName ->
@@ -955,7 +967,7 @@ fun VlmImportScreen(
                                         downloadedModelFiles = downloadManager.getDownloadedModels()
                                         if (activeModelFile?.name == fileName) activeModelFile = null
                                     }) {
-                                        Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.btn_delete), tint = MaterialTheme.colorScheme.error)
+                                        Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.btn_delete), tint = warningContentColor)
                                     }
                                 }
                             }
@@ -1235,7 +1247,7 @@ fun VlmImportScreen(
                                 color = if (downloadProgressDisplayMode == mode) {
                                     MaterialTheme.colorScheme.secondaryContainer
                                 } else {
-                                    MaterialTheme.colorScheme.surfaceContainerLow
+                                    appDialogSectionColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow)
                                 },
                                 onClick = {
                                     downloadProgressDisplayMode = mode

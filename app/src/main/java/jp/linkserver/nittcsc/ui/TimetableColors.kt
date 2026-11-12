@@ -5,15 +5,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import jp.linkserver.nittcsc.data.UiDesignMode
 import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
+import jp.linkserver.nittcsc.ui.theme.appCardContainerColor
 
-/** Pyriteのライト背景はsurfaceContainerLow。時間割の面だけ一段以上離す。 */
+/** 授業も設定画面と共通の主面。空きコマの控えめな面は維持する。 */
 @Composable
-internal fun timetableLessonContainerColor(empty: Boolean = false): Color = when {
-    empty -> MaterialTheme.colorScheme.surfaceContainer
-    LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE ->
-        MaterialTheme.colorScheme.surfaceContainerHigh
-    else -> MaterialTheme.colorScheme.surfaceContainerLow
-}
+internal fun timetableLessonContainerColor(empty: Boolean = false): Color = appCardContainerColor(
+    standardColor = if (empty) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+    subdued = empty
+)
 
 @Composable
 internal fun timetableDateBarColor(today: Boolean): Color =

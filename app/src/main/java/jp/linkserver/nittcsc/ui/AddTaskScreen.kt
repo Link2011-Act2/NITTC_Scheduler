@@ -1,5 +1,7 @@
 package jp.linkserver.nittcsc.ui
 
+import jp.linkserver.nittcsc.ui.theme.appInsetContainerColor
+import jp.linkserver.nittcsc.ui.theme.appCardContainerColor
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -368,7 +370,7 @@ fun AddTaskScreen(
             SectionLabel(stringResource(R.string.section_task_basic))
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                    containerColor = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow)
                 ),
                 shape = RoundedCornerShape(20.dp),
                 modifier = Modifier.fillMaxWidth()
@@ -413,7 +415,7 @@ fun AddTaskScreen(
             SectionLabel(stringResource(R.string.section_task_subject))
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                    containerColor = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow)
                 ),
                 shape = RoundedCornerShape(20.dp),
                 modifier = Modifier.fillMaxWidth()
@@ -517,7 +519,7 @@ fun AddTaskScreen(
             )
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                    containerColor = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow)
                 ),
                 shape = RoundedCornerShape(20.dp),
                 modifier = Modifier.fillMaxWidth()
@@ -698,7 +700,7 @@ fun AddTaskScreen(
             SectionLabel(stringResource(R.string.section_task_reminder))
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                    containerColor = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow)
                 ),
                 shape = RoundedCornerShape(20.dp),
                 modifier = Modifier.fillMaxWidth()
@@ -775,7 +777,7 @@ fun AddTaskScreen(
             SectionLabel(stringResource(R.string.label_task_priority))
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                    containerColor = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow)
                 ),
                 shape = RoundedCornerShape(20.dp),
                 modifier = Modifier.fillMaxWidth()
@@ -798,7 +800,7 @@ fun AddTaskScreen(
                                 .clickable { priority = value },
                             shape = RoundedCornerShape(12.dp),
                             color = if (selected) MaterialTheme.colorScheme.primaryContainer
-                                    else MaterialTheme.colorScheme.surfaceContainerHigh
+                                    else appInsetContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerHigh)
                         ) {
                             Column(
                                 modifier = Modifier.padding(vertical = 10.dp),

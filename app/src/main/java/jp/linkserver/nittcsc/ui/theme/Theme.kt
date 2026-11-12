@@ -122,7 +122,7 @@ fun AppTheme(
 
     val effectiveMode = uiDesignMode.effective(InternalFeatureFlags.MATERIAL_3_EXPRESSIVE)
 
-    CompositionLocalProvider(LocalUiDesignMode provides effectiveMode) {
+    CompositionLocalProvider(LocalUiDesignMode provides effectiveMode, LocalAppDarkTheme provides darkTheme) {
         when (effectiveMode) {
             UiDesignMode.MATERIAL_3 -> MaterialTheme(
                 colorScheme = colorScheme,

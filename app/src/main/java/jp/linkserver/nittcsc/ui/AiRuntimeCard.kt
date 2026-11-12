@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -17,10 +18,13 @@ import androidx.compose.ui.unit.dp
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.ml.AiRuntimeAvailability
 import jp.linkserver.nittcsc.viewmodel.AiRuntimeUiState
+import jp.linkserver.nittcsc.ui.theme.appCardContainerColor
 
 @Composable
 fun AiRuntimeCard(state: AiRuntimeUiState, onDownload: () -> Unit, onCancel: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(
+        containerColor = appCardContainerColor(standardColor = CardDefaults.cardColors().containerColor)
+    )) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.ai_runtime_title), style = MaterialTheme.typography.titleMedium)
             val description = when (state.availability) {

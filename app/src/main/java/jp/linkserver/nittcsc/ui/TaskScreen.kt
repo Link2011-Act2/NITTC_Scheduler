@@ -89,6 +89,8 @@ import jp.linkserver.nittcsc.ui.components.AppFabMenuAction
 import jp.linkserver.nittcsc.ui.components.AppFloatingActionButton
 import jp.linkserver.nittcsc.ui.theme.ExpressiveTaskHeroShape
 import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
+import jp.linkserver.nittcsc.ui.theme.appCardContainerColor
+import jp.linkserver.nittcsc.ui.theme.appInsetContainerColor
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -628,8 +630,13 @@ private fun TaskCard(
         }
     }
 
+    val backgroundColor = appCardContainerColor(
+        standardColor = if (isCompleted) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+        subdued = isCompleted
+    )
+    val insetColor = appInsetContainerColor(parentColor = backgroundColor)
     val dueStatusContainer = when {
-        task.completedDate != null -> MaterialTheme.colorScheme.surfaceContainerHighest
+        task.completedDate != null -> insetColor
         isOverdue -> LegacyTaskBadgeContainer
         task.dueDate == today -> LegacyTaskBadgeContainer
         else -> {
@@ -659,19 +666,13 @@ private fun TaskCard(
     val priorityContainer = when (task.priority) {
         1 -> LegacyTaskBadgeContainer
         -1 -> MaterialTheme.colorScheme.tertiaryContainer
-        else -> MaterialTheme.colorScheme.surfaceContainerHighest
+        else -> insetColor
     }
 
     val priorityContent = when (task.priority) {
         1 -> LegacyTaskBadgeOnContainer
         -1 -> MaterialTheme.colorScheme.onTertiaryContainer
         else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-
-    val backgroundColor = if (isCompleted) {
-        MaterialTheme.colorScheme.surfaceContainer
-    } else {
-        MaterialTheme.colorScheme.surfaceContainerLow
     }
 
     val density = LocalDensity.current
@@ -880,7 +881,7 @@ private fun TaskCard(
                         if (task.subject.isNotBlank()) {
                             Surface(
                                 shape = RoundedCornerShape(999.dp),
-                                color = MaterialTheme.colorScheme.surfaceContainerHighest
+                                color = insetColor
                             ) {
                                 Text(
                                     text = task.subject,
@@ -895,7 +896,7 @@ private fun TaskCard(
                         if (task.teacher?.isNotBlank() == true) {
                             Surface(
                                 shape = RoundedCornerShape(999.dp),
-                                color = MaterialTheme.colorScheme.surfaceContainerHighest
+                                color = insetColor
                             ) {
                                 Text(
                                     text = task.teacher,

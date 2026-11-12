@@ -1,5 +1,7 @@
 package jp.linkserver.nittcsc.ui
 
+import jp.linkserver.nittcsc.ui.theme.appDialogSectionColor
+import jp.linkserver.nittcsc.ui.theme.appCardContainerColor
 import androidx.compose.animation.AnimatedVisibility
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -456,7 +458,7 @@ fun SyncDeviceDiscoveryScreen(
                     }
                     pendingConflicts.forEach { conflict ->
                         Surface(
-                            color = MaterialTheme.colorScheme.surfaceContainerLow,
+                            color = appDialogSectionColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow),
                             shape = MaterialTheme.shapes.medium
                         ) {
                             Column(
@@ -679,7 +681,7 @@ private fun WifiIdleContent(
         // この端末の情報（折り畳み）
         HorizontalDivider()
         Surface(
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            color = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -752,7 +754,7 @@ private fun WifiIdleContent(
         // IP直接接続（折り畳み）
         HorizontalDivider()
         Surface(
-            color = MaterialTheme.colorScheme.surface,
+            color = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surface),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -1009,7 +1011,7 @@ private fun WifiSearchingContent(
         // 接続ログ（折り畳み）
         HorizontalDivider()
         Surface(
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            color = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -1100,7 +1102,7 @@ private fun WifiConflictChip(
     Surface(
         modifier = modifier.toggleable(value = selected, onValueChange = { onClick() }),
         shape = MaterialTheme.shapes.small,
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else appDialogSectionColor(standardColor = MaterialTheme.colorScheme.surfaceContainerHigh)
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),

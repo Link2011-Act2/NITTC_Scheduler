@@ -1,5 +1,6 @@
 package jp.linkserver.nittcsc.ui
 
+import jp.linkserver.nittcsc.ui.theme.appDialogSectionColor
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
 import android.content.Intent
@@ -472,7 +473,7 @@ fun NearbySyncScreen(
                     }
                     nearbyState.pendingConflicts.forEach { conflict ->
                         Surface(
-                            color = MaterialTheme.colorScheme.surfaceContainerLow,
+                            color = appDialogSectionColor(standardColor = MaterialTheme.colorScheme.surfaceContainerLow),
                             shape = MaterialTheme.shapes.medium
                         ) {
                             Column(
@@ -796,7 +797,7 @@ private fun NearbyConflictChip(
     Surface(
         modifier = modifier.toggleable(value = selected, onValueChange = { onClick() }),
         shape = MaterialTheme.shapes.small,
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else appDialogSectionColor(standardColor = MaterialTheme.colorScheme.surfaceContainerHigh)
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),

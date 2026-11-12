@@ -14,6 +14,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.CardDefaults
+import jp.linkserver.nittcsc.ui.theme.appDialogSectionColor
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -87,7 +89,9 @@ internal fun LazyListScope.qrImportNoteChoices(
     item { Text(stringResource(R.string.qr_import_notes_scope), style = MaterialTheme.typography.bodyMedium) }
     items(conflicts, key = { "${it.current.date}:${it.current.slotIndex}" }) { conflict ->
         val checked = conflict.current in approvedNotes
-        OutlinedCard(Modifier.fillMaxWidth()) {
+        OutlinedCard(Modifier.fillMaxWidth(), colors = CardDefaults.outlinedCardColors(
+            containerColor = appDialogSectionColor(CardDefaults.outlinedCardColors().containerColor)
+        )) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.qr_import_note_date, conflict.current.date.toString(), conflict.current.slotIndex + 1),
                     style = MaterialTheme.typography.titleSmall)

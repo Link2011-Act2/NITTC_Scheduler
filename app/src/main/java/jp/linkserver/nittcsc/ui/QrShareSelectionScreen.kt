@@ -57,6 +57,8 @@ import jp.linkserver.nittcsc.logic.QrDayTypesScope
 import jp.linkserver.nittcsc.logic.qrShareAcademicYears
 import jp.linkserver.nittcsc.logic.TimetableTerm
 import jp.linkserver.nittcsc.ui.components.AppSettingsGroup
+import jp.linkserver.nittcsc.ui.theme.appCardContainerColor
+import jp.linkserver.nittcsc.ui.theme.appInsetContainerColor
 import jp.linkserver.nittcsc.viewmodel.SchedulerUiState
 import java.time.LocalDate
 
@@ -309,12 +311,15 @@ private fun QrShareItemPickerScreen(
 
 @Composable
 private fun QrSharePickCard(item: QrPickItem, checked: Boolean, showWeekdayOnDates: Boolean, onChange: (Boolean) -> Unit) {
+    val container = appCardContainerColor(
+        standardColor = if (item.isCompleted) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+        subdued = item.isCompleted
+    )
     Card(
         modifier = Modifier.fillMaxWidth().toggleable(value = checked, role = Role.Checkbox, onValueChange = onChange),
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.cardColors(containerColor = if (item.isCompleted) MaterialTheme.colorScheme.surfaceContainer
-            else MaterialTheme.colorScheme.surfaceContainerLow)
+        colors = CardDefaults.cardColors(containerColor = container)
     ) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = checked, onCheckedChange = null)
@@ -329,7 +334,7 @@ private fun QrSharePickCard(item: QrPickItem, checked: Boolean, showWeekdayOnDat
                 Text(if (item.slot != null) "$date · ${stringResource(R.string.qr_note_slot, item.slot + 1)}" else date,
                     style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (!item.subject.isNullOrBlank() || !item.teacher.isNullOrBlank()) {
-                    Surface(shape = RoundedCornerShape(999.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest) {
+                    Surface(shape = RoundedCornerShape(999.dp), color = appInsetContainerColor(parentColor = container)) {
                         Text(listOfNotNull(item.subject?.takeIf { it.isNotBlank() }, item.teacher?.takeIf { it.isNotBlank() }).joinToString(" · "),
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium,
                             maxLines = 2, overflow = TextOverflow.Ellipsis)

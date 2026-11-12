@@ -28,6 +28,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import jp.linkserver.nittcsc.ui.theme.appDialogSectionColor
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
@@ -408,7 +409,7 @@ private fun DueDatePickerField(
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                color = MaterialTheme.colorScheme.surfaceVariant,
+                color = appDialogSectionColor(MaterialTheme.colorScheme.surfaceVariant),
                 shape = RoundedCornerShape(4.dp)
             )
             .clickable { showPicker = true }
@@ -468,7 +469,7 @@ private fun DueTimePickerField(
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                color = MaterialTheme.colorScheme.surfaceVariant,
+                color = appDialogSectionColor(MaterialTheme.colorScheme.surfaceVariant),
                 shape = RoundedCornerShape(4.dp)
             )
             .clickable {

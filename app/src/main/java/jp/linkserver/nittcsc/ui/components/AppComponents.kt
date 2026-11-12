@@ -106,6 +106,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import jp.linkserver.nittcsc.data.UiDesignMode
 import jp.linkserver.nittcsc.ui.theme.ExpressiveFabShape
 import jp.linkserver.nittcsc.ui.theme.LocalUiDesignMode
+import jp.linkserver.nittcsc.ui.theme.appCardContainerColor
 
 @Composable
 fun AppSwitch(
@@ -724,7 +725,7 @@ fun AppSplitButton(
 @Composable
 fun AppCard(
     modifier: Modifier = Modifier,
-    containerColor: Color = MaterialTheme.colorScheme.surfaceContainer,
+    containerColor: Color = appCardContainerColor(standardColor = MaterialTheme.colorScheme.surfaceContainer),
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
