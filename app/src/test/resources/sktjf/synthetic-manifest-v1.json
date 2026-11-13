@@ -1,0 +1,22 @@
+{
+  "format": "SKTJF-MANIFEST",
+  "manifestVersion": 1,
+  "schoolId": "nittc",
+  "academicYear": 2026,
+  "term": "S",
+  "revision": "2026.S.0",
+  "publishedAt": "2026-04-01T00:00:00Z",
+  "dataFormatVersion": 1,
+  "classIds": [
+    "1-1"
+  ],
+  "assets": [
+    {
+      "classId": "1-1",
+      "name": "1-1.sktjf.json",
+      "url": "https://github.com/example/SKTJF/releases/download/2026.S.0/1-1.sktjf.json",
+      "sha256": "a284511ca1bd3c8b1a59cbbd458a1e4119c08d0d1e7f7aa80c6d8818f44f382b",
+      "dataFormatVersion": 1
+    }
+  ]
+}
