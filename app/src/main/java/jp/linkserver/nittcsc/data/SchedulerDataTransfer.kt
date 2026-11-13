@@ -16,7 +16,7 @@ internal class SchedulerDataTransfer(
     private val dao: SchedulerDao = db.schedulerDao()
 
     private companion object {
-        const val CURRENT_EXPORT_VERSION = 18
+        const val CURRENT_EXPORT_VERSION = 19
         const val MIN_SUPPORTED_IMPORT_VERSION = 1
         const val DATASET_TASKS = SchedulerRepository.DATASET_TASKS
         const val DATASET_PLANS = SchedulerRepository.DATASET_PLANS
@@ -43,11 +43,13 @@ internal class SchedulerDataTransfer(
         val examDaySchedules = dao.getExamDaySchedulesOnce()
         val examLessons = dao.getExamLessonsOnce()
         val lessonNotificationExclusions = dao.getLessonNotificationExclusionsOnce()
+        val modeProfileBackup = db.withTransaction { ModeProfileBackup(dao.getUsageMode(), dao.getNittcProfilesOnce()) }
 
         val root = org.json.JSONObject()
         root.put("version", CURRENT_EXPORT_VERSION)
         root.put("exportedAt", LocalDate.now().toString())
         root.put("schema", "nittc-scheduler")
+        root.put("nittcProfile", modeProfileBackup.encode())
 
         if (settings != null) {
             root.put("settings", org.json.JSONObject().also { s ->
@@ -725,6 +727,10 @@ internal class SchedulerDataTransfer(
 
         val normalizedRoot = normalizeImportRoot(root, importVersion)
         require(!requireSettings || normalizedRoot.optJSONObject("settings") != null)
+        // Older backups lack this section; preserve any local mode and profile history.
+        val modeProfileBackup = if (normalizedRoot.has("nittcProfile")) {
+            ModeProfileBackup.decode(normalizedRoot.getJSONObject("nittcProfile"))
+        } else null
 
         val settingsEntity = normalizedRoot.optJSONObject("settings")?.let { s ->
             val termStart = LocalDate.parse(s.getString("termStart"))
@@ -1040,6 +1046,12 @@ internal class SchedulerDataTransfer(
 
         db.withTransaction {
             settingsEntity?.let { dao.upsertSettings(it) }
+            modeProfileBackup?.let { backup ->
+                dao.deleteUsageMode()
+                backup.mode?.let { dao.upsertUsageMode(it) }
+                dao.deleteAllNittcProfiles()
+                if (backup.profiles.isNotEmpty()) dao.upsertNittcProfiles(backup.profiles)
+            }
 
             dao.deleteAllLessons()
             if (lessonEntities.isNotEmpty()) {

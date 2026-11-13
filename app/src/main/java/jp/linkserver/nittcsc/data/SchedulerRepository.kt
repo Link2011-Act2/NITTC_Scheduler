@@ -83,6 +83,18 @@ class SchedulerRepository(
     val incompletePlansFlow: Flow<List<PlanEntity>> = dao.observeIncompletePlans()
     val syncProfileFlow: Flow<SyncProfileEntity?> = dao.observeSyncProfile()
     val syncRegisteredDevicesFlow: Flow<List<SyncRegisteredDeviceEntity>> = dao.observeSyncRegisteredDevices()
+    val usageModeFlow: Flow<UsageModeEntity?> = dao.observeUsageMode()
+    val nittcProfilesFlow: Flow<List<NittcProfileEntity>> = dao.observeNittcProfiles()
+
+    suspend fun setUsageMode(mode: SchedulerUsageMode) = db.withTransaction {
+        val previous = dao.getUsageMode()
+        dao.upsertUsageMode(UsageModeEntity(mode = mode.name, migratedFromLegacy = previous?.migratedFromLegacy ?: false))
+    }
+
+    suspend fun saveNittcProfile(profile: NittcProfileEntity) {
+        profile.validateProfile()
+        dao.upsertNittcProfiles(listOf(profile))
+    }
 
     suspend fun initialize(today: LocalDate = LocalDate.now()) {
         db.withTransaction {

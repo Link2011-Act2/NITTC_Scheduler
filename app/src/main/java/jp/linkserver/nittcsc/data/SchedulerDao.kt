@@ -10,6 +10,30 @@ import java.time.LocalDate
 @Dao
 interface SchedulerDao {
 
+    @Query("SELECT * FROM usage_mode WHERE id = 1")
+    fun observeUsageMode(): Flow<UsageModeEntity?>
+
+    @Query("SELECT * FROM usage_mode WHERE id = 1")
+    suspend fun getUsageMode(): UsageModeEntity?
+
+    @Upsert
+    suspend fun upsertUsageMode(mode: UsageModeEntity)
+
+    @Query("SELECT * FROM nittc_profiles ORDER BY academicYear")
+    fun observeNittcProfiles(): Flow<List<NittcProfileEntity>>
+
+    @Query("SELECT * FROM nittc_profiles ORDER BY academicYear")
+    suspend fun getNittcProfilesOnce(): List<NittcProfileEntity>
+
+    @Upsert
+    suspend fun upsertNittcProfiles(profiles: List<NittcProfileEntity>)
+
+    @Query("DELETE FROM nittc_profiles")
+    suspend fun deleteAllNittcProfiles()
+
+    @Query("DELETE FROM usage_mode")
+    suspend fun deleteUsageMode()
+
     @Query("SELECT * FROM settings WHERE id = 1")
     fun observeSettings(): Flow<SettingsEntity?>
 
