@@ -41,6 +41,7 @@ class ExamTimetableNavigationTest {
         try {
             runBlocking {
                 repo.initialize(today)
+                repo.setUsageMode(SchedulerUsageMode.GENERIC)
                 // 近接しない別期間も作り、常に最初の期間を開く誤りを検出する。
                 repo.updateHolidaySpecialLabel(today.minusWeeks(3), HolidaySpecialLabel.MIDTERM)
                 repo.updateHolidaySpecialLabel(today, HolidaySpecialLabel.FINAL)

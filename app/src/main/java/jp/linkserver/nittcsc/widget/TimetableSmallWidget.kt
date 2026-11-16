@@ -151,9 +151,10 @@ private fun Content(data: WidgetData) {
 
             slots.forEach { slot ->
                 val lesson = WidgetDataHelper.resolveLesson(data, data.today, slot.index)
+                val individualLessons = WidgetDataHelper.resolveLessons(data, data.today, slot.index)
                 val isCancelled = !isExamToday && data.cancelledLessons.contains(data.today to slot.index)
-                val hasTasks = WidgetDataHelper.hasTasksForLesson(data, lesson)
-                val hasPlans = WidgetDataHelper.hasPlansForLesson(data, lesson)
+                val hasTasks = individualLessons.any { WidgetDataHelper.hasTasksForLesson(data, it) }
+                val hasPlans = individualLessons.any { WidgetDataHelper.hasPlansForLesson(data, it) }
 
                 Row(
                     modifier = GlanceModifier
@@ -172,7 +173,7 @@ private fun Content(data: WidgetData) {
                         modifier = GlanceModifier.width(labelWidth)
                     )
                     Text(
-                        text = lesson?.subject?.take(10) ?: "—",
+                        text = WidgetDataHelper.lessonTitle(individualLessons) ?: "—",
                         style = TextStyle(
                             color = if (isCancelled) WidgetCancelledTextColor else GlanceTheme.colors.onBackground,
                             fontSize = bodySize,

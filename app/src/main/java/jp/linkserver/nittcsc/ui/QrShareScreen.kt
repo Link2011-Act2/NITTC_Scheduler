@@ -246,6 +246,6 @@ private fun QrShareDisplay(frames: List<ImageBitmap>, busy: Boolean, speed: QrDi
 
 private suspend fun createQrDisplayFrames(payload: QrSharePayload): List<ImageBitmap> =
     withContext(Dispatchers.Default) {
-        val encoded = QrShareCodec.create(QrShareJson.encode(payload)).cameraFrames()
+        val encoded = QrShareCodec.create(QrShareJson.encode(payload), payload.formatVersion).cameraFrames()
         QrShareMedia.displayBitmaps(encoded).map { it.asImageBitmap() }
     }

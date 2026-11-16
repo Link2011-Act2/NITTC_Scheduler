@@ -103,7 +103,9 @@ data class DayTypeEntity(
     val dayType: DayType,
     val overrideLessonDayOfWeek: Int? = null,
     val overrideLessonDayType: DayType? = null,
-    val holidaySpecialLabel: HolidaySpecialLabel? = null
+    val holidaySpecialLabel: HolidaySpecialLabel? = null,
+    val schoolEventName: String? = null,
+    val schoolEventKind: String? = null
 )
 
 @Entity(
@@ -234,7 +236,8 @@ data class LessonDraft(
 data class ResolvedLesson(
     val subject: String,
     val teacher: String,
-    val location: String? = null
+    val location: String? = null,
+    val extraLessonId: String? = null
 )
 
 @Entity(
@@ -262,7 +265,8 @@ data class TaskEntity(
     val reminderDate: LocalDate? = null,
     val reminderHour: Int = 20,
     val reminderMinute: Int = 0,
-    val reminderCalendarEventId: Long? = null
+    val reminderCalendarEventId: Long? = null,
+    val extraLessonId: String? = null
 )
 
 @Entity(
@@ -290,7 +294,8 @@ data class PlanEntity(
     val reminderDate: LocalDate? = null,
     val reminderHour: Int = 20,
     val reminderMinute: Int = 0,
-    val reminderCalendarEventId: Long? = null
+    val reminderCalendarEventId: Long? = null,
+    val extraLessonId: String? = null
 )
 
 @Entity(tableName = "sync_dataset_meta")

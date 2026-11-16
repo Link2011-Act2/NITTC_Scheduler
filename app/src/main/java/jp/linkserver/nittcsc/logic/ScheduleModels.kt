@@ -78,7 +78,9 @@ data class GeneratedLesson(
     val date: LocalDate,
     val slot: ClassSlot,
     val subject: String,
-    val teacher: String
+    val teacher: String,
+    val location: String? = null,
+    val extraLessonId: String? = null
 )
 
 sealed class ExportRange {

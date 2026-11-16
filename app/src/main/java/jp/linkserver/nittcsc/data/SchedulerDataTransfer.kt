@@ -16,7 +16,8 @@ internal class SchedulerDataTransfer(
     private val dao: SchedulerDao = db.schedulerDao()
 
     private companion object {
-        const val CURRENT_EXPORT_VERSION = 19
+        val EXTRA_LESSON_ID = Regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+        const val CURRENT_EXPORT_VERSION = 24
         const val MIN_SUPPORTED_IMPORT_VERSION = 1
         const val DATASET_TASKS = SchedulerRepository.DATASET_TASKS
         const val DATASET_PLANS = SchedulerRepository.DATASET_PLANS
@@ -30,7 +31,7 @@ internal class SchedulerDataTransfer(
         val SYNC_DATASET_KEYS = SchedulerRepository.SYNC_DATASET_KEYS
     }
 
-    suspend fun exportAllData(): String {
+    suspend fun exportAllData(): String = db.withTransaction {
         val settings = dao.getSettings()
         val lessons = dao.getLessonsOnce()
         val longBreaks = dao.getLongBreaksOnce()
@@ -43,13 +44,19 @@ internal class SchedulerDataTransfer(
         val examDaySchedules = dao.getExamDaySchedulesOnce()
         val examLessons = dao.getExamLessonsOnce()
         val lessonNotificationExclusions = dao.getLessonNotificationExclusionsOnce()
-        val modeProfileBackup = db.withTransaction { ModeProfileBackup(dao.getUsageMode(), dao.getNittcProfilesOnce()) }
+        val modeProfileBackup = ModeProfileBackup(dao.getUsageMode(), dao.getNittcProfilesOnce())
+        val sourceStates = dao.getSktjfSourceStates()
+        val extraLessons = dao.getSktjfExtraLessons()
+        val yearTransitions = dao.getNittcYearTransitions()
 
         val root = org.json.JSONObject()
         root.put("version", CURRENT_EXPORT_VERSION)
         root.put("exportedAt", LocalDate.now().toString())
         root.put("schema", "nittc-scheduler")
         root.put("nittcProfile", modeProfileBackup.encode())
+        root.put("sktjfSourceState", SktjfSourceStateBackup.encode(sourceStates))
+        root.put("sktjfExtraLessons", SktjfExtraLessonBackup.encode(extraLessons))
+        root.put("nittcYearTransitions", NittcYearTransitionBackup.encode(yearTransitions))
 
         if (settings != null) {
             root.put("settings", org.json.JSONObject().also { s ->
@@ -151,6 +158,8 @@ internal class SchedulerDataTransfer(
                     if (dt.overrideLessonDayOfWeek != null) obj.put("overrideLessonDayOfWeek", dt.overrideLessonDayOfWeek)
                     if (dt.overrideLessonDayType != null) obj.put("overrideLessonDayType", dt.overrideLessonDayType.name)
                     if (dt.holidaySpecialLabel != null) obj.put("holidaySpecialLabel", dt.holidaySpecialLabel.name)
+                    if (dt.schoolEventName != null) obj.put("schoolEventName", dt.schoolEventName)
+                    if (dt.schoolEventKind != null) obj.put("schoolEventKind", dt.schoolEventKind)
                 })
             }
         })
@@ -159,6 +168,7 @@ internal class SchedulerDataTransfer(
             tasks.forEach { task ->
                 arr.put(org.json.JSONObject().also { obj ->
                     if (task.lessonId != null) obj.put("lessonId", task.lessonId)
+                    if (task.extraLessonId != null) obj.put("extraLessonId", task.extraLessonId)
                     obj.put("subject", task.subject)
                     if (task.teacher != null) obj.put("teacher", task.teacher)
                     obj.put("title", task.title)
@@ -183,6 +193,7 @@ internal class SchedulerDataTransfer(
             plans.forEach { plan ->
                 arr.put(org.json.JSONObject().also { obj ->
                     if (plan.lessonId != null) obj.put("lessonId", plan.lessonId)
+                    if (plan.extraLessonId != null) obj.put("extraLessonId", plan.extraLessonId)
                     obj.put("subject", plan.subject)
                     if (plan.teacher != null) obj.put("teacher", plan.teacher)
                     obj.put("title", plan.title)
@@ -266,14 +277,18 @@ internal class SchedulerDataTransfer(
             }
         })
 
-        return root.toString(2)
+        root.toString(2)
     }
 
-    suspend fun exportSyncPayload(): org.json.JSONObject {
+    suspend fun exportSyncPayload(): org.json.JSONObject = db.withTransaction {
         val settings = dao.getSettings()
         val lessons = dao.getLessonsOnce()
         val lessonGroups = lessons.groupBy {
             LessonSyncPartition(it.academicYear, it.timetableTerm).datasetKey
+        }
+        val extraGroups = dao.getSktjfExtraLessons().groupBy {
+            val term = when (it.term) { "S" -> TimetableTerm.FIRST; "F" -> TimetableTerm.SECOND; else -> error("Invalid term") }
+            LessonSyncPartition(it.academicYear, term).datasetKey
         }
         val longBreaks = dao.getLongBreaksOnce()
         val dayTypes = dao.getDayTypesOnce()
@@ -287,7 +302,7 @@ internal class SchedulerDataTransfer(
         val now = System.currentTimeMillis()
         val datasetMetaByKey = dao.getAllSyncDatasetMeta().associateBy { it.datasetKey }
         val lessonPartitionKeys = (
-            lessonGroups.keys + datasetMetaByKey.keys.filter { lessonSyncPartition(it) != null }
+            lessonGroups.keys + extraGroups.keys + datasetMetaByKey.keys.filter { lessonSyncPartition(it) != null }
         ).toSortedSet()
 
         val root = org.json.JSONObject().putCurrentSyncProtocolVersion()
@@ -331,6 +346,8 @@ internal class SchedulerDataTransfer(
                     if (lesson.bLocation != null) obj.put("bLocation", lesson.bLocation)
                 })
             }
+            val extra = SktjfExtraLessonBackup.encode(extraGroups[key].orEmpty())
+            for (index in 0 until extra.length()) arr.put(extra.getJSONObject(index).put("recordType", "sktjf-extra"))
             })
         }
 
@@ -352,6 +369,8 @@ internal class SchedulerDataTransfer(
                     if (dt.overrideLessonDayOfWeek != null) obj.put("overrideLessonDayOfWeek", dt.overrideLessonDayOfWeek)
                     if (dt.overrideLessonDayType != null) obj.put("overrideLessonDayType", dt.overrideLessonDayType.name)
                     if (dt.holidaySpecialLabel != null) obj.put("holidaySpecialLabel", dt.holidaySpecialLabel.name)
+                    if (dt.schoolEventName != null) obj.put("schoolEventName", dt.schoolEventName)
+                    if (dt.schoolEventKind != null) obj.put("schoolEventKind", dt.schoolEventKind)
                 })
             }
         })
@@ -360,6 +379,7 @@ internal class SchedulerDataTransfer(
             tasks.forEach { task ->
                 arr.put(org.json.JSONObject().also { obj ->
                     if (task.lessonId != null) obj.put("lessonId", task.lessonId)
+                    if (task.extraLessonId != null) obj.put("extraLessonId", task.extraLessonId)
                     obj.put("subject", task.subject)
                     if (task.teacher != null) obj.put("teacher", task.teacher)
                     obj.put("title", task.title)
@@ -384,6 +404,7 @@ internal class SchedulerDataTransfer(
             plans.forEach { plan ->
                 arr.put(org.json.JSONObject().also { obj ->
                     if (plan.lessonId != null) obj.put("lessonId", plan.lessonId)
+                    if (plan.extraLessonId != null) obj.put("extraLessonId", plan.extraLessonId)
                     obj.put("subject", plan.subject)
                     if (plan.teacher != null) obj.put("teacher", plan.teacher)
                     obj.put("title", plan.title)
@@ -456,7 +477,7 @@ internal class SchedulerDataTransfer(
             })
         })
 
-        return root
+        root
     }
 
     suspend fun applySyncPayload(payload: org.json.JSONObject) {
@@ -468,12 +489,21 @@ internal class SchedulerDataTransfer(
         ) { "後期開始日の設定が端末間で異なります。両方の端末で同じ日付を設定してください。" }
         val touchedDatasets = mutableSetOf<String>()
 
+        // Sync replaces timetable rows and may replace calendar days; source linkage must be re-established.
+        if (payload.lessonPartitionKeys().isNotEmpty() || payload.has(DATASET_DAY_TYPES)) dao.requireSktjfRelinking()
+
         payload.lessonPartitionKeys().sorted().forEach { key ->
             val partition = checkNotNull(lessonSyncPartition(key))
             val arr = payload.getJSONArray(key)
             val importedLessons = mutableListOf<LessonEntity>()
+            val extraRecords = org.json.JSONArray()
             for (i in 0 until arr.length()) {
                 val obj = requireNotNull(arr.optJSONObject(i)) { "時間割の同期データが不正です。" }
+                if (obj.has("recordType")) {
+                    require(obj.get("recordType") == "sktjf-extra") { "時間割の同期データが不正です。" }
+                    extraRecords.put(org.json.JSONObject(obj.toString()).also { it.remove("recordType") })
+                    continue
+                }
                 require(obj.optInt("academicYear") == partition.academicYear &&
                     obj.optString("timetableTerm") == partition.term.name
                 ) { "時間割の年度・学期が一致しません。" }
@@ -497,9 +527,16 @@ internal class SchedulerDataTransfer(
                     bLocation = obj.optString("bLocation", "").takeIf { it.isNotBlank() }
                 )
             }
+            val extras = SktjfExtraLessonBackup.decode(extraRecords)
+            val termCode = if (partition.term == TimetableTerm.FIRST) "S" else "F"
+            require(extras.all { it.academicYear == partition.academicYear && it.term == termCode }) { "時間割の年度・学期が一致しません。" }
+            val otherIds = dao.getSktjfExtraLessons().filter { it.academicYear != partition.academicYear || it.term != termCode }.map { it.id }.toSet()
+            require(extras.none { it.id in otherIds }) { "追加授業の識別子が重複しています。" }
             touchedDatasets += key
             dao.deleteLessonsForPartition(partition.academicYear, partition.term)
             importedLessons.forEach { dao.upsertLesson(it) }
+            dao.deleteSktjfExtraLessonsForPartition(partition.academicYear, termCode)
+            if (extras.isNotEmpty()) dao.upsertSktjfExtraLessons(extras)
         }
 
         payload.optJSONArray(DATASET_LONG_BREAKS)?.let { arr ->
@@ -531,7 +568,9 @@ internal class SchedulerDataTransfer(
                         dayType = dayType,
                         overrideLessonDayOfWeek = overrideDow,
                         overrideLessonDayType = overrideDt,
-                        holidaySpecialLabel = if (dayType == DayType.HOLIDAY) holidaySpecialLabel else null
+                        holidaySpecialLabel = if (dayType == DayType.HOLIDAY) holidaySpecialLabel else null,
+                        schoolEventName = obj.optString("schoolEventName", "").takeIf { it.isNotBlank() && it.length <= 1000 },
+                        schoolEventKind = obj.optString("schoolEventKind", "").takeIf { it.isNotBlank() && it.length <= 64 }
                     )
                 )
             }
@@ -548,6 +587,7 @@ internal class SchedulerDataTransfer(
                 val reminderDate = if (obj.has("reminderDate")) runCatching { java.time.LocalDate.parse(obj.optString("reminderDate")) }.getOrNull() else null
                 dao.upsertTask(TaskEntity(
                     lessonId = if (obj.has("lessonId")) obj.optLong("lessonId") else null,
+                    extraLessonId = obj.optString("extraLessonId", "").takeIf { EXTRA_LESSON_ID.matches(it) },
                     subject = obj.optString("subject", ""),
                     teacher = obj.optString("teacher", "").takeIf { it.isNotBlank() },
                     title = obj.optString("title", ""),
@@ -581,6 +621,7 @@ internal class SchedulerDataTransfer(
                 val reminderDate = if (obj.has("reminderDate")) runCatching { java.time.LocalDate.parse(obj.optString("reminderDate")) }.getOrNull() else null
                 dao.upsertPlan(PlanEntity(
                     lessonId = if (obj.has("lessonId")) obj.optLong("lessonId") else null,
+                    extraLessonId = obj.optString("extraLessonId", "").takeIf { EXTRA_LESSON_ID.matches(it) },
                     subject = obj.optString("subject", ""),
                     teacher = obj.optString("teacher", "").takeIf { it.isNotBlank() },
                     title = obj.optString("title", ""),
@@ -727,9 +768,19 @@ internal class SchedulerDataTransfer(
 
         val normalizedRoot = normalizeImportRoot(root, importVersion)
         require(!requireSettings || normalizedRoot.optJSONObject("settings") != null)
+        require(importVersion < 21 || normalizedRoot.has("nittcYearTransitions"))
         // Older backups lack this section; preserve any local mode and profile history.
         val modeProfileBackup = if (normalizedRoot.has("nittcProfile")) {
             ModeProfileBackup.decode(normalizedRoot.getJSONObject("nittcProfile"))
+        } else null
+        val sourceStateBackup = if (normalizedRoot.has("sktjfSourceState")) {
+            SktjfSourceStateBackup.decode(normalizedRoot.getJSONArray("sktjfSourceState"))
+        } else null
+        val extraLessonBackup = if (normalizedRoot.has("sktjfExtraLessons")) {
+            SktjfExtraLessonBackup.decode(normalizedRoot.getJSONArray("sktjfExtraLessons"))
+        } else null
+        val yearTransitionBackup = if (normalizedRoot.has("nittcYearTransitions")) {
+            NittcYearTransitionBackup.decode(normalizedRoot.getJSONArray("nittcYearTransitions"))
         } else null
 
         val settingsEntity = normalizedRoot.optJSONObject("settings")?.let { s ->
@@ -882,7 +933,9 @@ internal class SchedulerDataTransfer(
                             ?.let { DayType.valueOf(it) },
                         holidaySpecialLabel = obj.optString("holidaySpecialLabel", "")
                             .takeIf { it.isNotBlank() }
-                            ?.let { HolidaySpecialLabel.valueOf(it) }
+                            ?.let { HolidaySpecialLabel.valueOf(it) },
+                        schoolEventName = obj.optString("schoolEventName", "").takeIf { it.isNotBlank() && it.length <= 1000 },
+                        schoolEventKind = obj.optString("schoolEventKind", "").takeIf { it.isNotBlank() && it.length <= 64 }
                     )
                 } catch (_: Exception) { }
             }
@@ -896,6 +949,7 @@ internal class SchedulerDataTransfer(
                     taskEntities += TaskEntity(
                         id = 0,
                         lessonId = if (obj.has("lessonId") && !obj.isNull("lessonId")) obj.getLong("lessonId") else null,
+                        extraLessonId = obj.optString("extraLessonId", "").takeIf { EXTRA_LESSON_ID.matches(it) },
                         subject = obj.optString("subject", ""),
                         teacher = if (obj.has("teacher") && !obj.isNull("teacher")) obj.getString("teacher") else null,
                         title = obj.optString("title", ""),
@@ -927,6 +981,7 @@ internal class SchedulerDataTransfer(
                     planEntities += PlanEntity(
                         id = 0,
                         lessonId = if (obj.has("lessonId") && !obj.isNull("lessonId")) obj.getLong("lessonId") else null,
+                        extraLessonId = obj.optString("extraLessonId", "").takeIf { EXTRA_LESSON_ID.matches(it) },
                         subject = obj.optString("subject", ""),
                         teacher = if (obj.has("teacher") && !obj.isNull("teacher")) obj.getString("teacher") else null,
                         title = obj.optString("title", ""),
@@ -1046,11 +1101,26 @@ internal class SchedulerDataTransfer(
 
         db.withTransaction {
             settingsEntity?.let { dao.upsertSettings(it) }
+            extraLessonBackup?.let { lessons ->
+                dao.deleteAllSktjfExtraLessons()
+                if (lessons.isNotEmpty()) dao.upsertSktjfExtraLessons(lessons)
+            }
+            if (sourceStateBackup != null) {
+                dao.deleteAllSktjfSourceStates()
+                if (sourceStateBackup.isNotEmpty()) dao.upsertSktjfSourceStates(sourceStateBackup)
+            } else {
+                // Older backups have no source metadata. Preserve it but require a fresh linkage.
+                dao.requireSktjfRelinking()
+            }
             modeProfileBackup?.let { backup ->
                 dao.deleteUsageMode()
                 backup.mode?.let { dao.upsertUsageMode(it) }
                 dao.deleteAllNittcProfiles()
                 if (backup.profiles.isNotEmpty()) dao.upsertNittcProfiles(backup.profiles)
+            }
+            yearTransitionBackup?.let { transitions ->
+                dao.deleteAllNittcYearTransitions()
+                if (transitions.isNotEmpty()) dao.upsertNittcYearTransitions(transitions)
             }
 
             dao.deleteAllLessons()

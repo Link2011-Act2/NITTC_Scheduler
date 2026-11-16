@@ -3,7 +3,7 @@ package jp.linkserver.nittcsc.logic
 import jp.linkserver.nittcsc.data.ChangedLessonEntity
 import jp.linkserver.nittcsc.data.ResolvedLesson
 
-private const val SUPPLEMENTARY_LESSON_SUBJECT = "補講"
+private val NO_LESSON_STYLE_SUBJECTS = setOf("補講", "延長枠")
 
 fun applyChangedLesson(
     baseLesson: ResolvedLesson?,
@@ -19,5 +19,5 @@ fun applyChangedLesson(
 }
 
 fun ResolvedLesson?.usesNoLessonAppearance(): Boolean {
-    return this == null || subject.trim() == SUPPLEMENTARY_LESSON_SUBJECT
+    return this == null || subject.trim() in NO_LESSON_STYLE_SUBJECTS
 }

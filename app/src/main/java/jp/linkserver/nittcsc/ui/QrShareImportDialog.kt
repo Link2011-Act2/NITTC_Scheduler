@@ -61,6 +61,8 @@ import jp.linkserver.nittcsc.data.QrShareSection
 import jp.linkserver.nittcsc.logic.QrShareMerge
 import jp.linkserver.nittcsc.logic.academicYearForDate
 import jp.linkserver.nittcsc.logic.qrShareMerge
+import jp.linkserver.nittcsc.logic.qrReattachExtraItems
+import jp.linkserver.nittcsc.logic.qrExtraLessonReferenceMap
 import jp.linkserver.nittcsc.logic.qrDayTypesRange
 import jp.linkserver.nittcsc.logic.QrImportPeriod
 import jp.linkserver.nittcsc.logic.QrImportScopeGroup
@@ -93,10 +95,13 @@ internal fun QrShareImportDialog(
     )
     // 重複と置き換え件数の確認はUIスレッドから外す。保存時にも最新のDBで再判定する。
     val preview by produceState<QrImportPreview?>(null, data, state.tasks, state.plans, state.lessonNotes,
-        state.lessons, state.cancelledLessons, state.changedLessons, state.dayTypeEntities, state.examDaySchedules) {
+        state.lessons, state.cancelledLessons, state.changedLessons, state.dayTypeEntities, state.examDaySchedules, state.sktjfExtraLessons) {
         value = null
         value = withContext(Dispatchers.Default) {
-            val merge = qrShareMerge(state.tasks, data.tasks, state.plans, data.plans, state.lessonNotes, data.notes)
+            val extras = qrExtraLessonReferenceMap(state.sktjfExtraLessons)
+            val reattached = qrReattachExtraItems(state.tasks, data.tasks, state.plans, data.plans, extras)
+            val merge = qrShareMerge(reattached.tasks, data.tasks, reattached.plans, data.plans, state.lessonNotes, data.notes,
+                extras = extras)
             val counts = data.sections.associateWith { section ->
                 when (section) {
                     QrShareSection.FIRST, QrShareSection.SECOND -> state.lessons.keys.count {

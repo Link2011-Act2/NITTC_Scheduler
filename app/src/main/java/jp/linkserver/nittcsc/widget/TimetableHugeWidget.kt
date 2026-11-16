@@ -182,10 +182,11 @@ private fun Content(data: WidgetData) {
                         Spacer(modifier = GlanceModifier.width(2.dp))
                     }
                     val lesson = WidgetDataHelper.resolveLesson(data, date, slot.index)
+                    val individualLessons = WidgetDataHelper.resolveLessons(data, date, slot.index)
                     val isExamDate = WidgetDataHelper.isExamScheduleDate(data, date)
                     val isCancelled = !isExamDate && data.cancelledLessons.contains(date to slot.index)
-                    val hasTasks = WidgetDataHelper.hasTasksForDate(data, date, lesson)
-                    val hasPlans = WidgetDataHelper.hasPlansForDate(data, date, lesson)
+                    val hasTasks = individualLessons.any { WidgetDataHelper.hasTasksForDate(data, date, it) }
+                    val hasPlans = individualLessons.any { WidgetDataHelper.hasPlansForDate(data, date, it) }
                     val cellBg = if (lesson != null) GlanceTheme.colors.surfaceVariant else GlanceTheme.colors.background
 
                     Box(
@@ -213,7 +214,7 @@ private fun Content(data: WidgetData) {
                         } else {
                             Column(modifier = GlanceModifier.fillMaxSize()) {
                                 Text(
-                                    text = lesson.subject,
+                                    text = WidgetDataHelper.lessonTitle(individualLessons) ?: lesson.subject,
                                     style = TextStyle(
                                         color = if (isCancelled) WidgetCancelledTextColor else GlanceTheme.colors.onBackground,
                                         fontSize = 9.sp,

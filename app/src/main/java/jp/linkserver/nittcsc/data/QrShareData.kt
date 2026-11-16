@@ -26,6 +26,11 @@ data class QrShareSelection(
     val dayTypesScope: QrDayTypesScope = QrDayTypesScope.YEAR
 )
 
+data class QrExtraLessonReference(
+    val academicYear: Int, val term: String, val classId: String,
+    val sourceLessonId: String?, val signature: String
+)
+
 /** 端末固有IDとリマインダー設定は配布せず、授業の紐付けは位置・内容で復元する。 */
 data class QrSharedItem(
     val subject: String,
@@ -40,7 +45,8 @@ data class QrSharedItem(
     val createdDate: LocalDate,
     val priority: Int,
     val useTeacherMatching: Boolean,
-    val lessonReference: QrLessonReference? = null
+    val lessonReference: QrLessonReference? = null,
+    val extraLessonReference: QrExtraLessonReference? = null
 ) {
     fun asTask() = TaskEntity(
         subject = subject, teacher = teacher, title = title, description = description,
@@ -76,7 +82,7 @@ data class QrSharePayload(
     val examDays: List<DayTypeEntity> = emptyList(),
     val examDaySchedules: List<ExamDayScheduleEntity> = emptyList(),
     val examLessons: List<ExamLessonEntity> = emptyList(),
-    val formatVersion: Int = QrShareCodec.VERSION,
+    val formatVersion: Int = 3,
     val dayTypesScope: QrDayTypesScope = QrDayTypesScope.YEAR
 ) {
     fun count(section: QrShareSection): Int = when (section) {
@@ -209,8 +215,9 @@ object QrShareJson {
             val notes = selected(QrShareSection.NOTES, "notes", 3).map {
                 LessonNoteEntity(it.date(0), it.slot(1), it.text(2, 32000))
             }.also { require(it.map { n -> n.date to n.slotIndex }.distinct().size == it.size) }
-            val plans = selected(QrShareSection.PLANS, "plans", if (version >= 2) 13 else 12).map(::readItem)
-            val tasks = selected(QrShareSection.TASKS, "tasks", if (version >= 2) 13 else 12).map(::readItem)
+            val itemSize = if (version >= 4) 14 else if (version >= 2) 13 else 12
+            val plans = selected(QrShareSection.PLANS, "plans", itemSize).map(::readItem)
+            val tasks = selected(QrShareSection.TASKS, "tasks", itemSize).map(::readItem)
             val examDays = selected(QrShareSection.EXAMS, "examDays", 2).map { row ->
                 val label = HolidaySpecialLabel.valueOf(row.text(1, 40)).also { require(it.usesExamTimetable) }
                 DayTypeEntity(row.date(0).also { require(academicYearForDate(it) == year) }, DayType.HOLIDAY, holidaySpecialLabel = label)
@@ -244,10 +251,17 @@ object QrShareJson {
     private fun itemRow(item: QrSharedItem, version: Int): List<Any?> = with(item) {
         val row = listOf(subject, teacher, title, description, dueDate.toString(), dueHour, dueMinute, completed,
             completedDate?.toString(), createdDate.toString(), priority, useTeacherMatching)
+        require(lessonReference == null || extraLessonReference == null)
+        if (version < 4) require(extraLessonReference == null)
         if (version < 2) { require(lessonReference == null); row }
-        else row + listOf(lessonReference?.let {
-            JSONArray(listOf(it.academicYear, it.timetableTerm.name, it.dayOfWeek, it.slotIndex, it.signature))
-        })
+        else {
+            val legacy = row + listOf(lessonReference?.let {
+                JSONArray(listOf(it.academicYear, it.timetableTerm.name, it.dayOfWeek, it.slotIndex, it.signature))
+            })
+            if (version < 4) legacy else legacy + listOf(extraLessonReference?.let {
+                JSONArray(listOf(it.academicYear, it.term, it.classId, it.sourceLessonId, it.signature))
+            })
+        }
     }
 
     private fun validateNesting(json: String) {
@@ -279,6 +293,14 @@ object QrShareJson {
             require(ref.length() == 5)
             QrLessonReference(ref.number(0).also { require(it in 2000..2200) }, TimetableTerm.valueOf(ref.text(1, 10)),
                 ref.number(2).also { require(it in 1..5) }, ref.slot(3),
+                ref.text(4, 64).also { require(it.matches(Regex("[0-9a-f]{64}"))) })
+        },
+        extraLessonReference = if (r.length() < 14 || r.isNull(13)) null else r.getJSONArray(13).let { ref ->
+            require(ref.length() == 5 && r.isNull(12))
+            QrExtraLessonReference(ref.number(0).also { require(it in 2000..2200) },
+                ref.text(1, 1).also { require(it == "S" || it == "F") },
+                ref.text(2, 128).also { require(it.matches(Regex("^(1-[1-4]|[2-5][MEIB]|AC-[A-Z0-9]+)$"))) },
+                ref.optionalText(3, 128)?.also { require(it.matches(Regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"))) },
                 ref.text(4, 64).also { require(it.matches(Regex("[0-9a-f]{64}"))) })
         }
     )

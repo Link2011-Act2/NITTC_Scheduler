@@ -27,6 +27,15 @@ class SktjfJsonTest {
         assertEquals(5, doc.calendar.size)
     }
 
+    @Test fun localFileUsesTheSameStrictValidationAndSizeLimit() {
+        assertEquals(SktjfJson.verifiedDocument(documentBytes, manifest(), manifest().assets.single()),
+            SktjfJson.localDocument(documentBytes.inputStream()))
+        val invalid = JSONObject(documentBytes.toString(Charsets.UTF_8)).put("classId", "1-9")
+        rejects { SktjfJson.localDocument(invalid.toString().byteInputStream()) }
+        rejects { SktjfJson.localDocument(ByteArray(4 * 1024 * 1024 + 1).inputStream()) }
+        rejects { SktjfJson.localDocument(byteArrayOf().inputStream()) }
+    }
+
     @Test fun rejectsDamagedAssetAndManifestMismatch() {
         val manifest = manifest(); val asset = manifest.assets.single()
         rejects { SktjfJson.verifiedDocument(documentBytes + byteArrayOf(32), manifest, asset) }

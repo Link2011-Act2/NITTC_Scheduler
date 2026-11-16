@@ -374,10 +374,15 @@ private val LegacyTaskBadgeOnContainer = Color(0xFFFFDAD6)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NittcSchedulerApp(viewModel: SchedulerViewModel, openTransferRequest: Long = 0L) {
+fun NittcSchedulerApp(viewModel: SchedulerViewModel, openTransferRequest: Long = 0L, resumeRequest: Long = 0L) {
     val state by viewModel.uiState.collectAsState()
     var startOnTimetable by rememberSaveable { mutableStateOf(false) }
+    var showInitialSktjfImport by rememberSaveable { mutableStateOf(false) }
+    var skipAutomaticUntilResume by remember { mutableStateOf(false) }
     var showSecondTermUnsetDialog by rememberSaveable { mutableStateOf(false) }
+    val rootContext = LocalContext.current
+    val rootScope = rememberCoroutineScope()
+    LaunchedEffect(resumeRequest) { skipAutomaticUntilResume = false }
     if (!state.initialized || state.settings == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             androidx.compose.material3.CircularProgressIndicator()
@@ -397,6 +402,21 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel, openTransferRequest: Long =
             onSelect = viewModel::assignLegacyTimetableTo
         )
         return
+    }
+    if (state.usageMode?.mode == null) {
+        NittcConfigurationDialog(state.usageMode, state.nittcProfiles, state.settings?.activeAcademicYear ?: 0,
+            onSave = { expectedMode, expectedProfile, mode, profile ->
+                // Set before committing: the mode flow can remove this dialog as soon as Room commits.
+                showInitialSktjfImport = mode == jp.linkserver.nittcsc.data.SchedulerUsageMode.NITTC
+                val saved = viewModel.saveNittcConfiguration(expectedMode, expectedProfile, mode, profile)
+                if (!saved) showInitialSktjfImport = false
+                saved
+            }, onDismiss = {}, required = true)
+        return
+    }
+    LaunchedEffect(state.usageMode?.mode) {
+        if (state.usageMode?.mode != jp.linkserver.nittcsc.data.SchedulerUsageMode.NITTC.name)
+            showInitialSktjfImport = false
     }
     if (InternalFeatureFlags.INITIAL_SETUP && state.settings?.initialSetupCompleted == false) {
         InitialSetupScreen(
@@ -422,6 +442,39 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel, openTransferRequest: Long =
         )
     ) {
         NittcSchedulerContent(viewModel, startOnTimetable, openTransferRequest)
+        if (showInitialSktjfImport && state.usageMode?.mode == jp.linkserver.nittcsc.data.SchedulerUsageMode.NITTC.name) SktjfImportDialog(
+            mode = state.usageMode, profiles = state.nittcProfiles,
+            defaultYear = state.settings?.activeAcademicYear ?: 0,
+            discover = viewModel::discoverSktjf, fetch = viewModel::fetchSktjf,
+            preview = viewModel::previewSktjf, apply = viewModel::applySktjf,
+            onApplied = {
+                rootScope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            jp.linkserver.nittcsc.reminder.NotificationScheduleCoordinator.refresh(rootContext)
+                            jp.linkserver.nittcsc.widget.WidgetUpdater.updateAll(rootContext)
+                        }
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                    catch (_: Exception) { }
+                }
+            },
+            onDismiss = { showInitialSktjfImport = false; skipAutomaticUntilResume = true }
+        )
+        if (!showInitialSktjfImport && !skipAutomaticUntilResume) SktjfAutomaticUpdatePrompt(
+            viewModel = viewModel, mode = state.usageMode, profiles = state.nittcProfiles,
+            transitions = state.nittcYearTransitions, settings = state.settings, resumeRequest = resumeRequest,
+            onApplied = {
+                rootScope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            jp.linkserver.nittcsc.reminder.NotificationScheduleCoordinator.refresh(rootContext)
+                            jp.linkserver.nittcsc.widget.WidgetUpdater.updateAll(rootContext)
+                        }
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                    catch (_: Exception) { }
+                }
+            }
+        )
         if (showSecondTermUnsetDialog) {
             AlertDialog(
                 onDismissRequest = { showSecondTermUnsetDialog = false },
@@ -525,6 +578,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
     var showPlanEditor by rememberSaveable { mutableStateOf(false) }
     var editingPlanId by rememberSaveable { mutableStateOf<Long?>(null) }
     var focusedPlanId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var prefillExtraLessonId by rememberSaveable { mutableStateOf<String?>(null) }
     var prefillSubject by rememberSaveable { mutableStateOf("") }
     var prefillTeacher by rememberSaveable { mutableStateOf("") }
     var prefillDueDateEpochDay by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -800,6 +854,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
     }
 
     fun clearLessonTaskPrefill() {
+        prefillExtraLessonId = null
         prefillSubject = ""
         prefillTeacher = ""
         prefillDueDateEpochDay = null
@@ -930,6 +985,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
         uiState.settings,
         uiState.lessonNotificationExclusions,
         uiState.lessons,
+        uiState.sktjfExtraResolver,
         uiState.dayTypeEntities,
         uiState.changedLessons,
         uiState.cancelledLessons,
@@ -946,6 +1002,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
         uiState.initialized,
         uiState.settings,
         uiState.lessons,
+        uiState.sktjfExtraResolver,
         uiState.dayTypeEntities,
         uiState.changedLessons,
         uiState.cancelledLessons,
@@ -960,7 +1017,14 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
             val start = settings.lessonCalendarSyncStart ?: settings.termStart
             val end = settings.lessonCalendarSyncEnd ?: settings.termEnd
             if (start <= end) {
-                val lessons = viewModel.generateLessons(ExportRange.Custom(start, end))
+                val lessons = try {
+                    viewModel.generateLessons(ExportRange.Custom(start, end))
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    snackbarHostState.showSnackbar(resources.getString(R.string.msg_calendar_sync_failed))
+                    return@LaunchedEffect
+                }
                 val result = withContext(Dispatchers.IO) {
                     CalendarExporter(context).sync(lessons)
                 }
@@ -1916,6 +1980,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                 )
             }
             "settings" -> {
+                var showSktjfImport by remember { mutableStateOf(false) }
                 val settingsSubjectSuggestions = lessonAutocompleteOptions.subjectSuggestions
                 val settingsTeacherCandidates = lessonAutocompleteOptions.subjectTeacherCandidates
                 SettingsScreen(
@@ -1924,6 +1989,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                         timetableSettingsPage = null
                         showSettings = false
                     },
+                    onOpenSktjfImport = { showSktjfImport = true },
                     onAbout = {
                         showSettings = true
                         showAbout = true
@@ -2008,7 +2074,27 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                     onUpdateScheduleSettings = viewModel::updateScheduleSettingsSilently,
                     onUpdateExamTimetableSettings = viewModel::updateExamTimetableSettings,
                     onExportAllAsJson = { viewModel.exportAllData() },
-                    onImportAllFromJson = viewModel::importAllData
+                    onImportAllFromJson = viewModel::importAllData,
+                    onSaveNittcConfiguration = viewModel::saveNittcConfiguration
+                )
+                if (showSktjfImport) SktjfImportDialog(
+                    mode = uiState.usageMode, profiles = uiState.nittcProfiles,
+                    defaultYear = uiState.settings?.activeAcademicYear ?: 0,
+                    discover = viewModel::discoverSktjf, fetch = viewModel::fetchSktjf,
+                    preview = viewModel::previewSktjf, apply = viewModel::applySktjf,
+                    onApplied = {
+                        appScope.launch { snackbarHostState.showSnackbar(resources.getString(R.string.sktjf_applied)) }
+                        appScope.launch {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    jp.linkserver.nittcsc.reminder.NotificationScheduleCoordinator.refresh(context)
+                                    jp.linkserver.nittcsc.widget.WidgetUpdater.updateAll(context)
+                                }
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                            catch (_: Exception) { }
+                        }
+                    },
+                    onDismiss = { showSktjfImport = false }
                 )
             }
             "sync" -> {
@@ -2117,6 +2203,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                     naturalLanguageTaskDraft != null -> naturalLanguageTaskDraft
                     prefillSubject.isNotBlank() -> TaskEntity(
                         subject = prefillSubject,
+                        extraLessonId = prefillExtraLessonId,
                         teacher = prefillTeacher.takeIf { it.isNotBlank() },
                         title = "",
                         dueDate = prefillDueDate ?: LocalDate.now(),
@@ -2129,6 +2216,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                 val prefillPlanTemplate = if (editingPlan == null && showPlanEditor && prefillSubject.isNotBlank()) {
                     TaskEntity(
                         subject = prefillSubject,
+                        extraLessonId = prefillExtraLessonId,
                         teacher = prefillTeacher.takeIf { it.isNotBlank() },
                         title = "",
                         dueDate = prefillDueDate ?: LocalDate.now(),
@@ -2251,7 +2339,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                             subjectTeacherCandidates = taskTeacherCandidates,
                             defaultDueHour = uiState.settings?.firstPeriodStartHour ?: 8,
                             defaultDueMinute = uiState.settings?.firstPeriodStartMinute ?: 40,
-                            autoResolveInitialSubject = naturalLanguageTaskDraft == null && prefillDueDateEpochDay == null,
+                            autoResolveInitialSubject = naturalLanguageTaskDraft == null && prefillDueDateEpochDay == null && prefillExtraLessonId == null,
                             showLessonDateNavigation = !prefillFromExamSlot,
                             showWeekdayOnDates = uiState.settings?.showWeekdayOnDates ?: false,
                             isPlan = showPlanEditor,
@@ -2358,6 +2446,9 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                                         dayTypeEntityForDate = { date -> uiState.dayTypeEntities[date] },
                                         resolveLesson = ::resolveDisplayedLesson,
                                         resolveOriginalLesson = ::resolveOriginalLesson,
+                                        onSaveSktjfExtra = viewModel::editSktjfExtraLesson,
+                                        onRecordNittcYearOutcome = viewModel::recordNittcYearOutcome,
+                                        onCompleteNittcYearOutcome = viewModel::completeNittcYearOutcome,
                                         changedLessonForDate = { date, slot -> uiState.changedLessons[date to slot] },
                                         lessonNotes = uiState.lessonNotes,
                                         onShiftDate = viewModel::shiftResultDate,
@@ -2389,6 +2480,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                                             focusedPlanId = plan.id.takeIf { it > 0 }
                                         },
                                            onAddFromLesson = { subject, teacher, isPlan, date, time, isExamSlot ->
+                                               prefillExtraLessonId = null
                                                prefillSubject = subject
                                                prefillTeacher = lessonAutocompleteOptions
                                                    .resolveTeacherForAutoFill(subject, teacher).orEmpty()
@@ -2413,6 +2505,20 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                                                    editingTaskId = null
                                                }
                                            },
+                                        onAddFromExtra = { lesson, isPlan, date, time ->
+                                            prefillExtraLessonId = lesson.id
+                                            prefillSubject = lesson.content.subject
+                                            prefillTeacher = lesson.content.teachers.joinToString("、")
+                                            prefillFromExamSlot = false
+                                            val future = LocalDateTime.of(date, time).isAfter(LocalDateTime.now())
+                                            prefillDueDateEpochDay = if (future) date.toEpochDay() else null
+                                            prefillDueHour = if (future) time.hour else null
+                                            prefillDueMinute = if (future) time.minute else null
+                                            editingTaskId = null
+                                            editingPlanId = null
+                                            showTaskEditor = !isPlan
+                                            showPlanEditor = isPlan
+                                        },
                                         onSetLessonCancelled = ::setLessonCancelledWithPrompt,
                                         onEditChangedLesson = ::openLessonChangeEditor,
                                         onSaveLessonNote = viewModel::saveLessonNote,
@@ -3374,6 +3480,9 @@ internal fun OutputScreen(
     dayTypeEntityForDate: (LocalDate) -> DayTypeEntity?,
     resolveLesson: (LocalDate, Int) -> ResolvedLesson?,
     resolveOriginalLesson: (LocalDate, Int) -> ResolvedLesson?,
+    onSaveSktjfExtra: (suspend (jp.linkserver.nittcsc.sktjf.SktjfVisibleExtra, jp.linkserver.nittcsc.sktjf.SktjfExtraLessonDraft) -> Boolean)? = null,
+    onRecordNittcYearOutcome: (suspend (Int, jp.linkserver.nittcsc.data.UsageModeEntity?, jp.linkserver.nittcsc.data.NittcProfileEntity?, jp.linkserver.nittcsc.data.NittcYearTransitionEntity?, jp.linkserver.nittcsc.data.NittcYearOutcome) -> Boolean)? = null,
+    onCompleteNittcYearOutcome: (suspend (Int, jp.linkserver.nittcsc.data.UsageModeEntity?, jp.linkserver.nittcsc.data.NittcProfileEntity?, jp.linkserver.nittcsc.data.NittcYearTransitionEntity?, jp.linkserver.nittcsc.data.NittcYearOutcome, jp.linkserver.nittcsc.data.NittcProfileEntity) -> Boolean)? = null,
     changedLessonForDate: (LocalDate, Int) -> ChangedLessonEntity?,
     lessonNotes: List<LessonNoteEntity>,
     onShiftDate: (Long) -> Unit,
@@ -3389,6 +3498,7 @@ internal fun OutputScreen(
     onOpenTask: (TaskEntity) -> Unit,
     onOpenPlan: (PlanEntity) -> Unit,
     onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean, date: LocalDate, time: LocalTime, isExamSlot: Boolean) -> Unit)? = null,
+    onAddFromExtra: ((jp.linkserver.nittcsc.sktjf.SktjfVisibleExtra, Boolean, LocalDate, LocalTime) -> Unit)? = null,
     onSetLessonCancelled: (LocalDate, Int, Boolean) -> Unit,
     onEditChangedLesson: (LocalDate, Int) -> Unit,
     onSaveLessonNote: (LocalDate, Int, String) -> Unit,
@@ -3403,7 +3513,16 @@ internal fun OutputScreen(
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val useExpressiveDesign = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
-    val today = if (useExpressiveDesign) rememberCurrentDate() else LocalDate.now()
+    val today = rememberCurrentDate()
+    val missingAffiliation = jp.linkserver.nittcsc.logic.missingNittcAffiliation(
+        state.usageMode?.mode?.let { name -> jp.linkserver.nittcsc.data.SchedulerUsageMode.entries.firstOrNull { it.name == name } },
+        state.nittcProfiles, today, rememberUpcomingAffiliationAnnounced(today), state.nittcYearTransitions)
+    var showAffiliationSettings by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(missingAffiliation) { if (missingAffiliation == null) showAffiliationSettings = false }
+    if (showAffiliationSettings && missingAffiliation != null && onRecordNittcYearOutcome != null && onCompleteNittcYearOutcome != null) {
+        NittcYearTransitionDialog(missingAffiliation, state.usageMode, state.nittcProfiles, state.nittcYearTransitions,
+            onRecordNittcYearOutcome, onCompleteNittcYearOutcome, { showAffiliationSettings = false })
+    }
     val defaultWeekFocusDate = remember(today) {
         when (today.dayOfWeek) {
             DayOfWeek.SATURDAY -> today.plusDays(2)
@@ -3669,7 +3788,8 @@ internal fun OutputScreen(
                                 "${stringResource(dayOfWeekRes(selectedDate.dayOfWeek))} / ${
                                     selectedExamName ?: dayTypeDisplayText(
                                         dayType, selectedDayTypeEntity?.overrideLessonDayOfWeek,
-                                        selectedDayTypeEntity?.holidaySpecialLabel
+                                        selectedDayTypeEntity?.holidaySpecialLabel,
+                                        selectedDayTypeEntity?.schoolEventName
                                     )
                                 }"
                             } else null,
@@ -3689,6 +3809,9 @@ internal fun OutputScreen(
                 }
                 }
             }
+        if (missingAffiliation != null && onRecordNittcYearOutcome != null && onCompleteNittcYearOutcome != null) item(key = "nittc-affiliation-reminder") {
+            NittcAffiliationReminder(missingAffiliation) { showAffiliationSettings = true }
+        }
         item {
                 val pagerPageCount = 51
                 val centerPage = pagerPageCount / 2
@@ -3778,6 +3901,21 @@ internal fun OutputScreen(
                             val pagePlans = plansByDueDate[pageDate].orEmpty()
                             val isExamDate = isExamScheduleDate(pageDate)
                             val pageClassSlots = if (isExamDate) examSlotsForDate(pageDate) else classSlots
+                            val extraLessons = remember(state.sktjfExtraResolver, state.dayTypeEntities, state.dayTypeMap,
+                                state.settings, state.cancelledLessons, pageDate, isExamDate, pageClassSlots) {
+                                if (isExamDate) emptyList() else {
+                                    val effectiveDay = state.dayTypeEntities[pageDate]
+                                        ?: DayTypeEntity(pageDate, dayTypeForDate(pageDate))
+                                    pageClassSlots.flatMap { slot ->
+                                        state.sktjfExtraResolver?.lessonsOn(pageDate, slot.index + 1, effectiveDay,
+                                            state.settings?.enableSemesterTimetables == true,
+                                            state.settings?.secondTermStartMonth ?: 10,
+                                            state.settings?.secondTermStartDay ?: 1).orEmpty().map { lesson ->
+                                            Triple(slot, lesson, isLessonCancelled(pageDate, slot.index))
+                                        }
+                                    }
+                                }
+                            }
                             val examMemos = if (isExamDate) {
                                 examLessonsByDate[pageDate]
                                     .orEmpty()
@@ -3793,6 +3931,12 @@ internal fun OutputScreen(
                                 candidates = todayCandidates,
                                 showUpcoming = useExpressiveDesign && pageDate == today
                             ) {
+                                SktjfAdditionalLessons(
+                                    extraLessons, state.sktjfExtraDataError,
+                                    pageTasks, pagePlans, onOpenTask, onOpenPlan,
+                                    onAdd = onAddFromExtra?.let { add -> { lesson, isPlan, slot -> add(lesson, isPlan, pageDate, slot.start) } },
+                                    onSave = onSaveSktjfExtra
+                                )
                                 DayScheduleTable(
                                     date = pageDate,
                                     dayType = dayTypeForDate(pageDate),
@@ -3876,6 +4020,14 @@ internal fun OutputScreen(
                                 dayTypeForDate = dayTypeForDate,
                                 dayTypeEntityForDate = dayTypeEntityForDate,
                                 resolveLesson = resolveLesson,
+                                resolveExtraLessons = { date, slotIndex ->
+                                    val effectiveDay = state.dayTypeEntities[date] ?: DayTypeEntity(date, dayTypeForDate(date))
+                                    state.sktjfExtraResolver?.lessonsOn(date, slotIndex + 1, effectiveDay,
+                                        state.settings?.enableSemesterTimetables == true,
+                                        state.settings?.secondTermStartMonth ?: 10,
+                                        state.settings?.secondTermStartDay ?: 1).orEmpty()
+                                },
+                                extraLessonsInvalid = state.sktjfExtraDataError,
                                 isExamScheduleDate = ::isExamScheduleDate,
                                 isExamTimetableUnset = ::isExamTimetableUnset,
                                 onConfigureExamTimetable = onShowExamSetup,
@@ -6764,6 +6916,8 @@ private fun WeekScheduleTable(
     dayTypeForDate: (LocalDate) -> DayType,
     dayTypeEntityForDate: (LocalDate) -> DayTypeEntity?,
     resolveLesson: (LocalDate, Int) -> ResolvedLesson?,
+    resolveExtraLessons: (LocalDate, Int) -> List<jp.linkserver.nittcsc.sktjf.SktjfVisibleExtra> = { _, _ -> emptyList() },
+    extraLessonsInvalid: Boolean = false,
     isExamScheduleDate: (LocalDate) -> Boolean = { false },
     isExamTimetableUnset: (LocalDate) -> Boolean = { false },
     onConfigureExamTimetable: (LocalDate) -> Unit = {},
@@ -6867,6 +7021,8 @@ private fun WeekScheduleTable(
     Column(
         modifier = modifier.fillMaxWidth()
     ) {
+        if (extraLessonsInvalid) Text(stringResource(R.string.sktjf_additional_lessons_error),
+            color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
         // ヘッダー行
         Row(modifier = Modifier.fillMaxWidth()) {
             Spacer(modifier = Modifier.width(slotLabelWidth))
@@ -6910,7 +7066,8 @@ private fun WeekScheduleTable(
                                 text = examName ?: dayTypeDisplayText(
                                     dayType,
                                     dayTypeEntity?.overrideLessonDayOfWeek,
-                                    dayTypeEntity?.holidaySpecialLabel
+                                    dayTypeEntity?.holidaySpecialLabel,
+                                    dayTypeEntity?.schoolEventName
                                 ),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -6983,7 +7140,9 @@ private fun WeekScheduleTable(
                         else -> resolveLesson(date, slot.index)
                     }
                     val lesson = resolvedLesson
-                    val usesNoLessonAppearance = lesson.usesNoLessonAppearance()
+                    val additionalLessons = if (!isHoliday && !isExamDate) resolveExtraLessons(date, slot.index) else emptyList()
+                    val extraCount = if (lesson == null) (additionalLessons.size - 1).coerceAtLeast(0) else additionalLessons.size
+                    val usesNoLessonAppearance = lesson.usesNoLessonAppearance() && additionalLessons.isEmpty()
                     val changedLesson = if (!isHoliday && !isExamDate) changedLessonForDate(date, slot.index) else null
                     val originalLesson = if (!isHoliday && !isExamDate && changedLesson != null) resolveOriginalLesson(date, slot.index) else null
                     val isChangedLesson = changedLesson != null && originalLesson != null
@@ -7027,14 +7186,16 @@ private fun WeekScheduleTable(
                                     onClick = {
                                         when {
                                             examUnset -> onConfigureExamTimetable(date)
-                                            lesson == null && !isHoliday && !isExamDate && secondTermUnsetDisplay.applies(date) -> secondTermUnsetDisplay.onOpen()
+                                            lesson == null && additionalLessons.isEmpty() && !isHoliday && !isExamDate && secondTermUnsetDisplay.applies(date) -> secondTermUnsetDisplay.onOpen()
                                             else -> onDayClick(date)
                                         }
                                     },
                                     onLongClick = if ((!isHoliday && !isExamDate) || lesson != null) {
                                         {
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            lessonActionDialog = WeekLessonActionDialogData(
+                                            if (lesson == null && additionalLessons.isNotEmpty()) {
+                                                onDayClick(date)
+                                            } else lessonActionDialog = WeekLessonActionDialogData(
                                                 date = date,
                                                 slotIndex = slot.index,
                                                 lessonStartTime = dateSlot.start,
@@ -7137,7 +7298,7 @@ private fun WeekScheduleTable(
                                         }
                                     }
                                     Column(
-                                        modifier = Modifier.align(Alignment.BottomStart)
+                                        modifier = Modifier.align(Alignment.BottomStart).padding(end = if (extraCount > 0) 32.dp else 0.dp)
                                     ) {
                                         if (!lessonMemo.isNullOrBlank()) {
                                             Text(
@@ -7166,6 +7327,14 @@ private fun WeekScheduleTable(
                                                 overflow = TextOverflow.Ellipsis
                                             )
                                         }
+                                    }
+                                } else if (additionalLessons.isNotEmpty()) {
+                                    Column(modifier = Modifier.align(Alignment.TopStart), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(additionalLessons.first().content.subject, style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = if (isCancelled) FontWeight.Light else FontWeight.Bold,
+                                            color = contentColor, maxLines = 3, overflow = TextOverflow.Ellipsis,
+                                            textDecoration = if (isCancelled) androidx.compose.ui.text.style.TextDecoration.LineThrough else null)
+                                        if (isCancelled) Text(strCancelled, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                                     }
                                 } else if (examUnset) {
                                     Text(
@@ -7208,6 +7377,7 @@ private fun WeekScheduleTable(
                                         )
                                     }
                                 }
+                                if (extraCount > 0) SktjfAdditionalLessonCount(extraCount, Modifier.align(Alignment.BottomEnd))
                             }
                         }
                         if (currentTimeOffsetDp != null) {
@@ -8179,7 +8349,8 @@ internal fun LessonOverrideDialog(
 internal fun dayTypeDisplayText(
     dayType: DayType,
     overrideLessonDayOfWeek: Int?,
-    holidaySpecialLabel: HolidaySpecialLabel? = null
+    holidaySpecialLabel: HolidaySpecialLabel? = null,
+    schoolEventName: String? = null
 ): String {
     val baseLabel = if (dayType == DayType.HOLIDAY && holidaySpecialLabel != null) {
         stringResource(holidaySpecialLabel.textResources().short)
@@ -8188,10 +8359,9 @@ internal fun dayTypeDisplayText(
     } else {
         stringResource(dayTypeRes(dayType))
     }
-    if (overrideLessonDayOfWeek == null || dayType == DayType.HOLIDAY) {
-        return baseLabel
-    }
-    return "$baseLabel(${stringResource(dayOfWeekRes(DayOfWeek.of(overrideLessonDayOfWeek)))})"
+    val dayLabel = if (overrideLessonDayOfWeek == null || dayType == DayType.HOLIDAY) baseLabel
+        else "$baseLabel(${stringResource(dayOfWeekRes(DayOfWeek.of(overrideLessonDayOfWeek)))})"
+    return if (schoolEventName.isNullOrBlank()) dayLabel else "$dayLabel / $schoolEventName"
 }
 
 @Composable

@@ -132,6 +132,8 @@ internal fun LegacySettingsScreen(
     onBack: () -> Unit,
     onAbout: () -> Unit,
     onOpenLocalSync: () -> Unit = {},
+    onOpenNittcSettings: () -> Unit = {},
+    onOpenSktjfImport: () -> Unit = {},
     onToggleLocalAi: (Boolean) -> Unit,
     onToggleNaturalLanguageTaskAdd: (Boolean) -> Unit = {},
     onToggleDrawerNavigation: (Boolean) -> Unit,
@@ -951,6 +953,14 @@ internal fun LegacySettingsScreen(
                     }
                 }
                 if (timetableSettingsPage == null && expandTimetableSettings) {
+                    item("nittc-configuration") {
+                        SettingsNavigationCard(title = stringResource(R.string.nittc_settings_title),
+                            description = stringResource(R.string.nittc_settings_description), onClick = onOpenNittcSettings)
+                    }
+                    if (state.usageMode?.mode == jp.linkserver.nittcsc.data.SchedulerUsageMode.NITTC.name) item("sktjf-import") {
+                        SettingsNavigationCard(title = stringResource(R.string.sktjf_import_title),
+                            description = stringResource(R.string.sktjf_import_description), onClick = onOpenSktjfImport)
+                    }
                     item("special_timetable_settings_title") {
                         SettingsNavigationCard(
                             title = stringResource(R.string.special_timetable_settings_title),

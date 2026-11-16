@@ -28,6 +28,7 @@ class LessonResolutionTest {
     @Test
     fun supplementaryLessonUsesNoLessonAppearance() {
         assertTrue(ResolvedLesson(" 補講 ", "").usesNoLessonAppearance())
+        assertTrue(ResolvedLesson(" 延長枠 ", "").usesNoLessonAppearance())
         assertTrue((null as ResolvedLesson?).usesNoLessonAppearance())
         assertFalse(ResolvedLesson("数学", "山田").usesNoLessonAppearance())
     }

@@ -17,8 +17,12 @@ import jp.linkserver.nittcsc.logic.applyChangedLesson
 import jp.linkserver.nittcsc.logic.firstSemesterRange
 import jp.linkserver.nittcsc.logic.formatExamPeriodLabel
 import jp.linkserver.nittcsc.logic.generateClassSlots
+import jp.linkserver.nittcsc.logic.rebuildDayType
 import jp.linkserver.nittcsc.logic.shouldAdvanceAcademicYear
 import jp.linkserver.nittcsc.logic.timetableTermForDate
+import jp.linkserver.nittcsc.sktjf.SktjfVisibleExtra
+import jp.linkserver.nittcsc.sktjf.SktjfExtraLessonDraft
+import jp.linkserver.nittcsc.sktjf.editSktjfExtraLesson as editSktjfExtraLessonContent
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -85,6 +89,8 @@ class SchedulerRepository(
     val syncRegisteredDevicesFlow: Flow<List<SyncRegisteredDeviceEntity>> = dao.observeSyncRegisteredDevices()
     val usageModeFlow: Flow<UsageModeEntity?> = dao.observeUsageMode()
     val nittcProfilesFlow: Flow<List<NittcProfileEntity>> = dao.observeNittcProfiles()
+    val nittcYearTransitionsFlow: Flow<List<NittcYearTransitionEntity>> = dao.observeNittcYearTransitions()
+    val sktjfExtraLessonsFlow: Flow<List<SktjfExtraLessonEntity>> = dao.observeSktjfExtraLessons()
 
     suspend fun setUsageMode(mode: SchedulerUsageMode) = db.withTransaction {
         val previous = dao.getUsageMode()
@@ -94,6 +100,74 @@ class SchedulerRepository(
     suspend fun saveNittcProfile(profile: NittcProfileEntity) {
         profile.validateProfile()
         dao.upsertNittcProfiles(listOf(profile))
+    }
+
+    internal suspend fun saveNittcConfiguration(expectedMode: UsageModeEntity?, expectedProfile: NittcProfileEntity?,
+        mode: SchedulerUsageMode, profile: NittcProfileEntity?): Boolean = db.withTransaction {
+        require((mode == SchedulerUsageMode.NITTC) == (profile != null))
+        profile?.validateProfile()
+        val currentMode = dao.getUsageMode()
+        if (currentMode != expectedMode) return@withTransaction false
+        if (profile != null && dao.getNittcProfilesOnce().singleOrNull { it.academicYear == profile.academicYear } != expectedProfile)
+            return@withTransaction false
+        if (profile != null) {
+            dao.upsertNittcProfiles(listOf(profile))
+            if (dao.getNittcYearTransition(profile.academicYear)?.outcome == NittcYearOutcome.DEFERRED.name)
+                dao.deleteNittcYearTransition(profile.academicYear)
+        }
+        dao.upsertUsageMode(UsageModeEntity(mode = mode.name, migratedFromLegacy = currentMode?.migratedFromLegacy ?: false))
+        true
+    }
+
+    internal suspend fun recordNittcYearOutcome(year: Int, expectedMode: UsageModeEntity?, expectedProfile: NittcProfileEntity?,
+        expectedTransition: NittcYearTransitionEntity?, outcome: NittcYearOutcome): Boolean = db.withTransaction {
+        require(year in 1900..9998 && outcome in setOf(NittcYearOutcome.GRADUATED, NittcYearOutcome.DEFERRED))
+        if (expectedMode?.mode != SchedulerUsageMode.NITTC.name || dao.getUsageMode() != expectedMode ||
+            dao.getNittcProfilesOnce().singleOrNull { it.academicYear == year } != expectedProfile ||
+            dao.getNittcYearTransition(year) != expectedTransition || expectedProfile != null) return@withTransaction false
+        dao.upsertNittcYearTransitions(listOf(NittcYearTransitionEntity(year, outcome.name)))
+        true
+    }
+
+    internal suspend fun completeNittcYearOutcome(year: Int, expectedMode: UsageModeEntity?, expectedProfile: NittcProfileEntity?,
+        expectedTransition: NittcYearTransitionEntity?, outcome: NittcYearOutcome, profile: NittcProfileEntity): Boolean = db.withTransaction {
+        require(outcome in setOf(NittcYearOutcome.PROMOTED, NittcYearOutcome.REPEATED, NittcYearOutcome.TRANSFERRED, NittcYearOutcome.ADVANCED))
+        require(profile.academicYear == year && (outcome != NittcYearOutcome.ADVANCED || profile.program == NittcProgram.ADVANCED.name))
+        profile.validateProfile()
+        if (expectedMode?.mode != SchedulerUsageMode.NITTC.name || dao.getUsageMode() != expectedMode ||
+            dao.getNittcProfilesOnce().singleOrNull { it.academicYear == year } != expectedProfile ||
+            dao.getNittcYearTransition(year) != expectedTransition) return@withTransaction false
+        dao.upsertNittcProfiles(listOf(profile))
+        dao.upsertNittcYearTransitions(listOf(NittcYearTransitionEntity(year, outcome.name)))
+        true
+    }
+
+    internal suspend fun previewSktjf(document: jp.linkserver.nittcsc.sktjf.SktjfDocument): jp.linkserver.nittcsc.sktjf.SktjfPreviewResult =
+        jp.linkserver.nittcsc.sktjf.SktjfApplyCoordinator(db, this).preview(document)
+
+    internal suspend fun sktjfUpdateSnapshot(): jp.linkserver.nittcsc.sktjf.SktjfUpdateSnapshot = db.withTransaction {
+        val mode = dao.getUsageMode()?.mode?.let { value -> SchedulerUsageMode.entries.firstOrNull { it.name == value } }
+        jp.linkserver.nittcsc.sktjf.SktjfUpdateSnapshot(mode, dao.getNittcProfilesOnce(), dao.getSktjfSourceStates(), dao.getNittcYearTransitions())
+    }
+
+    internal suspend fun applySktjf(preview: jp.linkserver.nittcsc.sktjf.SktjfApplyPreview,
+        lessons: Map<String, jp.linkserver.nittcsc.sktjf.SktjfConflictChoice>,
+        days: Map<LocalDate, jp.linkserver.nittcsc.sktjf.SktjfConflictChoice>): jp.linkserver.nittcsc.sktjf.SktjfApplyResult =
+        jp.linkserver.nittcsc.sktjf.SktjfApplyCoordinator(db, this).apply(preview, lessons, days)
+
+    internal suspend fun editSktjfExtraLesson(expected: SktjfVisibleExtra, draft: SktjfExtraLessonDraft): Boolean = db.withTransaction {
+        val current = dao.getSktjfExtraLesson(expected.id) ?: return@withTransaction false
+        val profile = dao.getNittcProfilesOnce().singleOrNull { it.academicYear == current.academicYear } ?: return@withTransaction false
+        if (dao.getUsageMode()?.mode != SchedulerUsageMode.NITTC.name ||
+            profile.classId != current.classId ||
+            current.contentJson != expected.storedContentJson || current.sourceLessonId != expected.sourceLessonId) return@withTransaction false
+        if (!runCatching { profile.validateProfile(); expected.content.conditions.matches(profile.attributes()) }.getOrDefault(false)) return@withTransaction false
+        val updated = editSktjfExtraLessonContent(current, draft)
+        if (updated == current) return@withTransaction true
+        dao.upsertSktjfExtraLessons(listOf(updated))
+        val term = if (current.term == "S") TimetableTerm.FIRST else TimetableTerm.SECOND
+        touchSyncDatasetMeta(LessonSyncPartition(current.academicYear, term).datasetKey)
+        true
     }
 
     suspend fun initialize(today: LocalDate = LocalDate.now()) {
@@ -614,7 +688,8 @@ class SchedulerRepository(
                     dayType = next,
                     overrideLessonDayOfWeek = existing?.overrideLessonDayOfWeek,
                     overrideLessonDayType = existing?.overrideLessonDayType,
-                    holidaySpecialLabel = if (next == DayType.HOLIDAY) existing?.holidaySpecialLabel else null
+                    holidaySpecialLabel = if (next == DayType.HOLIDAY) existing?.holidaySpecialLabel else null,
+                    schoolEventName = existing?.schoolEventName, schoolEventKind = existing?.schoolEventKind
                 )
             )
             touchSyncDatasetMeta(DATASET_DAY_TYPES)
@@ -630,7 +705,8 @@ class SchedulerRepository(
                     dayType = dayType,
                     overrideLessonDayOfWeek = existing?.overrideLessonDayOfWeek,
                     overrideLessonDayType = existing?.overrideLessonDayType,
-                    holidaySpecialLabel = if (dayType == DayType.HOLIDAY) existing?.holidaySpecialLabel else null
+                    holidaySpecialLabel = if (dayType == DayType.HOLIDAY) existing?.holidaySpecialLabel else null,
+                    schoolEventName = existing?.schoolEventName, schoolEventKind = existing?.schoolEventKind
                 )
             )
             touchSyncDatasetMeta(DATASET_DAY_TYPES)
@@ -646,7 +722,8 @@ class SchedulerRepository(
                     dayType = dayType,
                     overrideLessonDayOfWeek = existing[date]?.overrideLessonDayOfWeek,
                     overrideLessonDayType = existing[date]?.overrideLessonDayType,
-                    holidaySpecialLabel = if (dayType == DayType.HOLIDAY) existing[date]?.holidaySpecialLabel else null
+                    holidaySpecialLabel = if (dayType == DayType.HOLIDAY) existing[date]?.holidaySpecialLabel else null,
+                    schoolEventName = existing[date]?.schoolEventName, schoolEventKind = existing[date]?.schoolEventKind
                 )
             }
             if (entities.isNotEmpty()) {
@@ -677,7 +754,8 @@ class SchedulerRepository(
                         dayType = currentDayType,
                         overrideLessonDayOfWeek = null,
                         overrideLessonDayType = null,
-                        holidaySpecialLabel = if (currentDayType == DayType.HOLIDAY) existing?.holidaySpecialLabel else null
+                        holidaySpecialLabel = if (currentDayType == DayType.HOLIDAY) existing?.holidaySpecialLabel else null,
+                        schoolEventName = existing?.schoolEventName, schoolEventKind = existing?.schoolEventKind
                     )
                 } else {
                     DayTypeEntity(
@@ -685,7 +763,8 @@ class SchedulerRepository(
                         dayType = dayType,
                         overrideLessonDayOfWeek = dayOfWeek,
                         overrideLessonDayType = dayType,
-                        holidaySpecialLabel = if (dayType == DayType.HOLIDAY) existing?.holidaySpecialLabel else null
+                        holidaySpecialLabel = if (dayType == DayType.HOLIDAY) existing?.holidaySpecialLabel else null,
+                        schoolEventName = existing?.schoolEventName, schoolEventKind = existing?.schoolEventKind
                     )
                 }
             )
@@ -890,18 +969,7 @@ class SchedulerRepository(
         for (date in ranges.flatMap { range -> range.start.toDateRange(range.endInclusive) }.distinct()) {
             val autoHoliday = isAutoHoliday(date, breakRanges)
             val manual = existing[date]
-            val resolved = when {
-                autoHoliday -> DayType.HOLIDAY
-                manual != null -> manual.dayType
-                else -> DayType.A
-            }
-            rebuilt += DayTypeEntity(
-                date = date,
-                dayType = resolved,
-                overrideLessonDayOfWeek = if (autoHoliday) null else manual?.overrideLessonDayOfWeek,
-                overrideLessonDayType = if (autoHoliday) null else manual?.overrideLessonDayType,
-                holidaySpecialLabel = if (resolved == DayType.HOLIDAY) manual?.holidaySpecialLabel else null
-            )
+            rebuilt += rebuildDayType(date, manual, autoHoliday)
         }
 
         dao.upsertDayTypes(rebuilt)
@@ -911,6 +979,9 @@ class SchedulerRepository(
         syncDayTypes()
 
         val settings = dao.getSettings() ?: return emptyList()
+        val mode = dao.getUsageMode()?.mode?.let { value -> SchedulerUsageMode.entries.firstOrNull { it.name == value } }
+        val extraResolver = jp.linkserver.nittcsc.sktjf.SktjfExtraLessonResolver.create(mode,
+            dao.getNittcProfilesOnce(), dao.getSktjfExtraLessons())
         val dayTypeMap = dao.getDayTypesOnce().associateBy { it.date }
         val lessons = dao.getLessonsOnce().map { it.forTimetable(settings.enableAbTimetable) }
             .associateBy { it.lessonKey() }
@@ -941,7 +1012,7 @@ class SchedulerRepository(
 
         if (dateBounds.start > dateBounds.endInclusive) return emptyList()
 
-        return buildList {
+        val regular = buildList {
             for (date in dateBounds.start.toDateRange(dateBounds.endInclusive)) {
                 if (date in examScheduleDates) {
                     examLessonsByDate[date].orEmpty()
@@ -961,16 +1032,15 @@ class SchedulerRepository(
                                         end = LocalTime.of(exam.endHour, exam.endMinute)
                                     ),
                                     subject = exam.subject,
-                                    teacher = exam.teacher
+                                    teacher = exam.teacher,
+                                    location = exam.location.takeIf { it.isNotBlank() }
                                 )
                             )
                         }
                     continue
                 }
-                if (date.dayOfWeek == DayOfWeek.SATURDAY || date.dayOfWeek == DayOfWeek.SUNDAY) continue
-
                 val dayTypeEntity = dayTypeMap[date]
-                val dayType = dayTypeEntity?.dayType ?: DayType.A
+                val dayType = dayTypeEntity?.dayType ?: if (date.dayOfWeek.value >= 6 || JapaneseHolidayCalculator.isHoliday(date)) DayType.HOLIDAY else DayType.A
                 if (dayType == DayType.HOLIDAY) continue
 
                 val dayKey = dayTypeEntity?.overrideLessonDayOfWeek ?: date.dayOfWeek.value
@@ -999,12 +1069,17 @@ class SchedulerRepository(
                             date = date,
                             slot = slot,
                             subject = resolved.subject,
-                            teacher = resolved.teacher
+                            teacher = resolved.teacher,
+                            location = resolved.location
                         )
                     )
                 }
             }
         }
+        val slots = settings.basicClassSlots()
+        val extras = jp.linkserver.nittcsc.sktjf.additionalCalendarLessons(dateBounds, settings, slots,
+            dayTypeMap, cancelledLessons, examScheduleDates, extraResolver)
+        return (regular + extras).sortedWith(compareBy({ it.date }, { it.slot.index }, { it.extraLessonId ?: "" }))
     }
 
     internal suspend fun ensureLessonRows() {

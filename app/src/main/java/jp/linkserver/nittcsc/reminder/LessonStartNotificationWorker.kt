@@ -60,10 +60,10 @@ class LessonStartNotificationWorker(
             ?: return Result.success()
         val settings = schedule.settings
         if (!settings.lessonStartNotificationEnabled) return Result.success()
-        val candidate = schedule.lessonsOn(date).firstOrNull { it.slotIndex == slotIndex } ?: return Result.success()
         val exclusions = AppDatabase.getInstance(applicationContext).schedulerDao().getLessonNotificationExclusionsOnce()
+        val candidate = schedule.notificationLessonsOn(date) { !isExcluded(it, exclusions) }
+            .firstOrNull { it.slotIndex == slotIndex } ?: return Result.success()
         val lesson = candidate.content
-        if (isExcluded(lesson, exclusions)) return Result.success()
         val live = inputData.getBoolean(KEY_LIVE, false)
         val signature = signature(candidate, settings, live)
         if (inputData.getString(KEY_SIGNATURE) != signature) return Result.success()
@@ -479,7 +479,7 @@ class LessonStartNotificationWorker(
                 val end = minOf(settings.termEnd, today.plusDays(HORIZON_DAYS))
                 var date = maxOf(today, settings.termStart)
                 while (date <= end) {
-                    schedule.lessonsOn(date).filter { !isExcluded(it.content, exclusions) }.forEach { candidate ->
+                    schedule.notificationLessonsOn(date) { !isExcluded(it, exclusions) }.forEach { candidate ->
                         if (candidate.startsAt.plusMinutes(1).isBefore(now)) return@forEach
                         for (live in listOf(false, true)) {
                             if (live && (Build.VERSION.SDK_INT < 36 || !settings.lessonStartNotificationLiveUpdatesEnabled ||

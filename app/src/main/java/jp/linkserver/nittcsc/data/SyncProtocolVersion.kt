@@ -3,7 +3,7 @@ package jp.linkserver.nittcsc.data
 import org.json.JSONObject
 
 internal const val LEGACY_SYNC_PROTOCOL_VERSION = 0
-internal const val CURRENT_SYNC_PROTOCOL_VERSION = 4
+internal const val CURRENT_SYNC_PROTOCOL_VERSION = 8
 internal const val SYNC_PROTOCOL_VERSION_KEY = "syncProtocolVersion"
 
 internal fun JSONObject.putCurrentSyncProtocolVersion(): JSONObject {

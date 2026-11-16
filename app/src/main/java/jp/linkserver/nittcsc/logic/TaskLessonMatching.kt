@@ -5,6 +5,7 @@ import jp.linkserver.nittcsc.data.ResolvedLesson
 import jp.linkserver.nittcsc.data.TaskEntity
 
 fun taskMatchesLesson(task: TaskEntity, lesson: ResolvedLesson): Boolean {
+    if (task.extraLessonId != null) return false
     return itemMatchesLesson(
         subject = task.subject,
         teacher = task.teacher,
@@ -14,6 +15,7 @@ fun taskMatchesLesson(task: TaskEntity, lesson: ResolvedLesson): Boolean {
 }
 
 fun planMatchesLesson(plan: PlanEntity, lesson: ResolvedLesson): Boolean {
+    if (plan.extraLessonId != null) return false
     return itemMatchesLesson(
         subject = plan.subject,
         teacher = plan.teacher,

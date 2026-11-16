@@ -11,7 +11,11 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.math.BigInteger
+import java.time.Instant
 import java.util.concurrent.TimeUnit
+
+internal const val SKTJF_DISTRIBUTION_REPOSITORY = "Link2011-Act2/NITTC_Timetable"
 
 internal sealed interface SktjfFetchResult {
     data class Success(val manifest: SktjfManifest, val document: SktjfDocument) : SktjfFetchResult
@@ -21,6 +25,15 @@ internal sealed interface SktjfFetchResult {
     data object NetworkFailure : SktjfFetchResult
     data object InvalidData : SktjfFetchResult
     data class HttpFailure(val status: Int) : SktjfFetchResult
+}
+
+internal sealed interface SktjfDiscoveryResult {
+    data class Found(val revision: String) : SktjfDiscoveryResult
+    data object NotPublished : SktjfDiscoveryResult
+    data object RateLimited : SktjfDiscoveryResult
+    data object NetworkFailure : SktjfDiscoveryResult
+    data object InvalidData : SktjfDiscoveryResult
+    data class HttpFailure(val status: Int) : SktjfDiscoveryResult
 }
 
 /** Downloads and validates into memory only; no user data is written or replaced. */
@@ -33,6 +46,57 @@ internal class SktjfDistributionClient(
         .callTimeout(60, TimeUnit.SECONDS).build()
 
     init { require(Regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$").matches(repository)) }
+
+    /** A missing or invalid manifest is not evidence that an academic year is available. */
+    suspend fun verifiedManifest(revision: String): SktjfManifest? = withContext(Dispatchers.IO) {
+        try {
+            require(Regex("^\\d{4}\\.[SF]\\.(0|[1-9][0-9]*)$").matches(revision))
+            SktjfJson.manifest(download("https://github.com/$repository/releases/download/$revision/manifest.json", 512 * 1024), repository)
+                .also { require(it.revision == revision) }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { null }
+    }
+
+    /** Scan every listed page before selecting the greatest numeric revision. */
+    suspend fun discover(year: Int, term: String): SktjfDiscoveryResult = withContext(Dispatchers.IO) {
+        try {
+            require(year in 1900..9998 && term in setOf("S", "F"))
+            val pattern = Regex("^$year\\.$term\\.(0|[1-9][0-9]*)$")
+            var best: Pair<BigInteger, String>? = null
+            for (page in 1..20) {
+                val bytes = download("https://api.github.com/repos/$repository/releases?per_page=30&page=$page", 4 * 1024 * 1024)
+                val wrapped = "{\"releases\":".toByteArray() + bytes + "}".toByteArray()
+                val releases = strictSktjfObject(wrapped, 4 * 1024 * 1024 + 32).getJSONArray("releases")
+                require(releases.length() <= 30)
+                for (index in 0 until releases.length()) {
+                    val item = releases.getJSONObject(index)
+                    val draft = item.get("draft") as? Boolean ?: error("Invalid draft flag")
+                    val prerelease = item.get("prerelease") as? Boolean ?: error("Invalid prerelease flag")
+                    val tag = item.get("tag_name") as? String ?: error("Invalid release tag")
+                    if (draft || prerelease) continue
+                    val match = pattern.matchEntire(tag) ?: continue
+                    val published = item.get("published_at") as? String ?: error("Invalid publication date")
+                    Instant.parse(published)
+                    val revision = BigInteger(match.groupValues[1])
+                    if (best == null || revision > best.first) best = revision to tag
+                }
+                if (releases.length() < 30) return@withContext best?.let { SktjfDiscoveryResult.Found(it.second) }
+                    ?: SktjfDiscoveryResult.NotPublished
+            }
+            SktjfDiscoveryResult.InvalidData
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: FetchHttpException) {
+            when {
+                e.rateLimited -> SktjfDiscoveryResult.RateLimited
+                else -> SktjfDiscoveryResult.HttpFailure(e.status)
+            }
+        } catch (_: IOException) {
+            SktjfDiscoveryResult.NetworkFailure
+        } catch (_: Exception) {
+            SktjfDiscoveryResult.InvalidData
+        }
+    }
 
     suspend fun fetch(revision: String, classId: String): SktjfFetchResult = withContext(Dispatchers.IO) {
         try {
@@ -94,7 +158,7 @@ internal class SktjfDistributionClient(
 
     private fun allowedUrl(url: HttpUrl): Boolean = url.isHttps && url.port == 443 &&
         url.username.isEmpty() && url.password.isEmpty() && url.fragment == null &&
-        url.host in setOf("github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com")
+        url.host in setOf("github.com", "api.github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com")
 }
 
 private class FetchHttpException(val status: Int, val rateLimited: Boolean) : Exception()

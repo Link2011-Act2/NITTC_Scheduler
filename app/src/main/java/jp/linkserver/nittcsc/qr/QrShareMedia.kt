@@ -53,7 +53,7 @@ object QrShareMedia {
         onProgress: suspend (Int, Int) -> Unit = { _, _ -> }): SharedImage = withContext(Dispatchers.Default) {
         require(label.isNotBlank() && label.length <= 60 && '\n' !in label && '\r' !in label)
         val data = payload.copy(classLabel = label.trim())
-        val transfer = QrShareCodec.create(QrShareJson.encode(data))
+        val transfer = QrShareCodec.create(QrShareJson.encode(data), data.formatVersion)
         // 静止画は大きなQRに1枚で収める。超過時は読みやすい分割量でGIFにする。
         val single = transfer.frames(QrShareCodec.IMAGE_CHUNK_BYTES)
         val frames = if (single.size == 1) single else transfer.frames(QrShareCodec.GIF_CHUNK_BYTES)

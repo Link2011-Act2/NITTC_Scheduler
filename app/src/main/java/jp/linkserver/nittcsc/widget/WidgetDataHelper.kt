@@ -14,6 +14,7 @@ import jp.linkserver.nittcsc.data.lessonKey
 import jp.linkserver.nittcsc.data.PlanEntity
 import jp.linkserver.nittcsc.data.ResolvedLesson
 import jp.linkserver.nittcsc.data.SettingsEntity
+import jp.linkserver.nittcsc.data.SchedulerUsageMode
 import jp.linkserver.nittcsc.data.TaskEntity
 import jp.linkserver.nittcsc.logic.CLASS_SLOTS
 import jp.linkserver.nittcsc.logic.forTimetable
@@ -27,6 +28,7 @@ import jp.linkserver.nittcsc.logic.formatExamPeriodLabel
 import jp.linkserver.nittcsc.logic.forExamTimetable
 import jp.linkserver.nittcsc.logic.generateClassSlots
 import jp.linkserver.nittcsc.logic.timetableTermForDate
+import jp.linkserver.nittcsc.sktjf.SktjfExtraLessonResolver
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
@@ -44,7 +46,8 @@ data class WidgetData(
     val examDaySchedules: Map<LocalDate, ExamDayScheduleEntity>,
     val examLessons: Map<Pair<LocalDate, Int>, ExamLessonEntity>,
     val incompleteTasks: List<TaskEntity>,
-    val incompletePlans: List<PlanEntity>
+    val incompletePlans: List<PlanEntity>,
+    val extraResolver: SktjfExtraLessonResolver? = null
 )
 
 data class NextLessonWidgetEntry(
@@ -52,7 +55,8 @@ data class NextLessonWidgetEntry(
     val slot: ClassSlot,
     val lesson: ResolvedLesson,
     val tasks: List<TaskEntity>,
-    val plans: List<PlanEntity>
+    val plans: List<PlanEntity>,
+    val displayTitle: String = lesson.subject
 )
 
 object WidgetDataHelper {
@@ -63,6 +67,10 @@ object WidgetDataHelper {
         val today = LocalDate.now()
 
         val settings = dao.getSettings()
+        val mode = dao.getUsageMode()?.mode?.let { value -> SchedulerUsageMode.entries.firstOrNull { it.name == value } }
+        val profiles = dao.getNittcProfilesOnce()
+        val extraLessons = dao.getSktjfExtraLessons()
+        val extraResolver = runCatching { SktjfExtraLessonResolver.create(mode, profiles, extraLessons) }.getOrNull()
         val dayTypes = dao.getDayTypesOnce().map { it.forTimetable(settings?.enableAbTimetable != false) }
         val dayTypeEntities = dayTypes.associateBy { it.date }
         val dayTypeMap = dayTypes.associate { it.date to it.dayType }
@@ -100,7 +108,8 @@ object WidgetDataHelper {
             examDaySchedules = examDaySchedules,
             examLessons = examLessons,
             incompleteTasks = incompleteTasks,
-            incompletePlans = incompletePlans
+            incompletePlans = incompletePlans,
+            extraResolver = extraResolver
         )
     }
 
@@ -120,7 +129,6 @@ object WidgetDataHelper {
         secondTermStartMonth: Int = 10,
         secondTermStartDay: Int = 1
     ): ResolvedLesson? {
-        if (date.dayOfWeek.value !in 1..5) return null
         val dayTypeEntity = dayTypeEntities[date]
         val dayType = dayTypeEntity?.dayType ?: dayTypeMap[date] ?: defaultDayType(date)
         if (dayType == DayType.HOLIDAY) return null
@@ -187,17 +195,17 @@ object WidgetDataHelper {
         }
     }
 
-    fun resolveLesson(data: WidgetData, date: LocalDate, slotIndex: Int): ResolvedLesson? {
+    fun resolveLessons(data: WidgetData, date: LocalDate, slotIndex: Int): List<ResolvedLesson> {
         if (isExamScheduleDate(data, date)) {
-            val exam = data.examLessons[date to slotIndex] ?: return null
-            if (exam.subject.isBlank()) return null
-            return ResolvedLesson(
+            val exam = data.examLessons[date to slotIndex] ?: return emptyList()
+            if (exam.subject.isBlank()) return emptyList()
+            return listOf(ResolvedLesson(
                 exam.subject,
                 exam.teacher,
                 exam.location.takeIf { it.isNotBlank() }
-            )
+            ))
         }
-        return resolveLesson(
+        val base = resolveLesson(
             date = date,
             slotIndex = slotIndex,
             lessons = data.lessons,
@@ -208,6 +216,30 @@ object WidgetDataHelper {
             secondTermStartMonth = data.settings?.secondTermStartMonth ?: 10,
             secondTermStartDay = data.settings?.secondTermStartDay ?: 1
         )
+        if (slotIndex !in 0..11) return listOfNotNull(base)
+        val day = data.dayTypeEntities[date] ?: DayTypeEntity(date, data.dayTypeMap[date] ?: defaultDayType(date))
+        val extra = data.extraResolver?.lessonsOn(date, slotIndex + 1, day,
+            data.settings?.enableSemesterTimetables == true, data.settings?.secondTermStartMonth ?: 10,
+            data.settings?.secondTermStartDay ?: 1).orEmpty().map {
+            ResolvedLesson(it.content.subject, it.content.teachers.joinToString("、"),
+                it.content.rooms.joinToString("、").ifBlank { null }, extraLessonId = it.id)
+        }
+        return listOfNotNull(base) + extra
+    }
+
+    fun resolveLesson(data: WidgetData, date: LocalDate, slotIndex: Int): ResolvedLesson? {
+        val lessons = resolveLessons(data, date, slotIndex)
+        return when (lessons.size) {
+            0 -> null
+            1 -> lessons.single()
+            else -> ResolvedLesson(lessons.joinToString("、") { it.subject },
+                lessons.map { it.teacher }.filter { it.isNotBlank() }.joinToString("、"),
+                lessons.mapNotNull { it.location?.takeIf(String::isNotBlank) }.joinToString("、").ifBlank { null })
+        }
+    }
+
+    fun lessonTitle(lessons: List<ResolvedLesson>): String? = lessons.firstOrNull()?.let {
+        if (lessons.size == 1) it.subject else "${it.subject} +${lessons.size - 1}"
     }
 
     fun isExamScheduleDate(data: WidgetData, date: LocalDate): Boolean {
@@ -230,12 +262,14 @@ object WidgetDataHelper {
                 if (!isExamDate && data.cancelledLessons.contains(date to slot.index)) continue
                 if (date == data.today && !slot.end.isAfter(now)) continue
                 val lesson = resolveLesson(data, date, slot.index) ?: continue
+                val individualLessons = resolveLessons(data, date, slot.index)
                 return NextLessonWidgetEntry(
                     date = date,
                     slot = slot,
                     lesson = lesson,
-                    tasks = tasksForSlot(data, date, lesson, slot),
-                    plans = plansForSlot(data, date, lesson, slot)
+                    tasks = individualLessons.flatMap { tasksForSlot(data, date, it, slot) }.distinctBy { it.id },
+                    plans = individualLessons.flatMap { plansForSlot(data, date, it, slot) }.distinctBy { it.id },
+                    displayTitle = lessonTitle(individualLessons) ?: lesson.subject
                 )
             }
         }
@@ -257,6 +291,10 @@ object WidgetDataHelper {
         return roundedEndHour * 60
     }
 
+    private fun matchesWidgetLesson(subject: String, extraLessonId: String?, lesson: ResolvedLesson): Boolean =
+        if (extraLessonId != null) extraLessonId == lesson.extraLessonId
+        else subject.trim().equals(lesson.subject.trim(), ignoreCase = true)
+
     /** 授業時間帯に提出期限がある未完了課題を返す */
     fun tasksForSlot(
         data: WidgetData,
@@ -268,7 +306,7 @@ object WidgetDataHelper {
         val slotEnd = slot.end.hour * 60 + slot.end.minute
         return data.incompleteTasks.filter { task ->
             task.dueDate == date &&
-                    task.subject.trim().equals(lesson.subject.trim(), ignoreCase = true) &&
+                    matchesWidgetLesson(task.subject, task.extraLessonId, lesson) &&
                     (task.dueHour * 60 + task.dueMinute) in slotStart..slotEnd
         }
     }
@@ -284,7 +322,7 @@ object WidgetDataHelper {
         val slotEnd = slot.end.hour * 60 + slot.end.minute
         return data.incompletePlans.filter { plan ->
             plan.dueDate == date &&
-                    plan.subject.trim().equals(lesson.subject.trim(), ignoreCase = true) &&
+                    matchesWidgetLesson(plan.subject, plan.extraLessonId, lesson) &&
                     (plan.dueHour * 60 + plan.dueMinute) in slotStart..slotEnd
         }
     }
@@ -294,7 +332,7 @@ object WidgetDataHelper {
         if (lesson == null) return false
         return data.incompleteTasks.any { task ->
             !task.isCompleted &&
-                    task.subject.trim().equals(lesson.subject.trim(), ignoreCase = true)
+                    matchesWidgetLesson(task.subject, task.extraLessonId, lesson)
         }
     }
 
@@ -303,7 +341,7 @@ object WidgetDataHelper {
         if (lesson == null) return false
         return data.incompleteTasks.any { task ->
             task.dueDate == date &&
-                    task.subject.trim().equals(lesson.subject.trim(), ignoreCase = true)
+                    matchesWidgetLesson(task.subject, task.extraLessonId, lesson)
         }
     }
 
@@ -312,7 +350,7 @@ object WidgetDataHelper {
         if (lesson == null) return false
         return data.incompletePlans.any { plan ->
             !plan.isCompleted &&
-                    plan.subject.trim().equals(lesson.subject.trim(), ignoreCase = true)
+                    matchesWidgetLesson(plan.subject, plan.extraLessonId, lesson)
         }
     }
 
@@ -321,7 +359,7 @@ object WidgetDataHelper {
         if (lesson == null) return false
         return data.incompletePlans.any { plan ->
             plan.dueDate == date &&
-                    plan.subject.trim().equals(lesson.subject.trim(), ignoreCase = true)
+                    matchesWidgetLesson(plan.subject, plan.extraLessonId, lesson)
         }
     }
 

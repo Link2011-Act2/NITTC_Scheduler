@@ -8,6 +8,12 @@ import java.util.Random
 import java.util.zip.GZIPOutputStream
 
 class QrShareCodecTest {
+    @Test fun legacyFrameVersionRemainsAvailableForOrdinaryTransfers() {
+        val frame = QrShareCodec.create("hello", version = 3).frames().single()
+        assertTrue(frame.startsWith("SKTTP/QR:3:"))
+        assertEquals("hello", QrShareCollector().add(frame))
+    }
+
     @Test fun configurableCameraChunksRoundTripThroughExistingCollector() {
         val json = Base64.getEncoder().encodeToString(ByteArray(2100).also { Random(117).nextBytes(it) })
         val transfer = QrShareCodec.create(json)

@@ -231,6 +231,7 @@ fun AddTaskScreen(
     }
 
     LaunchedEffect(subject.trim(), subjectEditedByUser, subjectTeacherCandidates) {
+        if (task?.extraLessonId != null && subject.trim() == task.subject.trim()) return@LaunchedEffect
         if (!subjectEditedByUser && autoFilledTeacher == null) return@LaunchedEffect
         // 時間割未登録の教科を授業・試験から引き継いだ場合、その教員を維持する。
         if (subject.trim().equals(autoFilledSubject, ignoreCase = true) &&
@@ -255,6 +256,7 @@ fun AddTaskScreen(
             TaskEntity(
                 id = task?.id ?: 0,
                 lessonId = task?.lessonId,
+                extraLessonId = task?.extraLessonId?.takeIf { subject.trim() == task.subject.trim() && teacher.trim() == task.teacher.orEmpty().trim() },
                 subject = subject.trim(),
                 teacher = teacher.trim().takeIf { it.isNotEmpty() },
                 title = title.trim(),

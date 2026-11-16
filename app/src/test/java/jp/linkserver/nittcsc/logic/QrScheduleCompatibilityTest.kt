@@ -1,6 +1,7 @@
 package jp.linkserver.nittcsc.logic
 
 import jp.linkserver.nittcsc.data.*
+import jp.linkserver.nittcsc.sktjf.*
 import org.junit.Assert.*
 import org.junit.Test
 import java.time.LocalDate
@@ -107,6 +108,76 @@ class QrScheduleCompatibilityTest {
         val source = lesson().copy(weeklySubject = "数学:実習", weeklyTeacher = "担当|A", weeklyLocation = null)
         assertEquals(qrLessonReference(source), qrLessonReference(source.copy(id = 7, weeklyLocation = " ")))
         assertNotEquals(qrLessonReference(source), qrLessonReference(source.copy(weeklySubject = "数学", weeklyTeacher = "実習:担当|A")))
+    }
+
+    private fun extra(id: String, source: String? = "source-1", subject: String = "数学"): SktjfExtraLessonEntity {
+        val content = SktjfLessonContent(1, 1, SktjfCycle.A, subject, listOf("先生"), emptyList(),
+            SktjfConditions(setOf("DD"), emptySet()), SktjfLessonKind.NORMAL, null)
+        val encoded = SktjfBaselineCodec.encode(SktjfStoredBaseline(
+            SktjfBaseline(2026, "S", "1-1", mapOf(id to content)), SktjfCalendarBaseline(2026, "S", "1-1", emptyMap())))
+        return SktjfExtraLessonEntity(id, 2026, "S", "1-1", source, encoded)
+    }
+
+    @Test fun extraReferenceMatchesContentAndSourceRatherThanSenderId() {
+        val source = extra("sender")
+        val local = extra("receiver")
+        val ref = qrExtraLessonReference(source)
+        assertEquals(ref, qrExtraLessonReference(local))
+        assertEquals("receiver", qrResolveExtraLessonId(ref, qrExtraLessonReferenceMap(listOf(local))))
+        assertNull(qrResolveExtraLessonId(ref, qrExtraLessonReferenceMap(listOf(local.copy(sourceLessonId = "other")))))
+        assertNull(qrResolveExtraLessonId(ref, qrExtraLessonReferenceMap(listOf(extra("receiver", subject = "英語")))))
+        assertNull(qrResolveExtraLessonId(ref, qrExtraLessonReferenceMap(listOf(local, extra("duplicate")))))
+    }
+
+    @Test fun extraLinksSurviveImportAndUnresolvedReferencesNeverMatchBase() {
+        val ref = qrExtraLessonReference(extra("sender"))
+        val item = QrSharedItem("数学", "先生", "課題", null, date, 9, 0, false, null, date, 0, true,
+            extraLessonReference = ref)
+        val refs = qrExtraLessonReferenceMap(listOf(extra("receiver")))
+        val linked = qrResolveSharedItems(listOf(item), listOf(item), emptyMap(), refs)
+        assertEquals("receiver", linked.tasks.single().extraLessonId)
+        assertEquals("receiver", linked.plans.single().extraLessonId)
+        assertEquals(0, linked.unlinkedItems)
+        val unresolved = qrResolveSharedItems(listOf(item), listOf(item), emptyMap())
+        assertEquals(2, unresolved.unlinkedItems)
+        assertFalse(taskMatchesLesson(unresolved.tasks.single(), ResolvedLesson("数学", "先生")))
+        assertFalse(planMatchesLesson(unresolved.plans.single(), ResolvedLesson("数学", "先生")))
+        val again = qrShareMerge(unresolved.tasks, listOf(item), unresolved.plans, listOf(item), emptyList(), emptyList())
+        assertEquals(2, again.summary.duplicates)
+    }
+
+    @Test fun reimportCanResolvePreviousMissingExtraWithoutOverwritingEdits() {
+        val ref = qrExtraLessonReference(extra("sender"))
+        val item = QrSharedItem("数学", "先生", "課題", null, date, 9, 0, false, null, date, 0, true,
+            extraLessonReference = ref)
+        val unresolved = qrResolveSharedItems(listOf(item), listOf(item), emptyMap())
+        val task = unresolved.tasks.single().copy(id = 7, description = "自分のメモ", isCompleted = true)
+        val plan = unresolved.plans.single().copy(id = 8, description = "自分の予定")
+        val refs = qrExtraLessonReferenceMap(listOf(extra("receiver")))
+        val attached = qrReattachExtraItems(listOf(task), listOf(item), listOf(plan), listOf(item), refs)
+        assertEquals("receiver", attached.tasks.single().extraLessonId)
+        assertEquals("自分のメモ", attached.tasks.single().description)
+        assertTrue(attached.tasks.single().isCompleted)
+        assertEquals("receiver", attached.plans.single().extraLessonId)
+        assertEquals("自分の予定", attached.plans.single().description)
+        val merge = qrShareMerge(attached.tasks, listOf(item), attached.plans, listOf(item), emptyList(), emptyList(), extras = refs)
+        assertEquals(2, merge.summary.duplicates)
+        val changed = task.copy(title = "自分で変更")
+        assertEquals(changed, qrReattachExtraItems(listOf(changed), listOf(item), emptyList(), emptyList(), refs).tasks.single())
+        val ambiguous = qrExtraLessonReferenceMap(listOf(extra("receiver"), extra("another")))
+        assertEquals(task, qrReattachExtraItems(listOf(task), listOf(item), emptyList(), emptyList(), ambiguous).tasks.single())
+    }
+
+    @Test fun identicalTaskTextOnDifferentExtraLessonsIsNotDiscarded() {
+        val first = extra("first", "source-1")
+        val second = extra("second", "source-2")
+        val item = QrSharedItem("数学", "先生", "課題", null, date, 9, 0, false, null, date, 0, true,
+            extraLessonReference = qrExtraLessonReference(second))
+        val existing = item.asTask().copy(extraLessonId = first.id)
+        val refs = qrExtraLessonReferenceMap(listOf(first, second))
+        assertEquals(1, qrShareMerge(listOf(existing), listOf(item), emptyList(), emptyList(), emptyList(), emptyList(), extras = refs).tasks.size)
+        val same = existing.copy(extraLessonId = second.id)
+        assertEquals(1, qrShareMerge(listOf(same), listOf(item), emptyList(), emptyList(), emptyList(), emptyList(), extras = refs).summary.duplicates)
     }
 
     @Test fun updatesOnlyExamLabelsInSelectedYearAndKeepsOtherDaysAndYears() {

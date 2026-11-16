@@ -94,7 +94,7 @@ tasks.register("prepareAiRuntimeRelease") {
 }
 
 
-val appVersionName = "1.2.0-IntDev"
+val appVersionName = "2.0.0-IntDev"
 
 // ── OSS ライセンス生成タスク ──────────────────────────────────────────────
 

@@ -54,4 +54,23 @@ class HolidaySpecialLabelRepositoryTest {
         assertEquals(DayType.HOLIDAY, cleared.dayType)
         assertNull(cleared.holidaySpecialLabel)
     }
+
+    @Test
+    fun schoolEventSurvivesDayEditsBackupAndSync() = runBlocking {
+        val date = LocalDate.of(2026, 4, 8)
+        repository.initialize(date)
+        val original = DayTypeEntity(date, DayType.A, schoolEventName = "清掃", schoolEventKind = "OTHER")
+        val dao = database.schedulerDao()
+        dao.upsertDayType(original)
+        repository.upsertDayType(date, DayType.B)
+        assertEquals(original.copy(dayType = DayType.B), dao.getDayType(date))
+        val backup = repository.exportAllData()
+        val payload = repository.exportSyncPayload()
+        dao.upsertDayType(DayTypeEntity(date, DayType.A))
+        repository.importAllData(backup, requireSettings = true)
+        assertEquals(original.copy(dayType = DayType.B), dao.getDayType(date))
+        dao.upsertDayType(DayTypeEntity(date, DayType.A))
+        repository.applySyncPayload(payload)
+        assertEquals(original.copy(dayType = DayType.B), dao.getDayType(date))
+    }
 }

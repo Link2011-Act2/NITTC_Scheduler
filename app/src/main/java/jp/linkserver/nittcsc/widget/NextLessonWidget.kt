@@ -127,7 +127,7 @@ private fun Content(data: WidgetData) {
 
                 // 科目名
                 Text(
-                    text = lesson.subject,
+                    text = next.displayTitle,
                     style = TextStyle(
                         color = GlanceTheme.colors.onBackground,
                         fontSize = 14.sp,

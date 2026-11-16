@@ -65,6 +65,7 @@ internal data class NaturalLanguageModelOption(
 internal fun PlanEntity.toTaskEntityLike(): TaskEntity = TaskEntity(
     id = id,
     lessonId = lessonId,
+    extraLessonId = extraLessonId,
     subject = subject,
     teacher = teacher,
     title = title,
@@ -88,6 +89,7 @@ internal fun PlanEntity.toTaskEntityLike(): TaskEntity = TaskEntity(
 internal fun TaskEntity.toPlanEntityLike(existing: PlanEntity? = null): PlanEntity = PlanEntity(
     id = existing?.id ?: id,
     lessonId = lessonId,
+    extraLessonId = extraLessonId,
     subject = subject,
     teacher = teacher,
     title = title,

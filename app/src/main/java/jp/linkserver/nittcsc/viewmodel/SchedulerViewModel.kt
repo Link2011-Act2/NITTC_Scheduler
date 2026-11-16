@@ -19,6 +19,15 @@ import jp.linkserver.nittcsc.data.LessonStartNotificationChipMode
 import jp.linkserver.nittcsc.data.LongBreakEntity
 import jp.linkserver.nittcsc.data.ResolvedLesson
 import jp.linkserver.nittcsc.data.SchedulerRepository
+import jp.linkserver.nittcsc.data.SchedulerUsageMode
+import jp.linkserver.nittcsc.data.UsageModeEntity
+import jp.linkserver.nittcsc.data.NittcProfileEntity
+import jp.linkserver.nittcsc.data.NittcYearOutcome
+import jp.linkserver.nittcsc.data.NittcYearTransitionEntity
+import jp.linkserver.nittcsc.data.SktjfExtraLessonEntity
+import jp.linkserver.nittcsc.sktjf.SktjfExtraLessonResolver
+import jp.linkserver.nittcsc.sktjf.SktjfVisibleExtra
+import jp.linkserver.nittcsc.sktjf.SktjfExtraLessonDraft
 import jp.linkserver.nittcsc.data.SettingsEntity
 import jp.linkserver.nittcsc.data.PlanEntity
 import jp.linkserver.nittcsc.data.SyncProfileEntity
@@ -50,6 +59,7 @@ import jp.linkserver.goldy.CheckOutcome
 import jp.linkserver.nittcsc.update.AppUpdates
 import jp.linkserver.goldy.GoldyState
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -58,6 +68,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -99,6 +110,10 @@ private data class SyncAndDesignState(
     val expressiveWarningAcknowledged: Boolean
 )
 
+private data class ExtraLessonState(val resolver: SktjfExtraLessonResolver?, val invalid: Boolean,
+    val mode: UsageModeEntity?, val profiles: List<NittcProfileEntity>, val transitions: List<NittcYearTransitionEntity>,
+    val lessons: List<SktjfExtraLessonEntity>)
+
 data class SchedulerUiState(
     val settings: SettingsEntity? = null,
     val dayTypeEntities: Map<LocalDate, DayTypeEntity> = emptyMap(),
@@ -107,6 +122,12 @@ data class SchedulerUiState(
     val changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity> = emptyMap(),
     val lessonNotificationExclusions: List<LessonNotificationExclusionEntity> = emptyList(),
     val lessons: Map<LessonKey, LessonEntity> = emptyMap(),
+    val sktjfExtraResolver: SktjfExtraLessonResolver? = null,
+    val sktjfExtraDataError: Boolean = false,
+    val sktjfExtraLessons: List<SktjfExtraLessonEntity> = emptyList(),
+    val usageMode: UsageModeEntity? = null,
+    val nittcProfiles: List<NittcProfileEntity> = emptyList(),
+    val nittcYearTransitions: List<NittcYearTransitionEntity> = emptyList(),
     val tasks: List<TaskEntity> = emptyList(),
     val incompleteTasks: List<TaskEntity> = emptyList(),
     val plans: List<PlanEntity> = emptyList(),
@@ -132,6 +153,37 @@ class SchedulerViewModel(
     val nearbySyncManager: NearbySyncManager? = null,
     private val appUpdates: AppUpdates? = null
 ) : ViewModel() {
+
+    internal suspend fun editSktjfExtraLesson(expected: SktjfVisibleExtra, draft: SktjfExtraLessonDraft): Boolean =
+        repository.editSktjfExtraLesson(expected, draft)
+
+    internal suspend fun saveNittcConfiguration(expectedMode: UsageModeEntity?, expectedProfile: NittcProfileEntity?,
+        mode: SchedulerUsageMode, profile: NittcProfileEntity?): Boolean =
+        kotlinx.coroutines.withContext(Dispatchers.IO) { repository.saveNittcConfiguration(expectedMode, expectedProfile, mode, profile) }
+
+    internal suspend fun recordNittcYearOutcome(year: Int, expectedMode: UsageModeEntity?, expectedProfile: NittcProfileEntity?,
+        expectedTransition: NittcYearTransitionEntity?, outcome: NittcYearOutcome): Boolean =
+        kotlinx.coroutines.withContext(Dispatchers.IO) { repository.recordNittcYearOutcome(year, expectedMode, expectedProfile, expectedTransition, outcome) }
+
+    internal suspend fun completeNittcYearOutcome(year: Int, expectedMode: UsageModeEntity?, expectedProfile: NittcProfileEntity?,
+        expectedTransition: NittcYearTransitionEntity?, outcome: NittcYearOutcome, profile: NittcProfileEntity): Boolean =
+        kotlinx.coroutines.withContext(Dispatchers.IO) { repository.completeNittcYearOutcome(year, expectedMode, expectedProfile, expectedTransition, outcome, profile) }
+
+    private val sktjfDistribution by lazy { jp.linkserver.nittcsc.sktjf.SktjfDistributionClient(jp.linkserver.nittcsc.sktjf.SKTJF_DISTRIBUTION_REPOSITORY) }
+    internal suspend fun discoverSktjf(year: Int, term: String) = sktjfDistribution.discover(year, term)
+    internal suspend fun fetchSktjf(revision: String, classId: String) = sktjfDistribution.fetch(revision, classId)
+    internal suspend fun checkSktjfUpdates(year: Int, term: String,
+        acknowledged: (jp.linkserver.nittcsc.sktjf.SktjfUpdateKey) -> String?) =
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            jp.linkserver.nittcsc.sktjf.checkSktjfUpdates(year, term, repository::sktjfUpdateSnapshot,
+                acknowledged, sktjfDistribution::discover, sktjfDistribution::fetch, sktjfDistribution::verifiedManifest)
+        }
+    internal suspend fun previewSktjf(document: jp.linkserver.nittcsc.sktjf.SktjfDocument) =
+        kotlinx.coroutines.withContext(Dispatchers.IO) { repository.previewSktjf(document) }
+    internal suspend fun applySktjf(preview: jp.linkserver.nittcsc.sktjf.SktjfApplyPreview,
+        lessons: Map<String, jp.linkserver.nittcsc.sktjf.SktjfConflictChoice>,
+        days: Map<LocalDate, jp.linkserver.nittcsc.sktjf.SktjfConflictChoice>) =
+        kotlinx.coroutines.withContext(Dispatchers.IO) { repository.applySktjf(preview, lessons, days) }
 
     private var syncServicesStarted = false
     private var updateCheckJob: Job? = null
@@ -202,6 +254,15 @@ class SchedulerViewModel(
     ) { schedules, lessons ->
         ExamDataBundle(schedules, lessons)
     }
+
+    private val extraLessonFlow = combine(repository.usageModeFlow, repository.nittcProfilesFlow, repository.sktjfExtraLessonsFlow,
+        repository.nittcYearTransitionsFlow) { mode, profiles, lessons, transitions ->
+        val result = runCatching {
+            val usageMode = mode?.mode?.let(SchedulerUsageMode::valueOf)
+            SktjfExtraLessonResolver.create(usageMode, profiles, lessons)
+        }
+        ExtraLessonState(result.getOrNull(), result.isFailure, mode, profiles, transitions, lessons)
+    }.flowOn(Dispatchers.Default)
 
     private val coreDataFlow: kotlinx.coroutines.flow.Flow<CoreDataState> = combine(
         combine(
@@ -285,6 +346,9 @@ class SchedulerViewModel(
             uiDesignMode = syncAndDesign.uiDesignMode,
             expressiveWarningAcknowledged = syncAndDesign.expressiveWarningAcknowledged
         )
+    }.combine(extraLessonFlow) { state, extra ->
+        state.copy(sktjfExtraResolver = extra.resolver, sktjfExtraDataError = extra.invalid, sktjfExtraLessons = extra.lessons,
+            usageMode = extra.mode, nittcProfiles = extra.profiles, nittcYearTransitions = extra.transitions)
     }.combine(appUpdates?.state ?: MutableStateFlow(GoldyState())) { state, update ->
         state.copy(appUpdate = update)
     }.stateIn(

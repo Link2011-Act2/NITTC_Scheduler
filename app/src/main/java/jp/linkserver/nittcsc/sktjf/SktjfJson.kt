@@ -2,6 +2,8 @@ package jp.linkserver.nittcsc.sktjf
 
 import org.json.JSONObject
 import java.net.URI
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.security.MessageDigest
 import java.time.Instant
 import java.time.LocalDate
@@ -17,6 +19,18 @@ private const val MAX_DOCUMENT_BYTES = 4 * 1024 * 1024
 
 /** Parsing does not touch Room or change existing timetable data. */
 internal object SktjfJson {
+    /** Local files receive the same structural validation as downloaded assets. */
+    fun localDocument(input: InputStream): SktjfDocument {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            require(count > 0 && output.size() <= MAX_DOCUMENT_BYTES - count)
+            output.write(buffer, 0, count)
+        }
+        return document(strictSktjfObject(output.toByteArray(), MAX_DOCUMENT_BYTES))
+    }
     fun manifest(bytes: ByteArray, repository: String): SktjfManifest {
         val root = strictSktjfObject(bytes, MAX_MANIFEST_BYTES)
         root.fields(setOf("format", "manifestVersion", "schoolId", "academicYear", "term", "revision", "publishedAt", "dataFormatVersion", "classIds", "assets"))

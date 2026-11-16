@@ -10,10 +10,14 @@ import jp.linkserver.nittcsc.logic.academicYearForDate
 import jp.linkserver.nittcsc.logic.qrCheckScheduleCompatibility
 import jp.linkserver.nittcsc.logic.qrExamDayUpdates
 import jp.linkserver.nittcsc.logic.qrLessonReference
+import jp.linkserver.nittcsc.logic.qrExtraLessonReference
+import jp.linkserver.nittcsc.logic.qrExtraLessonReferenceMap
 import jp.linkserver.nittcsc.logic.qrResolveSharedItems
 import jp.linkserver.nittcsc.logic.qrShareMerge
+import jp.linkserver.nittcsc.logic.qrReattachExtraItems
 import jp.linkserver.nittcsc.logic.qrTimetableReplacement
 import jp.linkserver.nittcsc.logic.qrDayTypesRange
+import jp.linkserver.nittcsc.logic.qrDayTypeReplacement
 import jp.linkserver.nittcsc.logic.qrReplaceLongBreaks
 import jp.linkserver.nittcsc.logic.overlaps
 
@@ -32,6 +36,11 @@ internal class QrShareTransfer(private val repository: SchedulerRepository, priv
         fun referenceFor(id: Long?): QrLessonReference? = id?.let {
             qrLessonReference(lessonsById[it] ?: throw QrShareException(QrShareFailure.LESSON_REFERENCE))
         }
+        val extrasById = dao.getSktjfExtraLessons().associateBy { it.id }
+        fun extraReferenceFor(id: String?): QrExtraLessonReference? = id?.let {
+            val extra = extrasById[it] ?: throw QrShareException(QrShareFailure.LESSON_REFERENCE)
+            runCatching { qrExtraLessonReference(extra) }.getOrElse { throw QrShareException(QrShareFailure.LESSON_REFERENCE) }
+        }
         QrSharePayload(
             academicYear = selection.academicYear, sections = sections,
             secondTermStartMonth = settings.secondTermStartMonth, secondTermStartDay = settings.secondTermStartDay,
@@ -47,10 +56,10 @@ internal class QrShareTransfer(private val repository: SchedulerRepository, priv
             longBreaks = if (QrShareSection.DAY_TYPES in sections) dao.getLongBreaksOnce().filter { it.overlaps(daysRange) } else emptyList(),
             notes = if (QrShareSection.NOTES in sections) dao.getLessonNotesOnce().filter { (it.date to it.slotIndex) in selection.noteKeys } else emptyList(),
             plans = if (QrShareSection.PLANS in sections) dao.getPlansOnce().filter { it.id in selection.planIds }.map {
-                QrSharedItem(it.subject, it.teacher, it.title, it.description, it.dueDate, it.dueHour, it.dueMinute, it.isCompleted, it.completedDate, it.createdDate, it.priority, it.useTeacherMatching, referenceFor(it.lessonId))
+                QrSharedItem(it.subject, it.teacher, it.title, it.description, it.dueDate, it.dueHour, it.dueMinute, it.isCompleted, it.completedDate, it.createdDate, it.priority, it.useTeacherMatching, referenceFor(it.lessonId), extraReferenceFor(it.extraLessonId))
             } else emptyList(),
             tasks = if (QrShareSection.TASKS in sections) dao.getTasksOnce().filter { it.id in selection.taskIds }.map {
-                QrSharedItem(it.subject, it.teacher, it.title, it.description, it.dueDate, it.dueHour, it.dueMinute, it.isCompleted, it.completedDate, it.createdDate, it.priority, it.useTeacherMatching, referenceFor(it.lessonId))
+                QrSharedItem(it.subject, it.teacher, it.title, it.description, it.dueDate, it.dueHour, it.dueMinute, it.isCompleted, it.completedDate, it.createdDate, it.priority, it.useTeacherMatching, referenceFor(it.lessonId), extraReferenceFor(it.extraLessonId))
             } else emptyList(),
             examDays = if (QrShareSection.EXAMS in sections) dao.getDayTypesOnce().filter {
                 academicYearForDate(it.date) == selection.academicYear && it.holidaySpecialLabel?.usesExamTimetable == true
@@ -61,7 +70,9 @@ internal class QrShareTransfer(private val repository: SchedulerRepository, priv
             examLessons = if (QrShareSection.EXAMS in sections) dao.getExamLessonsOnce().filter {
                 academicYearForDate(it.date) == selection.academicYear
             } else emptyList()
-        ).also { data ->
+        ).let { data ->
+            data.copy(formatVersion = if ((data.tasks + data.plans).any { it.extraLessonReference != null }) 4 else 3)
+        }.also { data ->
             // 選択したデータが生成直前に削除された場合、空の共有として配布しない。
             require(listOf(QrShareSection.NOTES, QrShareSection.PLANS, QrShareSection.TASKS)
                 .all { it !in data.sections || data.count(it) > 0 })
@@ -76,13 +87,24 @@ internal class QrShareTransfer(private val repository: SchedulerRepository, priv
         val settings = checkNotNull(dao.getSettings())
         qrCheckScheduleCompatibility(data, settings)
         // DBの最新状態で再判定する。確認中の追加・編集と競合しても既存データを守る。
-        val merge = qrShareMerge(
-            if (QrShareSection.TASKS in data.sections) dao.getTasksOnce() else emptyList(), data.tasks,
-            if (QrShareSection.PLANS in data.sections) dao.getPlansOnce() else emptyList(), data.plans,
-            if (QrShareSection.NOTES in data.sections) dao.getLessonNotesOnce() else emptyList(), data.notes,
-            approvedNoteReplacements
-        )
+        val extraReferences = qrExtraLessonReferenceMap(dao.getSktjfExtraLessons())
+        val existingTasks = if (QrShareSection.TASKS in data.sections) dao.getTasksOnce() else emptyList()
+        val existingPlans = if (QrShareSection.PLANS in data.sections) dao.getPlansOnce() else emptyList()
+        val reattached = qrReattachExtraItems(existingTasks, data.tasks, existingPlans, data.plans, extraReferences)
         val touched = mutableSetOf<String>()
+        reattached.tasks.zip(existingTasks).filter { (next, before) -> next != before }.forEach { (next, _) ->
+            dao.upsertTask(next.copy(updatedAt = System.currentTimeMillis()))
+            touched += SchedulerRepository.DATASET_TASKS
+        }
+        reattached.plans.zip(existingPlans).filter { (next, before) -> next != before }.forEach { (next, _) ->
+            dao.upsertPlan(next.copy(updatedAt = System.currentTimeMillis()))
+            touched += SchedulerRepository.DATASET_PLANS
+        }
+        val merge = qrShareMerge(
+            reattached.tasks, data.tasks, reattached.plans, data.plans,
+            if (QrShareSection.NOTES in data.sections) dao.getLessonNotesOnce() else emptyList(), data.notes,
+            approvedNoteReplacements, extras = extraReferences
+        )
         val importedTasks = mutableListOf<TaskEntity>()
         val importedPlans = mutableListOf<PlanEntity>()
         for (term in TimetableTerm.entries) {
@@ -104,9 +126,10 @@ internal class QrShareTransfer(private val repository: SchedulerRepository, priv
         }
         if (QrShareSection.DAY_TYPES in data.sections) {
             val range = data.qrDayTypesRange()
+            val replacement = qrDayTypeReplacement(dao.getDayTypesOnce(), data.dayTypes, range)
             if (range == null) dao.deleteAllDayTypes()
             else dao.deleteDayTypesInRange(range.start, range.endInclusive)
-            dao.upsertDayTypes(data.dayTypes)
+            dao.upsertDayTypes(replacement)
             if (range == null) {
                 dao.deleteAllLongBreaks()
                 data.longBreaks.forEach { dao.upsertLongBreak(it.copy(id = 0)) }
@@ -140,7 +163,7 @@ internal class QrShareTransfer(private val repository: SchedulerRepository, priv
         val linkedLessons = if ((merge.tasks + merge.plans).any { it.lessonReference != null }) {
             dao.getLessonsOnce().associateBy { it.lessonKey() }
         } else emptyMap()
-        val resolved = qrResolveSharedItems(merge.tasks, merge.plans, linkedLessons)
+        val resolved = qrResolveSharedItems(merge.tasks, merge.plans, linkedLessons, extraReferences)
         if (QrShareSection.TASKS in data.sections) {
             resolved.tasks.forEach { task ->
                 importedTasks += task.copy(id = dao.upsertTask(task))

@@ -1,7 +1,9 @@
 package jp.linkserver.nittcsc.calendar
 
 import android.content.ContentValues
+import android.content.ContentUris
 import android.content.Context
+import android.net.Uri
 import android.provider.CalendarContract
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.logic.CalendarDeletionFailure
@@ -9,6 +11,9 @@ import jp.linkserver.nittcsc.logic.CalendarDeletionResult
 import jp.linkserver.nittcsc.logic.activeCalendarEventSelection
 import jp.linkserver.nittcsc.logic.ExportResult
 import jp.linkserver.nittcsc.logic.GeneratedLesson
+import jp.linkserver.nittcsc.logic.CalendarInsertResult
+import jp.linkserver.nittcsc.logic.CalendarReplacementStore
+import jp.linkserver.nittcsc.logic.replaceCalendarEvents
 import java.time.ZoneId
 
 class CalendarExporter(private val context: Context) {
@@ -16,58 +21,56 @@ class CalendarExporter(private val context: Context) {
     fun sync(lessons: List<GeneratedLesson>): ExportResult {
         return synchronized(SYNC_LOCK) {
             try {
-                val deletion = clearAppCreatedLessonEvents()
-                if (!deletion.isSuccess) {
-                    return ExportResult(0, lessons.size, context.getString(
-                        if (deletion.failure == CalendarDeletionFailure.PERMISSION) {
-                            R.string.msg_calendar_delete_permission_denied
-                        } else {
-                            R.string.msg_calendar_sync_cleanup_failed
-                        }
-                    ))
-                }
-                if (lessons.isEmpty()) {
-                    return ExportResult(0, 0, "同期対象の授業はありません。")
-                }
-
-                val calendarId = getWritableCalendarId()
-                    ?: return ExportResult(0, lessons.size, "書き込み可能なカレンダーが見つかりませんでした。")
+                val calendarId = if (lessons.isNotEmpty()) getWritableCalendarId()
+                    ?: return ExportResult(0, lessons.size, "書き込み可能なカレンダーが見つかりませんでした。") else null
                 val resolver = context.contentResolver
                 val zoneId = ZoneId.systemDefault()
-                var added = 0
-
-                lessons.distinctBy { lesson ->
-                    "${lesson.date}|${lesson.slot.index}|${lesson.subject}|${lesson.slot.start}|${lesson.slot.end}"
-                }.forEach { lesson ->
-                    val startMillis = lesson.date.atTime(lesson.slot.start).atZone(zoneId).toInstant().toEpochMilli()
-                    val endMillis = lesson.date.atTime(lesson.slot.end).atZone(zoneId).toInstant().toEpochMilli()
-                    val values = ContentValues().apply {
-                        put(CalendarContract.Events.CALENDAR_ID, calendarId)
-                        put(CalendarContract.Events.TITLE, "${lesson.subject} (${lesson.slot.label})")
-                        put(
-                            CalendarContract.Events.DESCRIPTION,
-                            "$AUTO_SYNC_MARKER\nNITTC Scheduler\n担当: ${lesson.teacher}"
-                        )
-                        put(CalendarContract.Events.DTSTART, startMillis)
-                        put(CalendarContract.Events.DTEND, endMillis)
-                        put(CalendarContract.Events.EVENT_TIMEZONE, zoneId.id)
-                        put(CalendarContract.Events.CUSTOM_APP_PACKAGE, context.packageName)
-                        put(CalendarContract.Events.CUSTOM_APP_URI, autoSyncEventUri(lesson))
-                    }
-                    if (resolver.insert(CalendarContract.Events.CONTENT_URI, values) != null) {
-                        added++
+                val items = lessons.distinctBy { lesson ->
+                    listOf(lesson.date, lesson.slot.index, lesson.slot.start, lesson.slot.end,
+                        lesson.extraLessonId, if (lesson.extraLessonId == null) lesson.subject else null)
+                }
+                val access = CalendarEventAccess(resolver, AUTO_SYNC_SELECTION, autoSyncSelectionArgs(context.packageName))
+                val store = object : CalendarReplacementStore<GeneratedLesson> {
+                    override fun activeIds(): Set<Long> = access.activeEventIds()
+                    override fun delete(ids: Set<Long>) = access.deleteEvents(ids)
+                    override fun insertIfMissing(item: GeneratedLesson, ignoredOldIds: Set<Long>): CalendarInsertResult {
+                        val startMillis = item.date.atTime(item.slot.start).atZone(zoneId).toInstant().toEpochMilli()
+                        val endMillis = item.date.atTime(item.slot.end).atZone(zoneId).toInstant().toEpochMilli()
+                        val title = "${item.subject} (${item.slot.label})"
+                        val alreadyExists = if (item.extraLessonId == null) eventExists(calendarId!!, title, startMillis, endMillis, ignoredOldIds)
+                            else extraEventExists(calendarId!!, item, title, startMillis, endMillis, ignoredOldIds)
+                        if (alreadyExists) return CalendarInsertResult.AlreadyExists
+                        val values = ContentValues().apply {
+                            put(CalendarContract.Events.CALENDAR_ID, calendarId)
+                            put(CalendarContract.Events.TITLE, title)
+                            item.location?.let { put(CalendarContract.Events.EVENT_LOCATION, it) }
+                            put(CalendarContract.Events.DESCRIPTION, "$AUTO_SYNC_MARKER\nNITTC Scheduler\n担当: ${item.teacher}")
+                            put(CalendarContract.Events.DTSTART, startMillis)
+                            put(CalendarContract.Events.DTEND, endMillis)
+                            put(CalendarContract.Events.EVENT_TIMEZONE, zoneId.id)
+                            put(CalendarContract.Events.CUSTOM_APP_PACKAGE, context.packageName)
+                            put(CalendarContract.Events.CUSTOM_APP_URI, autoSyncEventUri(item))
+                        }
+                        val uri = resolver.insert(CalendarContract.Events.CONTENT_URI, values)
+                            ?: throw IllegalStateException("Calendar provider did not insert event")
+                        val id = ContentUris.parseId(uri)
+                        require(id >= 0)
+                        return CalendarInsertResult.Inserted(id)
                     }
                 }
-
+                val result = replaceCalendarEvents(store, items)
+                if (result.failure != null) return ExportResult(0, lessons.size.coerceAtLeast(1), context.getString(
+                    if (result.failure == CalendarDeletionFailure.PERMISSION) R.string.msg_calendar_delete_permission_denied
+                    else R.string.msg_calendar_sync_failed))
                 ExportResult(
-                    addedCount = added,
-                    skippedCount = lessons.size - added,
-                    message = "授業をカレンダーに${added}件同期しました。"
+                    addedCount = result.inserted,
+                    skippedCount = lessons.size - result.inserted,
+                    message = "授業をカレンダーに${result.inserted}件同期しました。"
                 )
             } catch (_: SecurityException) {
                 ExportResult(0, lessons.size, "カレンダー権限が不足しています。")
-            } catch (e: Exception) {
-                ExportResult(0, lessons.size, "カレンダー同期に失敗しました: ${e.message ?: "unknown error"}")
+            } catch (_: Exception) {
+                ExportResult(0, lessons.size.coerceAtLeast(1), context.getString(R.string.msg_calendar_sync_failed))
             }
         }
     }
@@ -119,7 +122,9 @@ class CalendarExporter(private val context: Context) {
                     val startMillis = lesson.date.atTime(lesson.slot.start).atZone(zoneId).toInstant().toEpochMilli()
                     val endMillis = lesson.date.atTime(lesson.slot.end).atZone(zoneId).toInstant().toEpochMilli()
 
-                    if (eventExists(calendarId, title, startMillis, endMillis)) {
+                    val alreadyExists = if (lesson.extraLessonId == null) eventExists(calendarId, title, startMillis, endMillis)
+                        else extraEventExists(calendarId, lesson, title, startMillis, endMillis)
+                    if (alreadyExists) {
                         skipped++
                         continue
                     }
@@ -127,6 +132,7 @@ class CalendarExporter(private val context: Context) {
                     val values = ContentValues().apply {
                         put(CalendarContract.Events.CALENDAR_ID, calendarId)
                         put(CalendarContract.Events.TITLE, title)
+                        lesson.location?.let { put(CalendarContract.Events.EVENT_LOCATION, it) }
                         put(CalendarContract.Events.DESCRIPTION, "NITTC Scheduler\\n担当: ${lesson.teacher}")
                         put(CalendarContract.Events.DTSTART, startMillis)
                         put(CalendarContract.Events.DTEND, endMillis)
@@ -179,29 +185,44 @@ class CalendarExporter(private val context: Context) {
         return null
     }
 
-    private fun eventExists(calendarId: Long, title: String, startMillis: Long, endMillis: Long): Boolean {
+    private fun eventExists(calendarId: Long, title: String, startMillis: Long, endMillis: Long, ignoredIds: Set<Long> = emptySet()): Boolean {
         val projection = arrayOf(CalendarContract.Events._ID)
         val selection = activeCalendarEventSelection(
-            "${CalendarContract.Events.CALENDAR_ID} = ? AND ${CalendarContract.Events.TITLE} = ? AND ${CalendarContract.Events.DTSTART} = ? AND ${CalendarContract.Events.DTEND} = ?"
+            "${CalendarContract.Events.CALENDAR_ID} = ? AND ${CalendarContract.Events.TITLE} = ? AND ${CalendarContract.Events.DTSTART} = ? AND ${CalendarContract.Events.DTEND} = ? AND " +
+                "(${CalendarContract.Events.CUSTOM_APP_PACKAGE} IS NULL OR ${CalendarContract.Events.CUSTOM_APP_PACKAGE} != ? OR " +
+                "${CalendarContract.Events.CUSTOM_APP_URI} IS NULL OR ${CalendarContract.Events.CUSTOM_APP_URI} NOT LIKE ?)"
         )
         val args = arrayOf(
             calendarId.toString(),
             title,
             startMillis.toString(),
-            endMillis.toString()
+            endMillis.toString(),
+            context.packageName,
+            "nittcsc://calendar/lesson/%/extra/%"
         )
 
-        context.contentResolver.query(
+        val cursor = context.contentResolver.query(
             CalendarContract.Events.CONTENT_URI,
             projection,
             selection,
             args,
             null
-        )?.use { cursor ->
-            return cursor.count > 0
-        }
+        ) ?: throw IllegalStateException("Calendar provider returned no cursor")
+        return cursor.use { while (it.moveToNext()) if (it.getLong(0) !in ignoredIds) return@use true; false }
+    }
 
-        return false
+    private fun extraEventExists(calendarId: Long, lesson: GeneratedLesson, title: String, startMillis: Long, endMillis: Long,
+        ignoredIds: Set<Long> = emptySet()): Boolean {
+        val selection = activeCalendarEventSelection(
+            "${CalendarContract.Events.CALENDAR_ID} = ? AND ${CalendarContract.Events.TITLE} = ? AND " +
+                "${CalendarContract.Events.DTSTART} = ? AND ${CalendarContract.Events.DTEND} = ? AND " +
+                "${CalendarContract.Events.CUSTOM_APP_PACKAGE} = ? AND ${CalendarContract.Events.CUSTOM_APP_URI} IN (?, ?)"
+        )
+        val args = arrayOf(calendarId.toString(), title, startMillis.toString(), endMillis.toString(), context.packageName,
+            autoSyncEventUri(lesson), manualLessonEventUri(lesson))
+        val cursor = context.contentResolver.query(CalendarContract.Events.CONTENT_URI, arrayOf(CalendarContract.Events._ID),
+            selection, args, null) ?: throw IllegalStateException("Calendar provider returned no cursor")
+        return cursor.use { while (it.moveToNext()) if (it.getLong(0) !in ignoredIds) return@use true; false }
     }
 
     private fun countEvents(selection: String, selectionArgs: Array<String>): Int {
@@ -243,11 +264,13 @@ class CalendarExporter(private val context: Context) {
         )
 
         private fun autoSyncEventUri(lesson: GeneratedLesson): String {
-            return "$AUTO_SYNC_URI_PREFIX${lesson.date}/${lesson.slot.index}"
+            return "$AUTO_SYNC_URI_PREFIX${lesson.date}/${lesson.slot.index}" +
+                (lesson.extraLessonId?.let { "/extra/${Uri.encode(it)}" } ?: "")
         }
 
         private fun manualLessonEventUri(lesson: GeneratedLesson): String {
-            return "$MANUAL_LESSON_URI_PREFIX${lesson.date}/${lesson.slot.index}"
+            return "$MANUAL_LESSON_URI_PREFIX${lesson.date}/${lesson.slot.index}" +
+                (lesson.extraLessonId?.let { "/extra/${Uri.encode(it)}" } ?: "")
         }
     }
 }

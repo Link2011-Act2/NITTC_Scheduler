@@ -27,6 +27,7 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val transferOpen = kotlinx.coroutines.flow.MutableStateFlow(0L)
+    private val resumeRequests = kotlinx.coroutines.flow.MutableStateFlow(0L)
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -51,7 +52,8 @@ class MainActivity : ComponentActivity() {
             val uiDesignMode by viewModel.uiDesignMode.collectAsStateWithLifecycle()
             AppTheme(uiDesignMode = uiDesignMode) {
                 val request by transferOpen.collectAsStateWithLifecycle()
-                NittcSchedulerApp(viewModel = viewModel, openTransferRequest = request)
+                val resumed by resumeRequests.collectAsStateWithLifecycle()
+                NittcSchedulerApp(viewModel = viewModel, openTransferRequest = request, resumeRequest = resumed)
             }
         }
         // WorkManager による定期ウィジェット更新をスケジュール
@@ -70,6 +72,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        resumeRequests.value++
         viewModel.checkForAppUpdates()
         // 年度切替を先に反映してから、ウィジェットと同期を更新する
         lifecycleScope.launch {

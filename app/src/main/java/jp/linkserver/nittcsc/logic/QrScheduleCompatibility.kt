@@ -4,6 +4,7 @@ import jp.linkserver.nittcsc.data.DayTypeEntity
 import jp.linkserver.nittcsc.data.LessonEntity
 import jp.linkserver.nittcsc.data.PlanEntity
 import jp.linkserver.nittcsc.data.QrLessonReference
+import jp.linkserver.nittcsc.data.QrExtraLessonReference
 import jp.linkserver.nittcsc.data.QrSharedItem
 import jp.linkserver.nittcsc.data.QrSharePayload
 import jp.linkserver.nittcsc.data.QrShareSection
@@ -35,7 +36,8 @@ internal data class QrResolvedShareItems(
 
 /** 重複を除いた追加項目だけを解決する。復元できない参照は外し、課題・予定の内容は保持する。 */
 internal fun qrResolveSharedItems(
-    tasks: List<QrSharedItem>, plans: List<QrSharedItem>, lessons: Map<LessonKey, LessonEntity>
+    tasks: List<QrSharedItem>, plans: List<QrSharedItem>, lessons: Map<LessonKey, LessonEntity>,
+    extras: Map<String, QrExtraLessonReference> = emptyMap()
 ): QrResolvedShareItems {
     var unlinkedItems = 0
     fun resolve(item: QrSharedItem): Long? {
@@ -43,8 +45,17 @@ internal fun qrResolveSharedItems(
         if (item.lessonReference != null && id == null) unlinkedItems++
         return id
     }
-    val resolvedTasks = tasks.map { it.asTask().copy(lessonId = resolve(it)) }
-    val resolvedPlans = plans.map { it.asPlan().copy(lessonId = resolve(it)) }
+    fun resolveExtra(item: QrSharedItem): String? {
+        val reference = item.extraLessonReference ?: return null
+        return qrResolveExtraLessonId(reference, extras) ?: run {
+            unlinkedItems++
+            // Keep an unresolved marker so subject matching cannot silently select an unrelated lesson.
+            val marker = "qr-unresolved-${reference.signature}"
+            if (marker in extras) "qr-unresolved-${java.util.UUID.randomUUID()}" else marker
+        }
+    }
+    val resolvedTasks = tasks.map { it.asTask().copy(lessonId = resolve(it), extraLessonId = resolveExtra(it)) }
+    val resolvedPlans = plans.map { it.asPlan().copy(lessonId = resolve(it), extraLessonId = resolveExtra(it)) }
     return QrResolvedShareItems(resolvedTasks, resolvedPlans, unlinkedItems)
 }
 

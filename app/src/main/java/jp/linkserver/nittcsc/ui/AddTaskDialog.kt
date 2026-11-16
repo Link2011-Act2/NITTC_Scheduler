@@ -143,6 +143,7 @@ fun AddTaskDialog(
     }
 
     LaunchedEffect(subject.trim(), subjectTeacherCandidates) {
+        if (task?.extraLessonId != null && subject.trim() == task.subject.trim()) return@LaunchedEffect
         if (subject.trim().equals(autoFilledSubject, ignoreCase = true) &&
             subjectTeacherCandidates.keys.none { it.equals(subject.trim(), ignoreCase = true) }
         ) return@LaunchedEffect
@@ -350,6 +351,7 @@ fun AddTaskDialog(
                         val newTask = TaskEntity(
                             id = task?.id ?: 0,
                             lessonId = task?.lessonId,
+                extraLessonId = task?.extraLessonId?.takeIf { subject.trim() == task.subject.trim() && teacher.trim() == task.teacher.orEmpty().trim() },
                             subject = subject.trim(),
                             teacher = teacher.trim().takeIf { it.isNotEmpty() },
                             title = title.trim(),

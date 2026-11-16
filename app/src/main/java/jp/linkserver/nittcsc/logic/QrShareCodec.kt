@@ -13,7 +13,7 @@ class QrShareException(val failure: QrShareFailure) : IllegalArgumentException(f
 
 /** 同期プロトコルとは独立した、一方向のQR転送形式。 */
 object QrShareCodec {
-    const val VERSION = 3
+    const val VERSION = 4
     const val LEGACY_VERSION = 1
     const val MIN_CHUNK_BYTES = 100
     const val SCREEN_CHUNK_BYTES = 200
@@ -24,7 +24,7 @@ object QrShareCodec {
     const val MAX_JSON_BYTES = 512 * 1024
     private const val PREFIX = "SKTTP/QR"
 
-    data class Transfer(val compressed: ByteArray, val id: String, val digest: String) {
+    data class Transfer(val compressed: ByteArray, val id: String, val digest: String, val version: Int = VERSION) {
         /** 画像・GIF用。カメラに見せる画面はcameraFrames()を使う。 */
         fun frames(chunkBytes: Int = GIF_CHUNK_BYTES): List<String> {
             require(chunkBytes in MIN_CHUNK_BYTES..IMAGE_CHUNK_BYTES)
@@ -32,7 +32,7 @@ object QrShareCodec {
             if (count !in 1..MAX_PARTS) throw QrShareException(QrShareFailure.TOO_LARGE)
             return (0 until count).map { index ->
                 val bytes = compressed.copyOfRange(index * chunkBytes, minOf((index + 1) * chunkBytes, compressed.size))
-                "$PREFIX:$VERSION:$id:$digest:$count:$index:${Base64.getEncoder().encodeToString(bytes)}"
+                "$PREFIX:$version:$id:$digest:$count:$index:${Base64.getEncoder().encodeToString(bytes)}"
             }
         }
 
@@ -44,7 +44,8 @@ object QrShareCodec {
         }
     }
 
-    fun create(json: String): Transfer {
+    fun create(json: String, version: Int = VERSION): Transfer {
+        require(version in LEGACY_VERSION..VERSION)
         val bytes = json.toByteArray(Charsets.UTF_8)
         if (bytes.size > MAX_JSON_BYTES) throw QrShareException(QrShareFailure.TOO_LARGE)
         val compressed = ByteArrayOutputStream().also { out ->
@@ -53,7 +54,7 @@ object QrShareCodec {
         if (compressed.size > MAX_COMPRESSED_BYTES) {
             throw QrShareException(QrShareFailure.TOO_LARGE)
         }
-        return Transfer(compressed, UUID.randomUUID().toString().replace("-", ""), hash(compressed))
+        return Transfer(compressed, UUID.randomUUID().toString().replace("-", ""), hash(compressed), version)
     }
 
     internal fun hash(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")

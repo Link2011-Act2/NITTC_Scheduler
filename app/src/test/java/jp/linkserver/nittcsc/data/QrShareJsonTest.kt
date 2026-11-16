@@ -128,6 +128,23 @@ class QrShareJsonTest {
         invalid(invalidHash)
     }
 
+    @Test fun versionFourRoundTripsExtraReferencesAndRejectsInvalidOrConflictingReferences() {
+        val extra = QrExtraLessonReference(2026, "S", "1-1", "source-1", "a".repeat(64))
+        val item = payload().tasks.single().copy(extraLessonReference = extra)
+        val data = payload().copy(formatVersion = 4, sections = setOf(QrShareSection.TASKS, QrShareSection.PLANS),
+            tasks = listOf(item), plans = listOf(item))
+        val json = QrShareJson.encode(data)
+        assertEquals(extra, QrShareJson.decode(json).tasks.single().extraLessonReference)
+        assertEquals(extra, QrShareJson.decode(json).plans.single().extraLessonReference)
+        val bad = JSONObject(json)
+        bad.getJSONArray("tasks").getJSONArray(0).getJSONArray(13).put(4, "bad")
+        invalid(bad)
+        val mixed = JSONObject(json)
+        mixed.getJSONArray("tasks").getJSONArray(0).put(12, org.json.JSONArray(listOf(2026, "FIRST", 1, 0, "a".repeat(64))))
+        invalid(mixed)
+        assertTrue(runCatching { QrShareJson.encode(data.copy(formatVersion = 3)) }.isFailure)
+    }
+
     private fun examPayload() = payload().copy(
         sections = setOf(QrShareSection.EXAMS),
         examDays = listOf(DayTypeEntity(date, DayType.HOLIDAY, holidaySpecialLabel = HolidaySpecialLabel.MIDTERM)),

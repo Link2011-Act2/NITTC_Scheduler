@@ -10,6 +10,54 @@ import java.time.LocalDate
 @Dao
 interface SchedulerDao {
 
+    @Query("SELECT * FROM nittc_year_transitions ORDER BY academicYear")
+    fun observeNittcYearTransitions(): Flow<List<NittcYearTransitionEntity>>
+
+    @Query("SELECT * FROM nittc_year_transitions ORDER BY academicYear")
+    suspend fun getNittcYearTransitions(): List<NittcYearTransitionEntity>
+
+    @Query("SELECT * FROM nittc_year_transitions WHERE academicYear = :year LIMIT 1")
+    suspend fun getNittcYearTransition(year: Int): NittcYearTransitionEntity?
+
+    @Upsert
+    suspend fun upsertNittcYearTransitions(items: List<NittcYearTransitionEntity>)
+
+    @Query("DELETE FROM nittc_year_transitions WHERE academicYear = :year")
+    suspend fun deleteNittcYearTransition(year: Int)
+
+    @Query("DELETE FROM nittc_year_transitions")
+    suspend fun deleteAllNittcYearTransitions()
+
+    @Query("SELECT * FROM sktjf_extra_lessons ORDER BY academicYear, term, classId, id")
+    suspend fun getSktjfExtraLessons(): List<SktjfExtraLessonEntity>
+
+    @Query("SELECT * FROM sktjf_extra_lessons WHERE id = :id LIMIT 1")
+    suspend fun getSktjfExtraLesson(id: String): SktjfExtraLessonEntity?
+
+    @Query("SELECT * FROM sktjf_extra_lessons ORDER BY academicYear, term, classId, id")
+    fun observeSktjfExtraLessons(): Flow<List<SktjfExtraLessonEntity>>
+
+    @Upsert
+    suspend fun upsertSktjfExtraLessons(lessons: List<SktjfExtraLessonEntity>)
+
+    @Query("DELETE FROM sktjf_extra_lessons")
+    suspend fun deleteAllSktjfExtraLessons()
+
+    @Query("DELETE FROM sktjf_extra_lessons WHERE academicYear = :year AND term = :term")
+    suspend fun deleteSktjfExtraLessonsForPartition(year: Int, term: String)
+
+    @Query("SELECT * FROM sktjf_source_state ORDER BY academicYear, term, classId")
+    suspend fun getSktjfSourceStates(): List<SktjfSourceStateEntity>
+
+    @Upsert
+    suspend fun upsertSktjfSourceStates(states: List<SktjfSourceStateEntity>)
+
+    @Query("DELETE FROM sktjf_source_state")
+    suspend fun deleteAllSktjfSourceStates()
+
+    @Query("UPDATE sktjf_source_state SET requiresRelinking = 1")
+    suspend fun requireSktjfRelinking()
+
     @Query("SELECT * FROM usage_mode WHERE id = 1")
     fun observeUsageMode(): Flow<UsageModeEntity?>
 

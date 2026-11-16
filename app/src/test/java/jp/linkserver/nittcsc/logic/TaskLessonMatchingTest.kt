@@ -43,6 +43,13 @@ class TaskLessonMatchingTest {
         assertTrue(taskMatchesLesson(task, ResolvedLesson("補講", "山田", "3-A")))
     }
 
+    @Test
+    fun explicitlyLinkedExtraDoesNotMatchOrdinaryLessonByName() {
+        val linked = task(subject = "数学").copy(extraLessonId = "extra-1")
+        assertFalse(taskMatchesLesson(linked, ResolvedLesson("数学", "先生")))
+        assertTrue(taskMatchesLesson(linked.copy(extraLessonId = null), ResolvedLesson("数学", "先生")))
+    }
+
     private fun task(
         subject: String,
         teacher: String? = null,

@@ -35,6 +35,28 @@ class SktjfDistributionClientTest {
         assertEquals(2, seen.size)
     }
 
+    @Test fun productionRepositoryIsUsedForDiscoveryAndVerifiedAssets() = runBlocking {
+        assertEquals("Link2011-Act2/NITTC_Timetable", SKTJF_DISTRIBUTION_REPOSITORY)
+        val productionManifest = manifest.toString(Charsets.UTF_8)
+            .replace("example/SKTJF", SKTJF_DISTRIBUTION_REPOSITORY).toByteArray()
+        val urls = mutableListOf<String>()
+        val client = SktjfDistributionClient(SKTJF_DISTRIBUTION_REPOSITORY,
+            OkHttpClient.Builder().addInterceptor { chain ->
+                val url = chain.request().url.toString(); urls += url
+                when {
+                    url.startsWith("https://api.github.com/") -> response(chain, 200,
+                        """[{"tag_name":"2026.S.0","draft":false,"prerelease":false,"published_at":"2026-04-01T00:00:00Z"}]""".toByteArray())
+                    url.endsWith("manifest.json") -> response(chain, 200, productionManifest)
+                    else -> response(chain, 200, document)
+                }
+            }.build())
+        assertEquals(SktjfDiscoveryResult.Found("2026.S.0"), client.discover(2026, "S"))
+        assertTrue(client.fetch("2026.S.0", "1-1") is SktjfFetchResult.Success)
+        assertTrue(urls[0].startsWith("https://api.github.com/repos/Link2011-Act2/NITTC_Timetable/releases?"))
+        assertTrue(urls.drop(1).all { it.startsWith("https://github.com/Link2011-Act2/NITTC_Timetable/releases/download/2026.S.0/") })
+        assertTrue(runCatching { SktjfJson.manifest(manifest, SKTJF_DISTRIBUTION_REPOSITORY) }.isFailure)
+    }
+
     @Test fun rejectsChangedBytesAndUnexpectedVersions() = runBlocking {
         val corrupt = client { chain -> response(chain, 200, if (chain.request().url.encodedPath.endsWith("manifest.json")) manifest else document + byteArrayOf(32)) }
         assertEquals(SktjfFetchResult.InvalidData, corrupt.fetch("2026.S.0", "1-1"))
@@ -78,5 +100,38 @@ class SktjfDistributionClientTest {
         assertEquals(1, calls)
         val invalidUtf8 = client { response(it, 200, byteArrayOf(0xc3.toByte(), 0x28)) }
         assertEquals(SktjfFetchResult.InvalidData, invalidUtf8.fetch("2026.S.0", "1-1"))
+    }
+
+    @Test fun discoversHighestPublishedRevisionAcrossPages() = runBlocking {
+        fun release(tag: String, draft: Boolean = false, prerelease: Boolean = false) =
+            """{"tag_name":"$tag","draft":$draft,"prerelease":$prerelease,"published_at":"2026-04-01T00:00:00Z"}"""
+        val first = (listOf(release("2026.S.9"), release("2026.S.99", prerelease = true)) +
+            (1..28).map { release("unrelated-$it") }).joinToString(",", "[", "]")
+        val second = listOf(release("2026.S.12"), release("2026.F.999"), release("2026.S.100", draft = true))
+            .joinToString(",", "[", "]")
+        val urls = mutableListOf<String>()
+        val client = client { chain ->
+            urls += chain.request().url.toString()
+            response(chain, 200, (if (chain.request().url.queryParameter("page") == "1") first else second).toByteArray())
+        }
+        assertEquals(SktjfDiscoveryResult.Found("2026.S.12"), client.discover(2026, "S"))
+        assertEquals(2, urls.size)
+        assertTrue(urls.first().startsWith("https://api.github.com/repos/example/SKTJF/releases?"))
+    }
+
+    @Test fun verifiesManifestBeforeAdvertisingUnassignedYear() = runBlocking {
+        val valid = client { chain -> response(chain, 200, manifest) }
+        assertEquals("2026.S.0", valid.verifiedManifest("2026.S.0")?.revision)
+        assertNull(valid.verifiedManifest("2026.S.1"))
+        assertNull(client { response(it, 404) }.verifiedManifest("2026.S.0"))
+    }
+
+    @Test fun discoveryDistinguishesUnpublishedOfflineRateLimitAndInvalidPayload() = runBlocking {
+        assertEquals(SktjfDiscoveryResult.NotPublished, client { response(it, 200, "[]".toByteArray()) }.discover(2026, "S"))
+        assertEquals(SktjfDiscoveryResult.HttpFailure(404), client { response(it, 404) }.discover(2026, "S"))
+        assertEquals(SktjfDiscoveryResult.RateLimited, client { response(it, 429) }.discover(2026, "S"))
+        assertEquals(SktjfDiscoveryResult.NetworkFailure, client { throw IOException("offline") }.discover(2026, "S"))
+        assertEquals(SktjfDiscoveryResult.InvalidData, client { response(it, 200, "[{\"tag_name\":\"2026.S.0\"}]".toByteArray()) }.discover(2026, "S"))
+        assertEquals(SktjfDiscoveryResult.InvalidData, client { response(it, 200, "[]".toByteArray()) }.discover(2026, "X"))
     }
 }

@@ -79,6 +79,9 @@ import androidx.lifecycle.LifecycleEventObserver
 import jp.linkserver.nittcsc.data.LessonNotificationExclusionEntity
 import jp.linkserver.nittcsc.data.LessonStartNotificationChipMode
 import jp.linkserver.nittcsc.data.LongBreakEntity
+import jp.linkserver.nittcsc.data.NittcProfileEntity
+import jp.linkserver.nittcsc.data.SchedulerUsageMode
+import jp.linkserver.nittcsc.data.UsageModeEntity
 import jp.linkserver.nittcsc.data.UiDesignMode
 import jp.linkserver.nittcsc.logic.PeriodLabelStyle
 import jp.linkserver.nittcsc.update.clearDismissedUpdateNotification
@@ -117,6 +120,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onAbout: () -> Unit,
     onOpenLocalSync: () -> Unit = {},
+    onOpenSktjfImport: () -> Unit = {},
     onToggleLocalAi: (Boolean) -> Unit,
     onToggleNaturalLanguageTaskAdd: (Boolean) -> Unit = {},
     onToggleDrawerNavigation: (Boolean) -> Unit,
@@ -154,14 +158,20 @@ fun SettingsScreen(
     onUpdateScheduleSettings: (periodsPerDay: Int, periodDurationMin: Int, breakBetweenPeriodsMin: Int, lunchBreakMin: Int, lunchAfterPeriod: Int, startHour: Int, startMinute: Int, periodLabelStyle: PeriodLabelStyle, arrivalHour: Int, arrivalMinute: Int, departureHour: Int, departureMinute: Int) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _ -> },
     onUpdateExamTimetableSettings: (periodsPerDay: Int, periodDurationMin: Int, breakBetweenPeriodsMin: Int, lunchBreakMin: Int, lunchAfterPeriod: Int, startHour: Int, startMinute: Int, arrivalHour: Int, arrivalMinute: Int) -> Unit = { _, _, _, _, _, _, _, _, _ -> },
     onExportAllAsJson: suspend () -> String = { "{}" },
-    onImportAllFromJson: (String) -> Unit = {}
+    onImportAllFromJson: (String) -> Unit = {},
+    onSaveNittcConfiguration: suspend (UsageModeEntity?, NittcProfileEntity?, SchedulerUsageMode, NittcProfileEntity?) -> Boolean = { _, _, _, _ -> false }
 ) {
+    var showNittcConfiguration by remember { mutableStateOf(false) }
+    if (showNittcConfiguration) NittcConfigurationDialog(state.usageMode, state.nittcProfiles,
+        state.settings?.activeAcademicYear ?: 0, onSaveNittcConfiguration, { showNittcConfiguration = false })
     if (LocalUiDesignMode.current == UiDesignMode.MATERIAL_3) {
         LegacySettingsScreen(
             state = state,
             onBack = onBack,
             onAbout = onAbout,
             onOpenLocalSync = onOpenLocalSync,
+            onOpenNittcSettings = { showNittcConfiguration = true },
+            onOpenSktjfImport = onOpenSktjfImport,
             onToggleLocalAi = onToggleLocalAi,
             onToggleNaturalLanguageTaskAdd = onToggleNaturalLanguageTaskAdd,
             onToggleDrawerNavigation = onToggleDrawerNavigation,
@@ -646,6 +656,14 @@ fun SettingsScreen(
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             AppSettingsCategory(title = stringResource(R.string.section_timetable_settings))
             AppSettingsGroup {
+                item("nittc-configuration") {
+                    SettingsNavigationCard(title = stringResource(R.string.nittc_settings_title),
+                        description = stringResource(R.string.nittc_settings_description), onClick = { showNittcConfiguration = true })
+                }
+                if (state.usageMode?.mode == SchedulerUsageMode.NITTC.name) item("sktjf-import") {
+                    SettingsNavigationCard(title = stringResource(R.string.sktjf_import_title),
+                        description = stringResource(R.string.sktjf_import_description), onClick = onOpenSktjfImport)
+                }
                 item("lesson-timetable-settings") {
                     SettingsNavigationCard(
                         title = stringResource(R.string.settings_timetable_time_editor_title),
