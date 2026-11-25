@@ -2,25 +2,24 @@ package jp.linkserver.nittcsc.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.NittcProfileEntity
 import jp.linkserver.nittcsc.data.SchedulerUsageMode
 import jp.linkserver.nittcsc.data.UsageModeEntity
+import jp.linkserver.nittcsc.data.attributes
 import jp.linkserver.nittcsc.logic.academicYearForDate
 import jp.linkserver.nittcsc.sktjf.*
 import kotlinx.coroutines.CancellationException
@@ -28,6 +27,35 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
+
+internal fun initialSktjfLessonChoices(value: SktjfApplyPreview, automaticUpdate: Boolean): Map<String, SktjfConflictChoice> {
+    val previousState = value.snapshot.sourceStates.singleOrNull {
+        it.academicYear == value.document.academicYear && it.term == value.document.term && it.classId == value.document.classId
+    }
+    val previousSourceIds = previousState?.let {
+        runCatching { SktjfBaselineCodec.decode(it.baselineJson).lessons.lessons.keys }.getOrNull()
+    }.orEmpty()
+    val previousLinks = previousState?.let { runCatching { SktjfSourceLinks.decode(it.linksJson) }.getOrNull() }.orEmpty()
+    val choices = value.lessonConflicts.associate { conflict ->
+        val unlinkedManualAtSlot = conflict.reason == SktjfConflictReason.OVERLAPPING_LOCAL &&
+            conflict.overlappingLocal.any { it.sourceLessonId == null } &&
+            previousLinks.none { it.day == conflict.incoming.dayOfWeek && it.period == conflict.incoming.period }
+        val protectManualAddition = previousState != null &&
+            ((conflict.previous == null && conflict.sourceLessonId !in previousSourceIds) || unlinkedManualAtSlot)
+        conflict.sourceLessonId to if (!automaticUpdate && !protectManualAddition)
+            SktjfConflictChoice.APPLY_INCOMING else SktjfConflictChoice.KEEP_LOCAL
+    }.toMutableMap()
+    val slots = value.lessonReview.filter { it.sourceLessonId != null && it.status != SktjfLessonReviewStatus.UNCHANGED }
+        .groupBy { it.day to it.period }
+    for (items in slots.values) {
+        val ids = items.mapNotNull { it.sourceLessonId }
+        val choice = if ((automaticUpdate && previousState?.requiresRelinking == true) ||
+            ids.any { choices[it] == SktjfConflictChoice.KEEP_LOCAL })
+            SktjfConflictChoice.KEEP_LOCAL else SktjfConflictChoice.APPLY_INCOMING
+        ids.forEach { choices[it] = choice }
+    }
+    return choices
+}
 
 @Composable
 internal fun SktjfImportDialog(
@@ -37,135 +65,221 @@ internal fun SktjfImportDialog(
     preview: suspend (SktjfDocument) -> SktjfPreviewResult,
     apply: suspend (SktjfApplyPreview, Map<String, SktjfConflictChoice>, Map<LocalDate, SktjfConflictChoice>) -> SktjfApplyResult,
     onApplied: () -> Unit, onDismiss: () -> Unit,
-    initialPreview: SktjfApplyPreview? = null
+    initialPreview: SktjfApplyPreview? = null,
+    automaticUpdate: Boolean = false,
+    initialDocument: SktjfDocument? = null,
+    previewTimed: suspend (SktjfV2Candidate) -> SktjfV2ApplyPreview? = { null },
+    initialTimed: SktjfV2Candidate? = null,
 ) {
     var yearText by remember { mutableStateOf((initialPreview?.document?.academicYear ?: defaultYear.takeIf { it in 1900..9998 }
         ?: academicYearForDate(LocalDate.now())).toString()) }
     var term by remember { mutableStateOf(initialPreview?.document?.term ?: "S") }
     var pending by remember { mutableStateOf(false) }
     var applying by remember { mutableStateOf(false) }
+    var progress by remember { mutableIntStateOf(0) }
     var error by remember { mutableIntStateOf(0) }
     var prepared by remember { mutableStateOf(initialPreview) }
-    val lessonChoices = remember { mutableStateMapOf<String, SktjfConflictChoice>() }
+    var courseSelection by remember { mutableStateOf<SktjfCourseSelection?>(null) }
+    var timedCourseSelection by remember { mutableStateOf<SktjfV2Candidate?>(null) }
+    val lessonChoices = remember { mutableStateMapOf<String, SktjfConflictChoice>().apply {
+        initialPreview?.let { putAll(initialSktjfLessonChoices(it, automaticUpdate)) }
+    } }
     val calendarChoices = remember { mutableStateMapOf<LocalDate, SktjfConflictChoice>() }
     val scope = rememberCoroutineScope()
-    val resources = LocalResources.current
     val context = LocalContext.current
+
+    suspend fun acceptPreview(value: SktjfApplyPreview) {
+        lessonChoices.clear(); lessonChoices.putAll(initialSktjfLessonChoices(value, automaticUpdate)); calendarChoices.clear()
+        if (value.hasExistingLessons()) {
+            prepared = value
+            return
+        }
+        applying = true
+        progress = R.string.sktjf_progress_apply
+        try {
+            val lessons = value.lessonConflicts.associate { it.sourceLessonId to SktjfConflictChoice.KEEP_LOCAL }
+            val dates = value.calendarConflicts.associate { it.date to if (it.projection is SktjfCalendarProjection.Supported)
+                SktjfConflictChoice.APPLY_INCOMING else SktjfConflictChoice.KEEP_LOCAL }
+            when (apply(value, lessons, dates)) {
+                SktjfApplyResult.Applied -> { onApplied(); onDismiss() }
+                SktjfApplyResult.Stale -> error = R.string.sktjf_stale
+                SktjfApplyResult.Blocked -> error = R.string.sktjf_cannot_apply
+            }
+        } finally { applying = false }
+    }
+
+    suspend fun prepareDocument(document: SktjfDocument, localFile: Boolean) {
+        val target = profiles.singleOrNull { it.academicYear == document.academicYear && it.classId == document.classId }
+        if (target == null) { error = R.string.sktjf_cannot_apply; return }
+        val attributes = target.attributes()
+        val slots = sktjfProfileSlotOptions(document, attributes)
+        if (slots.isNotEmpty()) {
+            // Time-dependent switches are not personal course selections.
+            if (slots.any { slot -> slot.lessons.any { it.weekRange != null } }) {
+                error = R.string.sktjf_cannot_apply
+            } else courseSelection = SktjfCourseSelection(document, attributes, localFile, slots)
+            return
+        }
+        when (val result = preview(document)) {
+            is SktjfPreviewResult.Ready -> acceptPreview(result.preview.copy(localFile = localFile))
+            SktjfPreviewResult.Blocked -> error = R.string.sktjf_cannot_apply
+        }
+    }
+
+    suspend fun prepareTimed(candidate: SktjfV2Candidate, localFile: Boolean = false) {
+        val document = candidate.document
+        val target = profiles.singleOrNull { it.academicYear == document.academicYear && it.classId == document.classId }
+        if (target == null) { error = R.string.sktjf_cannot_apply; return }
+        val attributes = target.attributes()
+        val options = sktjfProfileSlotOptions(candidate.documentForMerge(), attributes)
+        val timedSlots = options.filter { slot -> candidate.series.any { group ->
+            group.dayOfWeek == slot.day && slot.period in group.periods &&
+                slot.lessons.all { it.id in group.lessonIds } && slot.lessons.any { it.id in candidate.ranges }
+        } }.map { it.day to it.period }.toSet()
+        val personal = options.filterNot { (it.day to it.period) in timedSlots }
+        if (personal.any { slot -> slot.lessons.any { it.id in candidate.ranges } }) {
+            error = R.string.sktjf_cannot_apply; return
+        }
+        if (personal.isNotEmpty()) {
+            timedCourseSelection = candidate
+            courseSelection = SktjfCourseSelection(document.copy(lessons = document.lessons.filterNot {
+                (it.dayOfWeek to it.period) in timedSlots
+            }), attributes, localFile, personal)
+            return
+        }
+        val timed = previewTimed(candidate)
+        if (timed == null) error = R.string.sktjf_cannot_apply else acceptPreview(timed.copy(localFile = localFile).forReview())
+    }
+
+    LaunchedEffect(initialDocument, initialTimed) {
+        if ((initialDocument != null || initialTimed != null) && initialPreview == null) {
+            pending = true; error = 0; progress = R.string.sktjf_progress_compare
+            try {
+                if (initialTimed != null) {
+                    prepareTimed(initialTimed)
+                } else if (initialDocument != null) prepareDocument(initialDocument, false)
+            }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { error = R.string.sktjf_cannot_apply }
+            finally { pending = false; progress = 0 }
+        }
+    }
+
     val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            pending = true; error = 0
+            pending = true; error = 0; progress = R.string.sktjf_progress_read
             scope.launch {
                 try {
-                    val document = withContext(Dispatchers.IO) {
-                        requireNotNull(context.contentResolver.openInputStream(uri)).use(SktjfJson::localDocument)
+                    val asset = withContext(Dispatchers.IO) {
+                        requireNotNull(context.contentResolver.openInputStream(uri)).use(SktjfJson::localAsset)
                     }
-                    when (val result = preview(document)) {
-                        is SktjfPreviewResult.Ready -> { lessonChoices.clear(); calendarChoices.clear(); prepared = result.preview.copy(localFile = true) }
-                        SktjfPreviewResult.Blocked -> error = R.string.sktjf_cannot_apply
+                    progress = R.string.sktjf_progress_compare
+                    when (asset) {
+                        is SktjfCandidateAsset.V1 -> prepareDocument(asset.document, true)
+                        is SktjfCandidateAsset.V2 -> prepareTimed(asset.candidate, true)
                     }
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (_: Exception) { error = R.string.sktjf_file_read_failed }
-                finally { pending = false }
+                finally { pending = false; progress = 0 }
             }
         }
     }
     val year = yearText.toIntOrNull()?.takeIf { it in 1900..9998 }
-    val profile = profiles.singleOrNull { it.academicYear == year }
+    val profile = profiles.singleOrNull { it.academicYear == year && jp.linkserver.nittcsc.sktjf.isSktjfUndergraduateClass(it.classId) }
     val canFetch = !pending && year != null && mode?.mode == SchedulerUsageMode.NITTC.name && profile != null
+    val choosing = courseSelection
+    if (choosing != null) {
+        SktjfCourseSelectionDialog(choosing, onConfirm = { selected ->
+            courseSelection = null
+            val timedCandidate = timedCourseSelection
+            timedCourseSelection = null
+            pending = true; error = 0; progress = R.string.sktjf_progress_compare
+            scope.launch {
+                try {
+                    if (timedCandidate == null) prepareDocument(selected, choosing.localFile)
+                    else {
+                        val removedSlots = timedCandidate.document.lessons.map { it.dayOfWeek to it.period }.toSet() -
+                            choosing.document.lessons.map { it.dayOfWeek to it.period }.toSet()
+                        val lessons = selected.lessons + timedCandidate.document.lessons.filter { (it.dayOfWeek to it.period) in removedSlots }
+                        val ids = lessons.map { it.id }.toSet()
+                        prepareTimed(timedCandidate.copy(document = timedCandidate.document.copy(lessons = lessons),
+                            ranges = timedCandidate.ranges.filterKeys { it in ids },
+                            series = timedCandidate.series.mapNotNull { group ->
+                                val members = group.lessonIds.intersect(ids)
+                                if (members.isEmpty()) null else group.copy(lessonIds = members)
+                            }), choosing.localFile)
+                    }
+                }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { error = R.string.sktjf_cannot_apply }
+                finally { pending = false; progress = 0 }
+            }
+        }, onCancel = { courseSelection = null; timedCourseSelection = null })
+        return
+    }
     val current = prepared
-    val canApply = !pending && current != null &&
-        lessonChoices.keys.toSet() == current.lessonConflicts.map { it.sourceLessonId }.toSet() &&
-        calendarChoices.keys.toSet() == current.calendarConflicts.map { it.date }.toSet()
+    if (current != null) {
+        SktjfMergeScreen(current, lessonChoices, calendarChoices, pending, progress, error, onApply = {
+            pending = true; applying = true; error = 0; progress = R.string.sktjf_progress_apply
+            scope.launch {
+                try {
+                    val lessons = current.lessonConflicts.associate { it.sourceLessonId to SktjfConflictChoice.KEEP_LOCAL } + lessonChoices.toMap()
+                    val dates = current.calendarConflicts.associate { it.date to SktjfConflictChoice.KEEP_LOCAL } + calendarChoices.toMap()
+                    when (apply(current, lessons, dates)) {
+                        SktjfApplyResult.Applied -> { onApplied(); onDismiss() }
+                        SktjfApplyResult.Stale -> { prepared = null; error = R.string.sktjf_stale }
+                        SktjfApplyResult.Blocked -> error = R.string.sktjf_cannot_apply
+                    }
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { error = R.string.sktjf_cannot_apply }
+                finally { pending = false; applying = false; progress = 0 }
+            }
+        }, onDismiss = { if (!applying) onDismiss() })
+        return
+    }
     AlertDialog(
         onDismissRequest = { if (!applying) onDismiss() },
         title = { Text(stringResource(R.string.sktjf_import_title)) },
         text = {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (current == null) {
-                    OutlinedTextField(yearText, { yearText = it.filter(Char::isDigit).take(4); error = 0 },
-                        label = { Text(stringResource(R.string.nittc_academic_year)) }, singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), enabled = !pending,
-                        modifier = Modifier.fillMaxWidth())
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("S" to R.string.sktjf_first_term, "F" to R.string.sktjf_second_term).forEach { (value, label) ->
-                            FilterChip(selected = term == value, onClick = { term = value; error = 0 }, enabled = !pending,
-                                label = { Text(stringResource(label)) })
-                        }
-                    }
-                    if (mode?.mode != SchedulerUsageMode.NITTC.name || profile == null)
-                        Text(stringResource(R.string.sktjf_profile_required))
-                    else Text(stringResource(R.string.sktjf_profile_value, profile.classId))
-                    TextButton(enabled = !pending && mode?.mode == SchedulerUsageMode.NITTC.name && profiles.isNotEmpty(),
-                        onClick = { fileLauncher.launch(arrayOf("application/json", "application/octet-stream")) }) {
-                        Text(stringResource(R.string.sktjf_open_file))
-                    }
-                } else {
-                    Text(stringResource(R.string.sktjf_preview_heading, current.document.revision, current.document.classId))
-                    if (current.lessonConflicts.isEmpty() && current.calendarConflicts.isEmpty())
-                        Text(stringResource(R.string.sktjf_apply_question))
-                    if (current.lessonConflicts.isNotEmpty() || current.calendarConflicts.isNotEmpty()) {
-                        Text(stringResource(R.string.sktjf_conflicts_heading), style = MaterialTheme.typography.titleSmall)
-                        TextButton(enabled = !pending, onClick = {
-                            current.lessonConflicts.forEach { lessonChoices[it.sourceLessonId] = SktjfConflictChoice.KEEP_LOCAL }
-                            current.calendarConflicts.forEach { calendarChoices[it.date] = SktjfConflictChoice.KEEP_LOCAL }
-                        }) { Text(stringResource(R.string.sktjf_keep_all)) }
-                        TextButton(enabled = !pending, onClick = {
-                            current.lessonConflicts.forEach { lessonChoices[it.sourceLessonId] = SktjfConflictChoice.APPLY_INCOMING }
-                            current.calendarConflicts.forEach {
-                                calendarChoices[it.date] = if (it.projection is SktjfCalendarProjection.Supported)
-                                    SktjfConflictChoice.APPLY_INCOMING else SktjfConflictChoice.KEEP_LOCAL
-                            }
-                        }) { Text(stringResource(R.string.sktjf_apply_all)) }
-                        if (current.calendarConflicts.any { it.projection !is SktjfCalendarProjection.Supported })
-                            Text(stringResource(R.string.sktjf_unsupported_keep))
-                    }
-                    current.lessonConflicts.forEach { conflict ->
-                        HorizontalDivider()
-                        Text(stringResource(R.string.sktjf_lesson_slot, weekday(resources, conflict.incoming.dayOfWeek), conflict.incoming.period))
-                        val local = listOfNotNull(conflict.current?.content) + conflict.overlappingLocal.map { it.content }
-                        Text(stringResource(R.string.sktjf_current_value, local.joinToString("\n") { lessonDetails(resources, it) }.ifEmpty { resources.getString(R.string.sktjf_none) }))
-                        Text(stringResource(R.string.sktjf_incoming_value, if (conflict.isDeletion)
-                            stringResource(R.string.sktjf_none) else lessonDetails(resources, conflict.incoming)))
-                        Column(Modifier.selectableGroup()) {
-                            ChoiceRow(R.string.sktjf_keep_current, lessonChoices[conflict.sourceLessonId] == SktjfConflictChoice.KEEP_LOCAL, !pending) {
-                                lessonChoices[conflict.sourceLessonId] = SktjfConflictChoice.KEEP_LOCAL
-                            }
-                            ChoiceRow(R.string.sktjf_apply_incoming, lessonChoices[conflict.sourceLessonId] == SktjfConflictChoice.APPLY_INCOMING, !pending) {
-                                lessonChoices[conflict.sourceLessonId] = SktjfConflictChoice.APPLY_INCOMING
-                            }
-                        }
-                    }
-                    current.calendarConflicts.forEach { conflict ->
-                        HorizontalDivider()
-                        Text(conflict.date.toString())
-                        Text(stringResource(R.string.sktjf_current_value, calendarDetails(resources, conflict.current)))
-                        Text(stringResource(R.string.sktjf_incoming_value, calendarDetails(resources, conflict.incoming)))
-                        Column(Modifier.selectableGroup()) {
-                            ChoiceRow(R.string.sktjf_keep_current, calendarChoices[conflict.date] == SktjfConflictChoice.KEEP_LOCAL, !pending) {
-                                calendarChoices[conflict.date] = SktjfConflictChoice.KEEP_LOCAL
-                            }
-                            ChoiceRow(R.string.sktjf_apply_incoming, calendarChoices[conflict.date] == SktjfConflictChoice.APPLY_INCOMING,
-                                !pending && conflict.projection is SktjfCalendarProjection.Supported) {
-                                calendarChoices[conflict.date] = SktjfConflictChoice.APPLY_INCOMING
-                            }
-                        }
-                        if (conflict.projection !is SktjfCalendarProjection.Supported) Text(stringResource(R.string.sktjf_day_unsupported))
+                OutlinedTextField(yearText, { yearText = it.filter(Char::isDigit).take(4); error = 0 },
+                    label = { Text(stringResource(R.string.nittc_academic_year)) }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), enabled = !pending,
+                    modifier = Modifier.fillMaxWidth())
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("S" to R.string.sktjf_first_term, "F" to R.string.sktjf_second_term).forEach { (value, label) ->
+                        FilterChip(selected = term == value, onClick = { term = value; error = 0 }, enabled = !pending,
+                            label = { Text(stringResource(label)) })
                     }
                 }
-                if (pending) CircularProgressIndicator()
+                if (mode?.mode != SchedulerUsageMode.NITTC.name || profile == null)
+                    Text(stringResource(R.string.sktjf_profile_required))
+                else Text(stringResource(R.string.sktjf_profile_value, profile.classId))
+                TextButton(enabled = !pending && mode?.mode == SchedulerUsageMode.NITTC.name && profiles.isNotEmpty(),
+                    onClick = { fileLauncher.launch(arrayOf("application/json", "application/octet-stream")) }) {
+                    Text(stringResource(R.string.sktjf_open_file))
+                }
+                if (pending) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    if (progress != 0) Text(stringResource(progress), style = MaterialTheme.typography.bodyMedium)
+                }
                 if (error != 0) Text(stringResource(error), color = MaterialTheme.colorScheme.error)
             }
         },
         confirmButton = {
-            if (current == null) TextButton(enabled = canFetch, onClick = {
-                pending = true; error = 0
+            TextButton(enabled = canFetch, onClick = {
+                pending = true; error = 0; progress = R.string.sktjf_progress_search
                 scope.launch {
                     try {
                         when (val found = discover(year!!, term)) {
-                            is SktjfDiscoveryResult.Found -> when (val result = fetch(found.revision, profile!!.classId)) {
-                                is SktjfFetchResult.Success -> when (val p = preview(result.document)) {
-                                    is SktjfPreviewResult.Ready -> { lessonChoices.clear(); calendarChoices.clear(); prepared = p.preview }
-                                    SktjfPreviewResult.Blocked -> error = R.string.sktjf_cannot_apply
+                            is SktjfDiscoveryResult.Found -> {
+                                progress = R.string.sktjf_progress_download
+                                when (val result = fetch(found.revision, profile!!.classId)) {
+                                is SktjfFetchResult.Success -> {
+                                    progress = R.string.sktjf_progress_compare
+                                    if (result.timed != null) {
+                                        prepareTimed(result.timed)
+                                    } else prepareDocument(result.document, false)
                                 }
                                 SktjfFetchResult.ClassNotFound -> error = R.string.sktjf_not_published
                                 SktjfFetchResult.ReleaseNotFound -> error = R.string.sktjf_invalid_data
@@ -173,6 +287,7 @@ internal fun SktjfImportDialog(
                                 SktjfFetchResult.NetworkFailure -> error = R.string.sktjf_network_error
                                 is SktjfFetchResult.HttpFailure -> error = R.string.sktjf_fetch_failed
                                 SktjfFetchResult.InvalidData -> error = R.string.sktjf_invalid_data
+                                }
                             }
                             SktjfDiscoveryResult.NotPublished -> error = R.string.sktjf_not_published
                             SktjfDiscoveryResult.RateLimited -> error = R.string.sktjf_rate_limited
@@ -182,51 +297,44 @@ internal fun SktjfImportDialog(
                         }
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) { error = R.string.sktjf_invalid_data }
-                    finally { pending = false }
+                    finally { pending = false; progress = 0 }
                 }
             }) { Text(stringResource(R.string.sktjf_check_distribution)) }
-            else TextButton(enabled = canApply, onClick = {
-                pending = true; applying = true; error = 0
-                scope.launch {
-                    try {
-                        when (apply(current, lessonChoices.toMap(), calendarChoices.toMap())) {
-                            SktjfApplyResult.Applied -> { onApplied(); onDismiss() }
-                            SktjfApplyResult.Stale -> { prepared = null; error = R.string.sktjf_stale }
-                            SktjfApplyResult.Blocked -> error = R.string.sktjf_cannot_apply
-                        }
-                    } catch (cancelled: CancellationException) { throw cancelled }
-                    catch (_: Exception) { error = R.string.sktjf_cannot_apply }
-                    finally { pending = false; applying = false }
-                }
-            }) { Text(stringResource(R.string.sktjf_apply)) }
         },
         dismissButton = { TextButton(enabled = !applying, onClick = onDismiss) { Text(stringResource(R.string.nittc_cancel)) } }
     )
 }
 
 @Composable
-private fun ChoiceRow(label: Int, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
+internal fun ChoiceRow(label: Int, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)) {
         RadioButton(selected = selected, onClick = null, enabled = enabled)
         Text(stringResource(label), modifier = Modifier.padding(top = 12.dp))
     }
 }
 
-private fun weekday(resources: android.content.res.Resources, value: Int): String = resources.getStringArray(R.array.sktjf_weekdays).getOrElse(value - 1) { "?" }
+internal fun lessonSubjectWithRange(resources: android.content.res.Resources, value: SktjfLessonContent): String {
+    val subject = value.subject.ifBlank { resources.getString(R.string.sktjf_none) }
+    val range = value.weekRange?.range
+    return when {
+        range?.start != null && range.end != null -> resources.getString(R.string.sktjf_timed_between, range.start, range.end, subject)
+        range?.start != null -> resources.getString(R.string.sktjf_timed_from, range.start, subject)
+        range?.end != null -> resources.getString(R.string.sktjf_timed_until, range.end, subject)
+        else -> subject
+    }
+}
 
-private fun lessonDetails(resources: android.content.res.Resources, value: SktjfLessonContent): String = buildList {
-    add(value.subject)
+internal fun lessonDetails(resources: android.content.res.Resources, value: SktjfLessonContent): String = buildList {
+    add(lessonSubjectWithRange(resources, value))
     if (value.teachers.isNotEmpty()) add(value.teachers.joinToString("、"))
     if (value.rooms.isNotEmpty()) add(value.rooms.joinToString("、"))
     add(when (value.cycle) { SktjfCycle.WEEKLY -> resources.getString(R.string.sktjf_weekly); SktjfCycle.A -> "A"; SktjfCycle.B -> "B" })
-    fun attribute(id: String) = when (id) { "DD" -> resources.getString(R.string.nittc_dd); "INTERNATIONAL" -> resources.getString(R.string.nittc_international); else -> id }
-    if (value.conditions.all.isNotEmpty()) add(resources.getString(R.string.sktjf_condition_required, value.conditions.all.sorted().joinToString("、") { attribute(it) }))
-    if (value.conditions.none.isNotEmpty()) add(resources.getString(R.string.sktjf_condition_excluded, value.conditions.none.sorted().joinToString("、") { attribute(it) }))
-    if (value.remote == true) add(resources.getString(R.string.sktjf_remote))
 }.joinToString(" / ")
 
-private fun calendarDetails(resources: android.content.res.Resources, value: SktjfCalendarContent?): String = value?.let {
+internal fun calendarDetails(resources: android.content.res.Resources, value: SktjfCalendarContent?): String = value?.let {
     fun type(type: SktjfDayType?) = when (type) { SktjfDayType.HOLIDAY -> resources.getString(R.string.sktjf_holiday); else -> type?.name }
-    listOfNotNull(type(it.dayType), it.overrideDayOfWeek?.let { day -> resources.getString(R.string.sktjf_override_day, weekday(resources, day)) },
-        type(it.overrideDayType), it.event?.name).joinToString(" / ").ifEmpty { resources.getString(R.string.sktjf_none) }
+    val weekdays = resources.getStringArray(R.array.sktjf_weekdays)
+    listOfNotNull(type(it.dayType), it.overrideDayOfWeek?.let { day ->
+        resources.getString(R.string.sktjf_override_day, weekdays.getOrElse(day - 1) { "?" })
+    }, type(it.overrideDayType), it.event?.name).joinToString(" / ").ifEmpty { resources.getString(R.string.sktjf_none) }
 } ?: resources.getString(R.string.sktjf_none)

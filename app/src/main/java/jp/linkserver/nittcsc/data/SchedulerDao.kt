@@ -49,6 +49,9 @@ interface SchedulerDao {
     @Query("SELECT * FROM sktjf_source_state ORDER BY academicYear, term, classId")
     suspend fun getSktjfSourceStates(): List<SktjfSourceStateEntity>
 
+    @Query("SELECT * FROM sktjf_source_state ORDER BY academicYear, term, classId")
+    fun observeSktjfSourceStates(): Flow<List<SktjfSourceStateEntity>>
+
     @Upsert
     suspend fun upsertSktjfSourceStates(states: List<SktjfSourceStateEntity>)
 
@@ -225,6 +228,21 @@ interface SchedulerDao {
 
     @Query("SELECT * FROM long_breaks ORDER BY startDate")
     fun observeLongBreaks(): Flow<List<LongBreakEntity>>
+
+    @Query("SELECT * FROM school_vacations ORDER BY local_start, id")
+    fun observeSchoolVacations(): Flow<List<SchoolVacationEntity>>
+
+    @Query("SELECT * FROM school_vacations ORDER BY local_start, id")
+    suspend fun getSchoolVacations(): List<SchoolVacationEntity>
+
+    @Query("SELECT * FROM school_vacations WHERE local_start <= :date AND local_confirmedThrough >= :date")
+    suspend fun getSchoolVacationsOn(date: LocalDate): List<SchoolVacationEntity>
+
+    @Upsert
+    suspend fun upsertSchoolVacations(vacations: List<SchoolVacationEntity>)
+
+    @Query("DELETE FROM school_vacations")
+    suspend fun deleteAllSchoolVacations()
 
     @Query("SELECT * FROM long_breaks ORDER BY startDate")
     suspend fun getLongBreaksOnce(): List<LongBreakEntity>

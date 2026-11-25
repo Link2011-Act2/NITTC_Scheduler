@@ -3,6 +3,7 @@ package jp.linkserver.nittcsc.sktjf
 import org.junit.Assert.*
 import org.junit.Test
 import java.time.LocalDate
+import jp.linkserver.nittcsc.logic.LessonWeekRange
 
 class SktjfBaselineCodecTest {
     private fun baseline(): SktjfStoredBaseline {
@@ -44,5 +45,44 @@ class SktjfBaselineCodecTest {
     @Test fun rejectsDuplicateJsonKeys() {
         val json = SktjfBaselineCodec.encode(baseline()).replace("\"version\":1", "\"version\":1,\"version\":1")
         assertTrue(runCatching { SktjfBaselineCodec.decode(json) }.isFailure)
+    }
+
+    @Test fun weekRangesRoundTripAndLegacyBaselineRemainsUnchanged() {
+        val initial=baseline()
+        val oldJson=SktjfBaselineCodec.encode(initial)
+        assertFalse(oldJson.contains("weekRange"))
+        val lesson=initial.lessons.lessons.getValue("lesson-1").copy(weekRange=SktjfV2Range(LessonWeekRange(start=9),"（9週〜）"))
+        val changed=initial.copy(lessons=initial.lessons.copy(lessons=mapOf("lesson-1" to lesson)))
+        val json=SktjfBaselineCodec.encode(changed)
+        assertTrue(json.contains("\"version\":2"))
+        assertEquals(changed,SktjfBaselineCodec.decode(json))
+        assertEquals(initial,SktjfBaselineCodec.decode(oldJson))
+        assertTrue(runCatching { SktjfBaselineCodec.decode(json.replace("\"start\":9", "\"start\":0")) }.isFailure)
+    }
+
+    @Test fun confirmedWeekDatesAndSourceReferencesRoundTrip() {
+        val initial=baseline()
+        val date=LocalDate.of(2026,4,6)
+        val updated=initial.copy(weeks=mapOf(date to SktjfV2Week(9,listOf(SktjfReference("source-1",2,"記載箇所")))))
+        val json=SktjfBaselineCodec.encode(updated)
+        assertTrue(json.contains("\"version\":2"))
+        assertEquals(updated,SktjfBaselineCodec.decode(json))
+        assertTrue(runCatching { SktjfBaselineCodec.decode(json.replace("\"week\":9", "\"week\":0")) }.isFailure)
+        assertTrue(runCatching { SktjfBaselineCodec.decode(json.replace("2026-04-06", "2028-04-06")) }.isFailure)
+        assertTrue(runCatching { SktjfBaselineCodec.decode(json.replace("\"version\":2", "\"version\":1")) }.isFailure)
+    }
+
+    @Test fun opportunitySeriesRoundTripDoesNotAlterOlderFormats() {
+        val initial = baseline()
+        val item = SktjfV2WeekSeries("shared", 1, setOf(2), setOf("lesson-1"), SktjfCycle.WEEKLY,
+            listOf(SktjfReference("source-1", 2, "出典")))
+        val updated = initial.copy(series = listOf(item))
+        val json = SktjfBaselineCodec.encode(updated)
+        assertTrue(json.contains("\"version\":3"))
+        assertEquals(updated, SktjfBaselineCodec.decode(json))
+        assertEquals(initial, SktjfBaselineCodec.decode(SktjfBaselineCodec.encode(initial)))
+        assertTrue(runCatching { SktjfBaselineCodec.decode(json.replace("\"version\":3", "\"version\":2")) }.isFailure)
+        assertTrue(runCatching { SktjfBaselineCodec.encode(updated.copy(series = listOf(item.copy(lessonIds = setOf("missing"))))) }.isFailure)
+        assertTrue(runCatching { SktjfBaselineCodec.encode(updated.copy(series = listOf(item.copy(periods = setOf(2, 3))))) }.isFailure)
     }
 }

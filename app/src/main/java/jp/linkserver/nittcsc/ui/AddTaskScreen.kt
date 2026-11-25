@@ -1,5 +1,9 @@
 package jp.linkserver.nittcsc.ui
 
+import jp.linkserver.nittcsc.logic.sameSubject
+import jp.linkserver.nittcsc.logic.subjectContains
+import jp.linkserver.nittcsc.logic.subjectIdentityKey
+
 import jp.linkserver.nittcsc.ui.theme.appInsetContainerColor
 import jp.linkserver.nittcsc.ui.theme.appCardContainerColor
 import androidx.activity.compose.BackHandler
@@ -185,7 +189,7 @@ fun AddTaskScreen(
         val key = subject.trim()
         if (key.isBlank()) emptyList()
         else subjectTeacherCandidates.entries
-            .firstOrNull { it.key.equals(key, ignoreCase = true) }
+            .firstOrNull { sameSubject(it.key, key) }
             ?.value.orEmpty()
             .map { it.trim() }
             .filter { it.isNotBlank() }
@@ -199,8 +203,8 @@ fun AddTaskScreen(
             .asSequence()
             .map { it.trim() }
             .filter { it.isNotBlank() }
-            .filter { query.isBlank() || it.contains(query, ignoreCase = true) }
-            .distinct()
+            .filter { query.isBlank() || subjectContains(it, query) }
+            .distinctBy(::subjectIdentityKey)
             .sorted()
             .take(8)
             .toList()
@@ -231,11 +235,11 @@ fun AddTaskScreen(
     }
 
     LaunchedEffect(subject.trim(), subjectEditedByUser, subjectTeacherCandidates) {
-        if (task?.extraLessonId != null && subject.trim() == task.subject.trim()) return@LaunchedEffect
+        if (task?.extraLessonId != null && sameSubject(subject, task.subject)) return@LaunchedEffect
         if (!subjectEditedByUser && autoFilledTeacher == null) return@LaunchedEffect
         // 時間割未登録の教科を授業・試験から引き継いだ場合、その教員を維持する。
-        if (subject.trim().equals(autoFilledSubject, ignoreCase = true) &&
-            subjectTeacherCandidates.keys.none { it.equals(subject.trim(), ignoreCase = true) }
+        if (sameSubject(subject, autoFilledSubject) &&
+            subjectTeacherCandidates.keys.none { sameSubject(it, subject) }
         ) return@LaunchedEffect
         val result = updateTeacherAutoFill(teacher, autoFilledTeacher, teacherCandidatesForSubject)
         teacher = result.teacher
@@ -255,8 +259,8 @@ fun AddTaskScreen(
         onSave(
             TaskEntity(
                 id = task?.id ?: 0,
-                lessonId = task?.lessonId,
-                extraLessonId = task?.extraLessonId?.takeIf { subject.trim() == task.subject.trim() && teacher.trim() == task.teacher.orEmpty().trim() },
+                lessonId = task?.lessonId?.takeIf { sameSubject(subject, task.subject) },
+                extraLessonId = task?.extraLessonId?.takeIf { sameSubject(subject, task.subject) && teacher.trim() == task.teacher.orEmpty().trim() },
                 subject = subject.trim(),
                 teacher = teacher.trim().takeIf { it.isNotEmpty() },
                 title = title.trim(),

@@ -15,11 +15,11 @@ internal sealed interface SktjfCalendarProjection {
 internal fun projectSktjfCalendarDay(source: SktjfCalendarDay): SktjfCalendarProjection {
     val kind = source.event?.kind
     val exam = kind == SktjfEventKind.MIDTERM || kind == SktjfEventKind.FINAL
-    val type = when (source.dayType) {
+    val type = if (exam) DayType.HOLIDAY else when (source.dayType) {
         SktjfDayType.A -> DayType.A
         SktjfDayType.B -> DayType.B
         SktjfDayType.HOLIDAY -> DayType.HOLIDAY
-        null -> if (exam) DayType.HOLIDAY else return SktjfCalendarProjection.NeedsExtendedHandling(source, SktjfCalendarProjectionIssue.UNDETERMINED_DAY)
+        null -> return SktjfCalendarProjection.NeedsExtendedHandling(source, SktjfCalendarProjectionIssue.UNDETERMINED_DAY)
     }
     val label = when (kind) {
         SktjfEventKind.MIDTERM -> HolidaySpecialLabel.MIDTERM

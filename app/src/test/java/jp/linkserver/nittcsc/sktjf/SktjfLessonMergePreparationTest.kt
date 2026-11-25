@@ -5,6 +5,7 @@ import jp.linkserver.nittcsc.data.LessonMode
 import jp.linkserver.nittcsc.data.SktjfSourceStateEntity
 import jp.linkserver.nittcsc.data.SktjfExtraLessonEntity
 import jp.linkserver.nittcsc.logic.TimetableTerm
+import jp.linkserver.nittcsc.logic.LessonWeekRange
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -14,6 +15,26 @@ class SktjfLessonMergePreparationTest {
         val manifest = SktjfJson.manifest(resource("synthetic-manifest-v1.json"), "example/SKTJF")
         val original = SktjfJson.verifiedDocument(resource("synthetic-v1.json"), manifest, manifest.assets.single())
         return original.copy(lessons = original.lessons.map { it.copy(cycle = SktjfCycle.WEEKLY, conditions = SktjfConditions(emptySet(), emptySet())) })
+    }
+
+    @Test fun onePreviousRowCannotBeReusedForTwoNewTimedVariants() {
+        val doc = document(); val old = doc.lessons.single()
+        val baseline = SktjfStoredBaseline(SktjfBaseline(doc.academicYear, doc.term, doc.classId, mapOf(old.id to old.content())),
+            SktjfCalendarBaseline(doc.academicYear, doc.term, doc.classId, emptyMap()))
+        val links = SktjfSourceLinks.encode(listOf(SktjfSourceLink(old.id, old.dayOfWeek, old.period, old.cycle)))
+        val state = SktjfSourceStateEntity(doc.academicYear, doc.term, doc.classId, doc.revision, SktjfBaselineCodec.encode(baseline), false, links)
+        val row = LessonEntity(id = 71, academicYear = doc.academicYear, timetableTerm = TimetableTerm.FIRST,
+            dayOfWeek = old.dayOfWeek, slotIndex = old.period - 1, mode = LessonMode.WEEKLY,
+            weeklySubject = old.subject, weeklyTeacher = old.teachers.singleOrNull().orEmpty(), weeklyLocation = old.rooms.singleOrNull(),
+            aSubject = "", aTeacher = "", bSubject = "", bTeacher = "")
+        val first = old.copy(id = "first", weekRange = SktjfV2Range(LessonWeekRange(end = 8), "8週まで"))
+        val second = old.copy(id = "second", subject = "卒研", weekRange = SktjfV2Range(LessonWeekRange(start = 9), "9週から"))
+        val plan = (prepareSktjfLessonMerge(doc.copy(lessons = listOf(second, first)), listOf(row), state) as SktjfLessonPreparation.Ready).plan
+        val result = plan.resolve(emptyMap())
+        assertEquals(setOf("first", "second"), result.lessons.mapNotNull { it.sourceLessonId }.toSet())
+        assertEquals(1, result.lessons.count { it.localKey == sktjfLegacyKey(71, SktjfCycle.WEEKLY) })
+        assertEquals("first", result.lessons.single { it.localKey == sktjfLegacyKey(71, SktjfCycle.WEEKLY) }.sourceLessonId)
+        assertEquals(1, result.lessons.count { it.localKey == null })
     }
 
     @Test fun comparesRestoredSourceLinksWithCurrentEditedRow() {

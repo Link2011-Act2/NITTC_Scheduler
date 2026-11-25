@@ -1,0 +1,807 @@
+{
+  "format": "SKTJF",
+  "schemaVersion": 2,
+  "schoolId": "nittc",
+  "academicYear": 2026,
+  "term": {
+    "code": "S",
+    "start": "2026-04-06",
+    "end": "2026-06-07"
+  },
+  "classId": "1-1",
+  "revision": "2026.S.0",
+  "sources": [
+    {
+      "id": "src",
+      "name": "synthetic.pdf",
+      "sha256": "1608478b971ed5190557ca977aeeea08b44fabdae1646252b5f4f6d21642335b"
+    }
+  ],
+  "periods": [
+    {
+      "number": 1,
+      "start": "08:40",
+      "end": "10:10"
+    }
+  ],
+  "slotCoverage": [
+    {
+      "dayOfWeek": 1,
+      "period": 1,
+      "state": "PRESENT",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "dayOfWeek": 2,
+      "period": 1,
+      "state": "EXCLUDED",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "dayOfWeek": 3,
+      "period": 1,
+      "state": "EMPTY",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "dayOfWeek": 4,
+      "period": 1,
+      "state": "EMPTY",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "dayOfWeek": 5,
+      "period": 1,
+      "state": "EMPTY",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    }
+  ],
+  "lessons": [
+    {
+      "id": "stable-id",
+      "dayOfWeek": 1,
+      "period": 1,
+      "cycle": "WEEKLY",
+      "subject": "数学",
+      "teachers": [],
+      "rooms": [],
+      "conditions": {
+        "all": [
+          "DD"
+        ],
+        "none": []
+      },
+      "kind": "NORMAL",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ],
+      "activeWeekRange": {
+        "start": null,
+        "end": 8,
+        "notation": "8週まで"
+      }
+    },
+    {
+      "id": "after",
+      "dayOfWeek": 1,
+      "period": 1,
+      "cycle": "WEEKLY",
+      "subject": "卒研",
+      "teachers": [],
+      "rooms": [],
+      "conditions": {
+        "all": [
+          "DD"
+        ],
+        "none": []
+      },
+      "kind": "NORMAL",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ],
+      "activeWeekRange": {
+        "start": 9,
+        "end": null,
+        "notation": "9週から"
+      }
+    }
+  ],
+  "calendar": [
+    {
+      "date": "2026-04-06",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-07",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-08",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-09",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-10",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-11",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-12",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-13",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-14",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-15",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-16",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-17",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-18",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-19",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-20",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-21",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-22",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-23",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-24",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-25",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-26",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-27",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-28",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-29",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-04-30",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-01",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-02",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-03",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-04",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-05",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-06",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-07",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-08",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-09",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-10",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-11",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-12",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-13",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-14",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-15",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-16",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-17",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-18",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-19",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-20",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-21",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-22",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-23",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-24",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-25",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-26",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-27",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-28",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-29",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-30",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-05-31",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-06-01",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-06-02",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-06-03",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-06-04",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-06-05",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-06-06",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "date": "2026-06-07",
+      "dayType": "A",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ]
+    }
+  ],
+  "weekCalendar": [],
+  "weekSeries": [
+    {
+      "id": "shared",
+      "dayOfWeek": 1,
+      "periods": [
+        1
+      ],
+      "lessonIds": [
+        "stable-id",
+        "after"
+      ],
+      "cycle": "WEEKLY",
+      "sources": [
+        {
+          "sourceId": "src",
+          "page": 1
+        }
+      ],
+      "countingPolicy": {
+        "regularDayCounts": true,
+        "holidayCounts": false,
+        "eventCounts": {},
+        "ordinaryPeriodCounts": true,
+        "officialPeriodOverrides": [],
+        "confirmedNonTeachingDates": [],
+        "sources": [
+          {
+            "sourceId": "src",
+            "page": 1
+          }
+        ]
+      }
+    }
+  ]
+}

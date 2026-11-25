@@ -12,7 +12,6 @@ import java.time.LocalTime
 private val classPattern = Regex("^(1-[1-4]|[2-5][MEIB]|AC-[A-Z0-9]+)$")
 private val idPattern = Regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 private val hashPattern = Regex("^[a-f0-9]{64}$")
-private val revisionPattern = Regex("^(\\d{4})\\.([SF])\\.(0|[1-9][0-9]*)$")
 private val clockPattern = Regex("^([01][0-9]|2[0-3]):[0-5][0-9]$")
 private const val MAX_MANIFEST_BYTES = 512 * 1024
 private const val MAX_DOCUMENT_BYTES = 4 * 1024 * 1024
@@ -20,7 +19,7 @@ private const val MAX_DOCUMENT_BYTES = 4 * 1024 * 1024
 /** Parsing does not touch Room or change existing timetable data. */
 internal object SktjfJson {
     /** Local files receive the same structural validation as downloaded assets. */
-    fun localDocument(input: InputStream): SktjfDocument {
+    private fun localBytes(input: InputStream): ByteArray {
         val output = ByteArrayOutputStream()
         val buffer = ByteArray(8192)
         while (true) {
@@ -29,7 +28,17 @@ internal object SktjfJson {
             require(count > 0 && output.size() <= MAX_DOCUMENT_BYTES - count)
             output.write(buffer, 0, count)
         }
-        return document(strictSktjfObject(output.toByteArray(), MAX_DOCUMENT_BYTES))
+        return output.toByteArray()
+    }
+    fun localDocument(input: InputStream): SktjfDocument = document(strictSktjfObject(localBytes(input), MAX_DOCUMENT_BYTES))
+    fun localAsset(input: InputStream): SktjfCandidateAsset {
+        val bytes = localBytes(input)
+        val root = strictSktjfObject(bytes, MAX_DOCUMENT_BYTES)
+        return when (root.integer("schemaVersion", 1..2)) {
+            1 -> SktjfCandidateAsset.V1(document(root))
+            2 -> SktjfCandidateAsset.V2(SktjfV2CandidateJson.parse(bytes))
+            else -> error("Unsupported SKTJF version")
+        }
     }
     fun manifest(bytes: ByteArray, repository: String): SktjfManifest {
         val root = strictSktjfObject(bytes, MAX_MANIFEST_BYTES)
@@ -148,7 +157,7 @@ private fun id(value: String): String = value.also { require(idPattern.matches(i
 private fun date(value: String): LocalDate = value.also { require(Regex("^\\d{4}-\\d{2}-\\d{2}$").matches(it)) }.let(LocalDate::parse)
 private fun time(value: String): LocalTime = value.also { require(clockPattern.matches(it)) }.let(LocalTime::parse)
 private fun revision(value: String, year: Int, term: String): String = value.also {
-    val match = requireNotNull(revisionPattern.matchEntire(it)); require(match.groupValues[1] == year.toString() && match.groupValues[2] == term)
+    val parsed = requireNotNull(parseSktjfRevision(it)); require(parsed.year == year && parsed.term == term)
 }
 private fun httpsUrl(value: String) { val uri = URI(value); require(uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null && uri.fragment == null) }
 private fun trustedAssetUrl(value: String, repository: String, revision: String, name: String) {

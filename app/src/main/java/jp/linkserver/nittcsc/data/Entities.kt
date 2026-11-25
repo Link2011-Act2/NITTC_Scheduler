@@ -237,7 +237,8 @@ data class ResolvedLesson(
     val subject: String,
     val teacher: String,
     val location: String? = null,
-    val extraLessonId: String? = null
+    val extraLessonId: String? = null,
+    val lessonId: Long? = null
 )
 
 @Entity(

@@ -3,6 +3,7 @@ package jp.linkserver.nittcsc.sktjf
 import jp.linkserver.nittcsc.data.LessonEntity
 import jp.linkserver.nittcsc.data.LessonMode
 import jp.linkserver.nittcsc.logic.TimetableTerm
+import jp.linkserver.nittcsc.logic.LessonWeekRange
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -13,6 +14,13 @@ class SktjfExtendedTimetableProjectionTest {
     private fun content(subject: String, attrs: Set<String> = emptySet()) = SktjfLessonContent(1, 1, SktjfCycle.WEEKLY,
         subject, listOf("先生"), emptyList(), SktjfConditions(attrs, emptySet()), SktjfLessonKind.NORMAL, null)
     private fun resolved(vararg lessons: SktjfMergedLesson) = SktjfResolvedLessonMerge(lessons.toList(), SktjfBaseline(2026, "S", "1-1", emptyMap()))
+
+    @Test fun weekRestrictedLessonsAreNeverStoredAsUnrestrictedRows() {
+        val candidate=SktjfMergedLesson(null,"week-1",content("卒研").copy(weekRange=SktjfV2Range(LessonWeekRange(start=9),"（9週〜）")))
+        assertEquals(SktjfExtendedProjection.Blocked,projectSktjfExtendedTimetable(2026,TimetableTerm.FIRST,"1-1",emptyList(),emptyList(),resolved(candidate)))
+        val legacy=projectSktjfTimetable(2026,TimetableTerm.FIRST,"1-1",emptyList(),resolved(candidate))
+        assertEquals(SktjfProjectionBlock.NEEDS_ADDITIONAL_STORAGE,(legacy as SktjfTimetableProjection.Blocked).reason)
+    }
 
     @Test fun alternatingLessonsUseTheOrdinaryEditableRow() {
         val a = SktjfMergedLesson(null, "a", content("A授業").copy(cycle = SktjfCycle.A))

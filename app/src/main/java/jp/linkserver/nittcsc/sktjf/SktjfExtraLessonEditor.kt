@@ -3,7 +3,8 @@ package jp.linkserver.nittcsc.sktjf
 import jp.linkserver.nittcsc.data.SktjfExtraLessonBackup
 import jp.linkserver.nittcsc.data.SktjfExtraLessonEntity
 
-internal data class SktjfExtraLessonDraft(val subject: String, val teachers: String, val rooms: String)
+internal data class SktjfExtraLessonDraft(val subject: String, val teachers: String, val rooms: String,
+    val followDifferentSubject: Boolean = false)
 
 /** Modify only the named lesson, retaining its identity, source and applicability. */
 internal fun editSktjfExtraLesson(original: SktjfExtraLessonEntity, draft: SktjfExtraLessonDraft): SktjfExtraLessonEntity {

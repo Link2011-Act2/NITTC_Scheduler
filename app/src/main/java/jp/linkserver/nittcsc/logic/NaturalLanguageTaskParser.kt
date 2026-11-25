@@ -125,15 +125,28 @@ object NaturalLanguageTaskParser {
         val normalizedInput = normalize(input)
         return candidates
             .filter { it.subject.isNotBlank() }
-            .distinctBy { normalize(it.subject) to normalize(it.teacher.orEmpty()) }
+            .distinctBy { subjectIdentityKey(it.subject) to normalize(it.teacher.orEmpty()) }
             .map { candidate -> candidate to scoreLesson(normalizedInput, candidate) }
             .filter { (_, score) -> score > 0 }
-            .maxByOrNull { (_, score) -> score }
+            .maxWithOrNull(compareBy<Pair<NaturalLanguageLessonCandidate, Int>> { it.second }
+                .thenBy { (candidate, _) -> normalize(candidate.subject).let { subject ->
+                    if (normalizedInput.contains(subject)) subject.length else 0
+                } })
             ?.first
     }
 
     private fun scoreLesson(input: String, candidate: NaturalLanguageLessonCandidate): Int {
         val subject = normalize(candidate.subject)
+        // A shorter Roman numeral is not the same subject merely because it is a prefix.
+        if (subject.lastOrNull()?.let { it in "ivxlcdm" } == true && input.contains(subject) && !containsCompleteSubject(input, subject)) return 0
+        val numeral = Regex("^(.*?)([ivxlcdm]+)$").matchEntire(subject)
+        if (numeral != null) {
+            val base = numeral.groupValues[1]
+            if (base.isNotEmpty() && base.last() !in 'a'..'z') {
+                val mentioned = Regex(Regex.escape(base) + "([ivxlcdm]+)").findAll(input).map { it.groupValues[1] }.toList()
+                if (mentioned.isNotEmpty() && numeral.groupValues[2] !in mentioned) return 0
+            }
+        }
         val compactSubject = compactSubject(subject)
         val teacher = normalize(candidate.teacher.orEmpty())
         val teacherSurname = teacher
@@ -141,12 +154,23 @@ object NaturalLanguageTaskParser {
             .firstOrNull()
             .orEmpty()
         var score = 0
-        if (subject.isNotBlank() && input.contains(subject)) score += 120
+        if (subject.isNotBlank() && containsCompleteSubject(input, subject)) score += 120
         if (compactSubject.isNotBlank() && compactSubject != subject && input.contains(compactSubject)) score += 95
         if (subject.isNotBlank() && subject.length >= 2 && input.contains(subject.take(2))) score += 45
         if (teacher.isNotBlank() && input.contains(teacher)) score += 100
         if (teacherSurname.length >= 2 && input.contains(teacherSurname)) score += 85
         return score
+    }
+
+    private fun containsCompleteSubject(input: String, subject: String): Boolean {
+        if (subject.isEmpty()) return false
+        var position = input.indexOf(subject)
+        while (position >= 0) {
+            val next = input.getOrNull(position + subject.length)
+            if (subject.last() !in "ivxlcdm" || next == null || next !in "ivxlcdm") return true
+            position = input.indexOf(subject, position + 1)
+        }
+        return false
     }
 
     private fun buildTitle(

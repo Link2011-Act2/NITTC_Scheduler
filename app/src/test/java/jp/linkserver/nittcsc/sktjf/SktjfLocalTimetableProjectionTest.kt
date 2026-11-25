@@ -26,7 +26,9 @@ class SktjfLocalTimetableProjectionTest {
     @Test fun blocksAmbiguousLinksPartialDataAndUnrepresentableMetadata() {
         assertEquals(SktjfLocalProjectionIssue.RELINK_REQUIRED, (project(listOf(row()), relink = true) as SktjfLocalProjection.Blocked).issue)
         assertEquals(SktjfLocalProjectionIssue.INVALID_SOURCE_LINKS, (project(listOf(row()), links = listOf(SktjfSourceLink("missing", 1, 1, SktjfCycle.WEEKLY))) as SktjfLocalProjection.Blocked).issue)
-        assertEquals(SktjfLocalProjectionIssue.INCOMPLETE_LESSON, (project(listOf(row().copy(weeklySubject = ""))) as SktjfLocalProjection.Blocked).issue)
+        val partial = project(listOf(row().copy(weeklySubject = ""))) as SktjfLocalProjection.Ready
+        assertEquals("", partial.timetable.lessons.single().content.subject)
+        assertTrue(partial.timetable.lessons.single().content.teachers.isNotEmpty())
         val old = baseline(); val conditional = old.copy(lessons = mapOf("one" to old.lessons.getValue("one").copy(conditions = SktjfConditions(setOf("DD"), emptySet()))))
         assertEquals(SktjfLocalProjectionIssue.NEEDS_ADDITIONAL_STORAGE, (project(listOf(row()), baseline = conditional) as SktjfLocalProjection.Blocked).issue)
     }

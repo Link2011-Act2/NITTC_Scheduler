@@ -13,7 +13,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.NittcProfileEntity
-import jp.linkserver.nittcsc.data.NittcProgram
 import jp.linkserver.nittcsc.data.NittcYearOutcome
 import jp.linkserver.nittcsc.data.NittcYearTransitionEntity
 import jp.linkserver.nittcsc.data.SchedulerUsageMode
@@ -41,9 +40,7 @@ internal fun NittcYearTransitionDialog(
         NittcConfigurationDialog(mode, profiles, year, onSave = { _, _, newMode, profile ->
             if (newMode != SchedulerUsageMode.NITTC || profile == null || profile.academicYear != year) false
             else complete(year, expectedMode, expectedProfile, expectedTransition, selected, profile)
-        }, onDismiss = { choice = null }, lockYear = true, lockMode = true,
-            initialProgram = if (selected == NittcYearOutcome.ADVANCED) NittcProgram.ADVANCED else null,
-            lockProgram = selected == NittcYearOutcome.ADVANCED)
+        }, onDismiss = { choice = null }, lockYear = true, lockMode = true)
         return
     }
     AlertDialog(
@@ -56,8 +53,7 @@ internal fun NittcYearTransitionDialog(
                 listOf(
                     NittcYearOutcome.PROMOTED to R.string.nittc_year_promoted,
                     NittcYearOutcome.REPEATED to R.string.nittc_year_repeated,
-                    NittcYearOutcome.TRANSFERRED to R.string.nittc_year_transferred,
-                    NittcYearOutcome.ADVANCED to R.string.nittc_year_advanced
+                    NittcYearOutcome.TRANSFERRED to R.string.nittc_year_transferred
                 ).forEach { (outcome, label) ->
                     TextButton(enabled = !saving, onClick = { choice = outcome }, modifier = Modifier.fillMaxWidth()) {
                         Text(stringResource(label))

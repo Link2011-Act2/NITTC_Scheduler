@@ -1,5 +1,9 @@
 package jp.linkserver.nittcsc.data
 
+import jp.linkserver.nittcsc.logic.sameSubject
+import jp.linkserver.nittcsc.logic.linkedLessonSubjectRename
+import jp.linkserver.nittcsc.logic.isClearlyRelatedSubjectRename
+
 import jp.linkserver.nittcsc.InternalFeatureFlags
 import jp.linkserver.nittcsc.logic.CLASS_SLOTS
 import jp.linkserver.nittcsc.logic.InitialSetupDraft
@@ -22,9 +26,15 @@ import jp.linkserver.nittcsc.logic.shouldAdvanceAcademicYear
 import jp.linkserver.nittcsc.logic.timetableTermForDate
 import jp.linkserver.nittcsc.sktjf.SktjfVisibleExtra
 import jp.linkserver.nittcsc.sktjf.SktjfExtraLessonDraft
+import jp.linkserver.nittcsc.sktjf.SktjfTimedSchedule
+import jp.linkserver.nittcsc.sktjf.SktjfTimedSlotResult
+import jp.linkserver.nittcsc.sktjf.SktjfWeekSelection
+import jp.linkserver.nittcsc.sktjf.SktjfCycle
+import jp.linkserver.nittcsc.sktjf.resolvedLesson
 import jp.linkserver.nittcsc.sktjf.editSktjfExtraLesson as editSktjfExtraLessonContent
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -72,7 +82,12 @@ class SchedulerRepository(
     }
     val expressiveWarningAcknowledgedFlow: Flow<Boolean> =
         uiDesignPreferences.expressiveWarningAcknowledged
-    val dayTypesFlow: Flow<List<DayTypeEntity>> = dao.observeDayTypes()
+    internal val schoolVacationsFlow = dao.observeSchoolVacations()
+    val dayTypesFlow: Flow<List<DayTypeEntity>> = combine(
+        dao.observeDayTypes(), schoolVacationsFlow, dao.observeUsageMode()
+    ) { days, vacations, mode ->
+        if (mode?.mode == SchedulerUsageMode.NITTC.name) days.withSchoolVacations(vacations) else days
+    }
     val cancelledLessonsFlow: Flow<List<CancelledLessonEntity>> = dao.observeCancelledLessons()
     val changedLessonsFlow: Flow<List<ChangedLessonEntity>> = dao.observeChangedLessons()
     val lessonNotesFlow: Flow<List<LessonNoteEntity>> = dao.observeLessonNotes()
@@ -91,6 +106,7 @@ class SchedulerRepository(
     val nittcProfilesFlow: Flow<List<NittcProfileEntity>> = dao.observeNittcProfiles()
     val nittcYearTransitionsFlow: Flow<List<NittcYearTransitionEntity>> = dao.observeNittcYearTransitions()
     val sktjfExtraLessonsFlow: Flow<List<SktjfExtraLessonEntity>> = dao.observeSktjfExtraLessons()
+    val sktjfSourceStatesFlow: Flow<List<SktjfSourceStateEntity>> = dao.observeSktjfSourceStates()
 
     suspend fun setUsageMode(mode: SchedulerUsageMode) = db.withTransaction {
         val previous = dao.getUsageMode()
@@ -145,6 +161,9 @@ class SchedulerRepository(
     internal suspend fun previewSktjf(document: jp.linkserver.nittcsc.sktjf.SktjfDocument): jp.linkserver.nittcsc.sktjf.SktjfPreviewResult =
         jp.linkserver.nittcsc.sktjf.SktjfApplyCoordinator(db, this).preview(document)
 
+    internal suspend fun previewTimedSktjf(candidate: jp.linkserver.nittcsc.sktjf.SktjfV2Candidate): jp.linkserver.nittcsc.sktjf.SktjfV2ApplyPreview? =
+        jp.linkserver.nittcsc.sktjf.SktjfApplyCoordinator(db, this).previewV2(candidate)
+
     internal suspend fun sktjfUpdateSnapshot(): jp.linkserver.nittcsc.sktjf.SktjfUpdateSnapshot = db.withTransaction {
         val mode = dao.getUsageMode()?.mode?.let { value -> SchedulerUsageMode.entries.firstOrNull { it.name == value } }
         jp.linkserver.nittcsc.sktjf.SktjfUpdateSnapshot(mode, dao.getNittcProfilesOnce(), dao.getSktjfSourceStates(), dao.getNittcYearTransitions())
@@ -153,7 +172,9 @@ class SchedulerRepository(
     internal suspend fun applySktjf(preview: jp.linkserver.nittcsc.sktjf.SktjfApplyPreview,
         lessons: Map<String, jp.linkserver.nittcsc.sktjf.SktjfConflictChoice>,
         days: Map<LocalDate, jp.linkserver.nittcsc.sktjf.SktjfConflictChoice>): jp.linkserver.nittcsc.sktjf.SktjfApplyResult =
-        jp.linkserver.nittcsc.sktjf.SktjfApplyCoordinator(db, this).apply(preview, lessons, days)
+        jp.linkserver.nittcsc.sktjf.SktjfApplyCoordinator(db, this).let { coordinator ->
+            preview.timed?.let { coordinator.applyV2(it, lessons, days) } ?: coordinator.apply(preview, lessons, days)
+        }
 
     internal suspend fun editSktjfExtraLesson(expected: SktjfVisibleExtra, draft: SktjfExtraLessonDraft): Boolean = db.withTransaction {
         val current = dao.getSktjfExtraLesson(expected.id) ?: return@withTransaction false
@@ -165,6 +186,18 @@ class SchedulerRepository(
         val updated = editSktjfExtraLessonContent(current, draft)
         if (updated == current) return@withTransaction true
         dao.upsertSktjfExtraLessons(listOf(updated))
+        val before = expected.content.subject
+        val after = draft.subject.trim()
+        if (before != after && after.isNotEmpty() &&
+            (draft.followDifferentSubject || isClearlyRelatedSubjectRename(before, after))) {
+            val now = System.currentTimeMillis()
+            val tasks = dao.getTasksOnce().filter { it.extraLessonId == current.id && sameSubject(it.subject, before) }
+                .map { it.copy(subject = after, updatedAt = now) }
+            val plans = dao.getPlansOnce().filter { it.extraLessonId == current.id && sameSubject(it.subject, before) }
+                .map { it.copy(subject = after, updatedAt = now) }
+            if (tasks.isNotEmpty()) { dao.upsertTasks(tasks); touchSyncDatasetMeta(DATASET_TASKS) }
+            if (plans.isNotEmpty()) { dao.upsertPlans(plans); touchSyncDatasetMeta(DATASET_PLANS) }
+        }
         val term = if (current.term == "S") TimetableTerm.FIRST else TimetableTerm.SECOND
         touchSyncDatasetMeta(LessonSyncPartition(current.academicYear, term).datasetKey)
         true
@@ -900,7 +933,9 @@ class SchedulerRepository(
         timetableTerm: TimetableTerm,
         dayOfWeek: Int,
         slotIndex: Int,
-        draft: LessonDraft
+        draft: LessonDraft,
+        followDifferentSubject: Boolean = false,
+        renameFrom: LessonEntity? = null
     ) {
         db.withTransaction {
             val existing = dao.getLesson(academicYear, timetableTerm, dayOfWeek, slotIndex)
@@ -912,6 +947,8 @@ class SchedulerRepository(
                     aSubject = draft.weeklySubject.trim(), aTeacher = draft.weeklyTeacher.trim(),
                     aLocation = draft.weeklyLocation.trim().takeIf { it.isNotEmpty() }
                 ))
+                followLinkedLessonSubjectChanges(existing, LessonDraft(mode = LessonMode.ALTERNATING,
+                    aSubject = draft.weeklySubject, bSubject = existing.bSubject), followDifferentSubject)
                 touchSyncDatasetMeta(LessonSyncPartition(academicYear, timetableTerm).datasetKey)
                 return@withTransaction
             }
@@ -943,9 +980,62 @@ class SchedulerRepository(
                     bLocation = if (draft.mode == LessonMode.ALTERNATING) bLocation else null
                 )
             )
+            val original = renameFrom?.takeIf { existing != null && it.id == existing.id && it.lessonKey() == existing.lessonKey() }
+            if (existing != null) followLinkedLessonSubjectChanges(existing, draft, followDifferentSubject)
+            if (original != null && original != existing) followLinkedLessonSubjectChanges(original, draft, followDifferentSubject)
             touchSyncDatasetMeta(LessonSyncPartition(academicYear, timetableTerm).datasetKey)
         }
     }
+
+    private suspend fun followLinkedLessonSubjectChanges(existing: LessonEntity, draft: LessonDraft, followDifferentSubject: Boolean) {
+        fun target(subject: String): String? {
+            val (before, after) = linkedLessonSubjectRename(existing, draft, subject) ?: return null
+            return after.takeIf { followDifferentSubject || isClearlyRelatedSubjectRename(before, after) }
+        }
+        val now = System.currentTimeMillis()
+        val tasks = dao.getTasksByLessonId(existing.id).mapNotNull { task ->
+            if (task.extraLessonId != null) null else target(task.subject)?.let { task.copy(subject = it, updatedAt = now) }
+        }
+        val plans = dao.getPlansByLessonId(existing.id).mapNotNull { plan ->
+            if (plan.extraLessonId != null) null else target(plan.subject)?.let { plan.copy(subject = it, updatedAt = now) }
+        }
+        if (tasks.isNotEmpty()) { dao.upsertTasks(tasks); touchSyncDatasetMeta(DATASET_TASKS) }
+        if (plans.isNotEmpty()) { dao.upsertPlans(plans); touchSyncDatasetMeta(DATASET_PLANS) }
+    }
+
+    internal suspend fun previewSchoolVacations(revision: String, periods: List<jp.linkserver.nittcsc.sktjf.SktjfVacation>) =
+        db.withTransaction {
+            val teachingDays = dao.getSktjfSourceStates().flatMap { source ->
+                val days = runCatching { jp.linkserver.nittcsc.sktjf.SktjfBaselineCodec.decode(source.baselineJson).calendar.days }
+                    .getOrDefault(emptyMap())
+                days.filterValues { it.dayType == jp.linkserver.nittcsc.sktjf.SktjfDayType.A ||
+                    it.dayType == jp.linkserver.nittcsc.sktjf.SktjfDayType.B || it.overrideDayOfWeek != null }.keys
+            }.toSet()
+            jp.linkserver.nittcsc.sktjf.planSchoolVacations(
+                revision, periods, dao.getSchoolVacations(), dao.getDayTypesOnce(), teachingDays
+            )
+        }
+
+    internal suspend fun applySchoolVacations(
+        preview: jp.linkserver.nittcsc.sktjf.SchoolVacationPreview,
+        selected: Set<String>
+    ): Boolean = db.withTransaction {
+        if (dao.getUsageMode()?.mode != SchedulerUsageMode.NITTC.name) return@withTransaction false
+        val current = previewSchoolVacations(preview.revision, preview.periods)
+        if (current != preview) return@withTransaction false
+        dao.upsertSchoolVacations(preview.changes.map { change ->
+            change.candidate.copy(local = if (change.candidate.id in selected) change.candidate.base else change.previous?.local)
+        })
+        true
+    }
+
+    internal suspend fun editSchoolVacation(expected: SchoolVacationEntity, local: SchoolVacationPeriod?): Boolean =
+        db.withTransaction {
+            if (dao.getSchoolVacations().none { it == expected }) return@withTransaction false
+            if (local != null && !local.isValid()) return@withTransaction false
+            dao.upsertSchoolVacations(listOf(expected.copy(local = local)))
+            true
+        }
 
     suspend fun syncDayTypes() {
         val settings = dao.getSettings() ?: return
@@ -980,10 +1070,13 @@ class SchedulerRepository(
 
         val settings = dao.getSettings() ?: return emptyList()
         val mode = dao.getUsageMode()?.mode?.let { value -> SchedulerUsageMode.entries.firstOrNull { it.name == value } }
-        val extraResolver = jp.linkserver.nittcsc.sktjf.SktjfExtraLessonResolver.create(mode,
-            dao.getNittcProfilesOnce(), dao.getSktjfExtraLessons())
-        val dayTypeMap = dao.getDayTypesOnce().associateBy { it.date }
-        val lessons = dao.getLessonsOnce().map { it.forTimetable(settings.enableAbTimetable) }
+        val profiles = dao.getNittcProfilesOnce()
+        val extraLessons = dao.getSktjfExtraLessons()
+        val storedLessons = dao.getLessonsOnce()
+        val extraResolver = jp.linkserver.nittcsc.sktjf.SktjfExtraLessonResolver.create(mode, profiles, extraLessons)
+        val timedSchedule = SktjfTimedSchedule.create(mode, profiles, dao.getSktjfSourceStates(), storedLessons, extraLessons)
+        val dayTypeMap = dao.getEffectiveDayTypes().associateBy { it.date }
+        val lessons = storedLessons.map { it.forTimetable(settings.enableAbTimetable) }
             .associateBy { it.lessonKey() }
         val cancelledLessons = dao.getCancelledLessonsOnce()
             .mapTo(mutableSetOf()) { it.date to it.slotIndex }
@@ -1058,10 +1151,15 @@ class SchedulerRepository(
                     )
                     val lesson = lessons[
                         LessonKey(academicYearForDate(date), timetableTerm, dayKey, slot.index)
-                    ] ?: continue
-                    val resolved = dao.getChangedLesson(date, slot.index)?.let {
-                        ResolvedLesson(it.subject, it.teacher, it.location)
-                    } ?: resolveLesson(lessonDayType, lesson) ?: continue
+                    ]
+                    val cycle = if (lessonDayType == DayType.B) SktjfCycle.B else SktjfCycle.A
+                    val timed = timedSchedule.resolve(academicYearForDate(date), timetableTerm, dayKey, slot.index + 1, date, cycle)
+                    if (lesson == null && timed is SktjfTimedSlotResult.Unmanaged) continue
+                    val base = when (timed) {
+                        SktjfTimedSlotResult.Unmanaged -> lesson?.let { resolveLesson(lessonDayType, it) }
+                        is SktjfTimedSlotResult.Managed -> (timed.selection as? SktjfWeekSelection.Selected)?.value?.resolvedLesson()
+                    }
+                    val resolved = applyChangedLesson(base, dao.getChangedLesson(date, slot.index)) ?: continue
                     if (resolved.subject.isBlank()) continue
 
                     add(
@@ -1070,7 +1168,8 @@ class SchedulerRepository(
                             slot = slot,
                             subject = resolved.subject,
                             teacher = resolved.teacher,
-                            location = resolved.location
+                            location = resolved.location,
+                            extraLessonId = resolved.extraLessonId
                         )
                     )
                 }
@@ -1078,7 +1177,13 @@ class SchedulerRepository(
         }
         val slots = settings.basicClassSlots()
         val extras = jp.linkserver.nittcsc.sktjf.additionalCalendarLessons(dateBounds, settings, slots,
-            dayTypeMap, cancelledLessons, examScheduleDates, extraResolver)
+            dayTypeMap, cancelledLessons, examScheduleDates, extraResolver).filterNot { item ->
+            val day = dayTypeMap[item.date]
+            val effective = day?.overrideLessonDayOfWeek ?: item.date.dayOfWeek.value
+            val cycle = if ((day?.overrideLessonDayType ?: day?.dayType) == DayType.B) SktjfCycle.B else SktjfCycle.A
+            val term = timetableTermForDate(item.date, settings.enableSemesterTimetables, settings.secondTermStartMonth, settings.secondTermStartDay)
+            timedSchedule.resolve(academicYearForDate(item.date), term, effective, item.slot.index + 1, item.date, cycle) is SktjfTimedSlotResult.Managed
+        }
         return (regular + extras).sortedWith(compareBy({ it.date }, { it.slot.index }, { it.extraLessonId ?: "" }))
     }
 
@@ -1154,7 +1259,7 @@ class SchedulerRepository(
 
     private suspend fun resolveBaseLessonForDate(date: LocalDate, slotIndex: Int): ResolvedLesson? {
         if (date.dayOfWeek.value !in 1..5) return null
-        val dayTypeEntity = dao.getDayType(date)
+        val dayTypeEntity = dao.getEffectiveDayType(date)
         val dayType = dayTypeEntity?.dayType ?: DayType.A
         if (dayType == DayType.HOLIDAY) return null
         val lessonDayOfWeek = dayTypeEntity?.overrideLessonDayOfWeek ?: date.dayOfWeek.value
@@ -1177,7 +1282,7 @@ class SchedulerRepository(
 
     private suspend fun resolveEffectiveLessonForDate(date: LocalDate, slotIndex: Int): ResolvedLesson? {
         if (date.dayOfWeek.value !in 1..5) return null
-        val dayType = dao.getDayType(date)?.dayType ?: DayType.A
+        val dayType = dao.getEffectiveDayType(date)?.dayType ?: DayType.A
         if (dayType == DayType.HOLIDAY) return null
         return applyChangedLesson(
             baseLesson = resolveBaseLessonForDate(date, slotIndex),
@@ -1411,7 +1516,7 @@ class SchedulerRepository(
         ) ?: return null
 
         // useTeacherMatchingがfalseの場合はSUBJECT_ONLYで学科のみを使う
-        val dayType = dao.getDayType(targetDate)?.dayType ?: DayType.A
+        val dayType = dao.getEffectiveDayType(targetDate)?.dayType ?: DayType.A
         val resolved = resolveLesson(dayType, lesson.forTimetable(settings?.enableAbTimetable != false)) ?: return null
 
         return if (task.useTeacherMatching) {
@@ -1475,7 +1580,7 @@ class SchedulerRepository(
             for (date in fromDate.toDateRange(settings.termEnd)) {
                 if (date.dayOfWeek.value !in 1..5) continue
 
-                val dayTypeEntity = dao.getDayType(date)
+                val dayTypeEntity = dao.getEffectiveDayType(date)
                 val dayType = dayTypeEntity?.dayType ?: DayType.A
                 if (dayType == DayType.HOLIDAY) continue
 
@@ -1530,7 +1635,7 @@ class SchedulerRepository(
                     continue
                 }
 
-                val dayTypeEntity = dao.getDayType(date)
+                val dayTypeEntity = dao.getEffectiveDayType(date)
                 val dayType = dayTypeEntity?.dayType ?: DayType.A
                 if (dayType == DayType.HOLIDAY) {
                     date = date.minusDays(1)
@@ -1586,7 +1691,7 @@ class SchedulerRepository(
         val startDate = fromDate
 
         suspend fun searchToday(requireTeacherMatch: Boolean): Pair<LocalDate, LocalTime>? {
-            val dayTypeEntity = dao.getDayType(startDate)
+            val dayTypeEntity = dao.getEffectiveDayType(startDate)
             val dayType = dayTypeEntity?.dayType ?: DayType.A
             if (startDate.dayOfWeek.value in 1..5 && dayType != DayType.HOLIDAY) {
                 for (slot in slots) {
@@ -1615,7 +1720,7 @@ class SchedulerRepository(
             for (date in startDate.plusDays(1).toDateRange(settings.termEnd)) {
                 if (date.dayOfWeek.value !in 1..5) continue
 
-                val dayTypeEntity = dao.getDayType(date)
+                val dayTypeEntity = dao.getEffectiveDayType(date)
                 val dayType = dayTypeEntity?.dayType ?: DayType.A
                 if (dayType == DayType.HOLIDAY) continue
 
@@ -1659,7 +1764,7 @@ class SchedulerRepository(
         val normalizedResolvedSubject = resolved.subject.trim()
         val normalizedSubject = subject.trim()
         if (normalizedResolvedSubject.isBlank() || normalizedSubject.isBlank()) return false
-        if (!normalizedResolvedSubject.equals(normalizedSubject, ignoreCase = true)) return false
+        if (!sameSubject(normalizedResolvedSubject, normalizedSubject)) return false
 
         if (!requireTeacherMatch) return true
 

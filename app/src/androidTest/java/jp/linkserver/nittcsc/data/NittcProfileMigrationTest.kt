@@ -13,6 +13,8 @@ import jp.linkserver.nittcsc.sktjf.SktjfLessonContent
 import jp.linkserver.nittcsc.sktjf.SktjfCycle
 import jp.linkserver.nittcsc.sktjf.SktjfConditions
 import jp.linkserver.nittcsc.sktjf.SktjfLessonKind
+import jp.linkserver.nittcsc.sktjf.SktjfVacation
+import jp.linkserver.nittcsc.sktjf.SktjfVacationSource
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -65,7 +67,7 @@ class NittcProfileMigrationTest {
         val name = "sktjf-migration-${UUID.randomUUID()}.db"
         val date = LocalDate.of(2026, 4, 6)
         fun open() = Room.databaseBuilder(context, AppDatabase::class.java, name)
-            .addMigrations(AppDatabase.MIGRATION_53_54, AppDatabase.MIGRATION_54_55, AppDatabase.MIGRATION_55_56, AppDatabase.MIGRATION_56_57, AppDatabase.MIGRATION_57_58).build()
+            .addMigrations(AppDatabase.MIGRATION_53_54, AppDatabase.MIGRATION_54_55, AppDatabase.MIGRATION_55_56, AppDatabase.MIGRATION_56_57, AppDatabase.MIGRATION_57_58, AppDatabase.MIGRATION_58_59).build()
         try {
             val fresh = open()
             assertNull(fresh.schedulerDao().getUsageMode())
@@ -77,6 +79,7 @@ class NittcProfileMigrationTest {
             fresh.close()
             // Reconstruct the v53 shape before the source and profile tables were introduced.
             context.openOrCreateDatabase(name, Context.MODE_PRIVATE, null).use { sql ->
+                sql.execSQL("DROP TABLE school_vacations")
                 sql.execSQL("DROP TABLE usage_mode"); sql.execSQL("DROP TABLE nittc_profiles"); sql.execSQL("DROP TABLE sktjf_source_state"); sql.execSQL("DROP TABLE sktjf_extra_lessons"); sql.execSQL("DROP TABLE nittc_year_transitions"); removeExtraLessonColumn(sql, "tasks"); removeExtraLessonColumn(sql, "plans"); removeSchoolEventColumns(sql); sql.version = 53
             }
             val migrated = open()
@@ -109,7 +112,8 @@ class NittcProfileMigrationTest {
             val transition = NittcYearTransitionEntity(2028, NittcYearOutcome.GRADUATED.name)
             dao.upsertNittcYearTransitions(listOf(transition))
             val backup = JSONObject(repository.exportAllData())
-            assertEquals(24, backup.getInt("version"))
+            assertEquals(27, backup.getInt("version"))
+            assertEquals(0, backup.getJSONArray("schoolVacations").length())
             assertFalse(repository.exportSyncPayload().toString().contains("nittcProfile"))
             assertFalse(repository.exportSyncPayload().toString().contains("nittcYearTransitions"))
             val syncPayload = repository.exportSyncPayload()
@@ -121,7 +125,7 @@ class NittcProfileMigrationTest {
             repository.importAllData(backup.toString(), requireSettings = true)
             assertEquals("NITTC", dao.getUsageMode()!!.mode)
             assertEquals(listOf(first, second), dao.getNittcProfilesOnce())
-            assertEquals(source.copy(requiresRelinking = true), dao.getSktjfSourceStates().single())
+            assertEquals(source, dao.getSktjfSourceStates().single())
             assertEquals(listOf(transition), dao.getNittcYearTransitions())
             val invalid = JSONObject(backup.toString())
             invalid.getJSONArray("nittcYearTransitions").getJSONObject(0).put("outcome", "INVALID")
@@ -150,14 +154,59 @@ class NittcProfileMigrationTest {
             fresh.schedulerDao().upsertTask(TaskEntity(id = 93, subject = "数学", title = "課題", dueDate = date, createdDate = date))
             fresh.close()
             context.openOrCreateDatabase(name, Context.MODE_PRIVATE, null).use { sql ->
+                sql.execSQL("DROP TABLE school_vacations")
                 sql.execSQL("DROP TABLE nittc_year_transitions"); removeExtraLessonColumn(sql, "tasks"); removeExtraLessonColumn(sql, "plans"); removeSchoolEventColumns(sql); sql.version = 55
             }
-            val migrated = Room.databaseBuilder(context, AppDatabase::class.java, name).addMigrations(AppDatabase.MIGRATION_55_56, AppDatabase.MIGRATION_56_57, AppDatabase.MIGRATION_57_58).build()
+            val migrated = Room.databaseBuilder(context, AppDatabase::class.java, name)
+                .addMigrations(AppDatabase.MIGRATION_55_56, AppDatabase.MIGRATION_56_57, AppDatabase.MIGRATION_57_58, AppDatabase.MIGRATION_58_59).build()
             try {
                 assertEquals(listOf(profile), migrated.schedulerDao().getNittcProfilesOnce())
                 assertEquals("課題", migrated.schedulerDao().getTaskById(93)?.title)
                 assertTrue(migrated.schedulerDao().getNittcYearTransitions().isEmpty())
             } finally { migrated.close() }
+        } finally { context.deleteDatabase(name) }
+    }
+
+    @Test fun migrationFrom58KeepsManualBreaksAndOfficialDaysStayReversible() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "school-vacations-${UUID.randomUUID()}.db"
+        val march = LocalDate.of(2027, 3, 31)
+        val april = march.plusDays(1)
+        val manual = LongBreakEntity(12, "手動の休み", march.minusMonths(2), march.minusMonths(2))
+        try {
+            val fresh = Room.databaseBuilder(context, AppDatabase::class.java, name).build()
+            try {
+                val dao = fresh.schedulerDao()
+                dao.upsertLongBreak(manual)
+                dao.upsertDayTypes(listOf(DayTypeEntity(march, DayType.A), DayTypeEntity(april, DayType.B)))
+                dao.upsertUsageMode(UsageModeEntity(mode = SchedulerUsageMode.NITTC.name))
+            } finally { fresh.close() }
+            context.openOrCreateDatabase(name, Context.MODE_PRIVATE, null).use { sql ->
+                sql.execSQL("DROP TABLE school_vacations")
+                sql.version = 58
+            }
+            val db = Room.databaseBuilder(context, AppDatabase::class.java, name)
+                .addMigrations(AppDatabase.MIGRATION_58_59).build()
+            try {
+                val dao = db.schedulerDao()
+                assertEquals(listOf(manual), dao.getLongBreaksOnce())
+                assertTrue(dao.getSchoolVacations().isEmpty())
+                val repository = SchedulerRepository(db, UiDesignPreferences(context))
+                val period = SktjfVacation("2026-year_end", "year_end", "学年末休業",
+                    LocalDate.of(2027, 2, 20), null, march, 4,
+                    listOf(SktjfVacationSource("calendar.pdf", null, "a".repeat(64), 1)))
+                val preview = repository.previewSchoolVacations("2026.F.1", listOf(period))
+                assertTrue(dao.getSchoolVacations().isEmpty())
+                assertTrue(repository.applySchoolVacations(preview, setOf(period.id)))
+                val vacation = dao.getSchoolVacations().single()
+                assertEquals(period.id, vacation.id)
+                assertNull(vacation.local?.end)
+                assertEquals(DayType.HOLIDAY, dao.getEffectiveDayType(march)?.dayType)
+                assertEquals(DayType.A, dao.getDayType(march)?.dayType)
+                assertEquals(DayType.B, dao.getEffectiveDayType(april)?.dayType)
+                assertTrue(repository.editSchoolVacation(vacation, null))
+                assertEquals(DayType.A, dao.getEffectiveDayType(march)?.dayType)
+            } finally { db.close() }
         } finally { context.deleteDatabase(name) }
     }
 

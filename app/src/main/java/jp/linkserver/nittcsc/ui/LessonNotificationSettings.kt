@@ -1,5 +1,9 @@
 package jp.linkserver.nittcsc.ui
 
+import jp.linkserver.nittcsc.logic.sameSubject
+import jp.linkserver.nittcsc.logic.subjectContains
+import jp.linkserver.nittcsc.logic.subjectIdentityKey
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -186,11 +190,11 @@ private fun LessonNotificationExclusionDialog(
     var showSubjectSuggestions by rememberSaveable { mutableStateOf(false) }
     val filteredSubjects = remember(subject, subjectSuggestions) {
         subjectSuggestions.asSequence().map { it.trim() }.filter { it.isNotBlank() }
-            .filter { subject.isBlank() || it.contains(subject.trim(), ignoreCase = true) }
-            .distinct().sorted().take(8).toList()
+            .filter { subject.isBlank() || subjectContains(it, subject) }
+            .distinctBy(::subjectIdentityKey).sorted().take(8).toList()
     }
     val teachers = remember(subject, subjectTeacherCandidates) {
-        subjectTeacherCandidates.entries.firstOrNull { it.key.equals(subject.trim(), ignoreCase = true) }
+        subjectTeacherCandidates.entries.firstOrNull { sameSubject(it.key, subject) }
             ?.value.orEmpty().map { it.trim() }.filter { it.isNotBlank() }.distinct().sorted()
     }
     LaunchedEffect(subject.trim(), teachers) {

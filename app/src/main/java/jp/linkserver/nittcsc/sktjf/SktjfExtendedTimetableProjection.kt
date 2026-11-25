@@ -17,6 +17,8 @@ internal fun projectSktjfExtendedTimetable(
     existingExtras: List<SktjfExtraLessonEntity>, resolved: SktjfResolvedLessonMerge,
     newId: () -> String = { UUID.randomUUID().toString() }
 ): SktjfExtendedProjection {
+    // Until time-dependent storage and display are connected, never discard a week restriction.
+    if (resolved.lessons.any { it.content.weekRange != null }) return SktjfExtendedProjection.Blocked
     val termCode = if (term == TimetableTerm.FIRST) "S" else "F"
     if (existingExtras.any { it.academicYear != year || it.term != termCode || it.classId != classId } ||
         runCatching { SktjfExtraLessonBackup.encode(existingExtras) }.isFailure) return SktjfExtendedProjection.Blocked

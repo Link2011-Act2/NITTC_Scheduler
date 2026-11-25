@@ -2,6 +2,7 @@ package jp.linkserver.nittcsc.sktjf
 
 import org.junit.Assert.*
 import org.junit.Test
+import jp.linkserver.nittcsc.logic.LessonWeekRange
 
 class SktjfMergePlannerTest {
     private fun resource(name: String) = requireNotNull(javaClass.getResourceAsStream("/sktjf/$name")).use { it.readBytes() }
@@ -23,6 +24,50 @@ class SktjfMergePlannerTest {
         assertEquals("新しい科目", result.content.subject)
     }
 
+    @Test fun weekRangeChangesAreComparedAndUserEditsRemainProtected() {
+        val original=document();val source=original.lessons.single().copy(weekRange=SktjfV2Range(LessonWeekRange(start=9),"（9週〜）"))
+        val old=original.copy(lessons=listOf(source));val local=SktjfLocalLesson("lesson:71:A",source.id,source.content())
+        val updated=old.copy(lessons=listOf(source.copy(weekRange=SktjfV2Range(LessonWeekRange(start=10),"（10週〜）"))))
+        val plan=SktjfLessonMergePlan.create(baseline(old),partition(updated,listOf(local)),updated)
+        assertTrue(plan.conflicts.isEmpty())
+        val result=plan.resolve(emptyMap())
+        assertEquals(10,result.lessons.single().content.weekRange?.range?.start)
+        assertEquals(10,result.baseline.lessons.getValue(source.id).weekRange?.range?.start)
+        val edited=local.copy(content=local.content.copy(subject="手動編集"))
+        val conflict=SktjfLessonMergePlan.create(baseline(old),partition(updated,listOf(edited)),updated)
+        assertEquals(SktjfConflictReason.BOTH_CHANGED,conflict.conflicts.single().reason)
+        assertEquals("手動編集",conflict.resolve(mapOf(source.id to SktjfConflictChoice.KEEP_LOCAL)).lessons.single().content.subject)
+    }
+
+    @Test fun romanNumeralSpellingDoesNotCreateMergeConflictsOrRewriteLocalText() {
+        val template = document(); val source = template.lessons.single().copy(subject = "英語Ⅱ")
+        val old = template.copy(lessons = listOf(source))
+        val local = SktjfLocalLesson("lesson:71:A", source.id, source.content().copy(subject = "英語II"))
+        val next = old.copy(revision = "2026.S.1", lessons = listOf(source.copy(subject = "英語II")))
+        val plan = SktjfLessonMergePlan.create(baseline(old), partition(next, listOf(local)), next)
+        assertTrue(plan.conflicts.isEmpty())
+        assertEquals(SktjfLessonReviewStatus.UNCHANGED, plan.reviewItems.single().status)
+        assertEquals("英語II", plan.resolve(emptyMap()).lessons.single().content.subject)
+        val different = next.copy(lessons = listOf(source.copy(subject = "英語I")))
+        val change = SktjfLessonMergePlan.create(baseline(old), partition(different, listOf(local)), different)
+        assertEquals(SktjfLessonReviewStatus.AUTOMATIC, change.reviewItems.single().status)
+    }
+
+    @Test fun automaticUpdateCanBeExcludedAndLocalThenRemainsProtected() {
+        val old = document(); val lesson = old.lessons.single()
+        val local = SktjfLocalLesson("lesson:71:A", lesson.id, lesson.content())
+        val next = old.copy(revision = "2026.S.1", lessons = listOf(lesson.copy(subject = "配信の変更")))
+        val plan = SktjfLessonMergePlan.create(baseline(old), partition(next, listOf(local)), next)
+        assertTrue(plan.conflicts.isEmpty())
+        assertEquals(SktjfLessonReviewStatus.AUTOMATIC, plan.reviewItems.single().status)
+        val kept = plan.resolve(mapOf(lesson.id to SktjfConflictChoice.KEEP_LOCAL))
+        assertEquals(lesson.subject, kept.lessons.single().content.subject)
+        val again = SktjfLessonMergePlan.create(kept.baseline, partition(next, listOf(local)), next)
+        assertEquals(SktjfConflictReason.LOCAL_CHANGED, again.conflicts.single().reason)
+        assertEquals(lesson.subject, again.resolve(mapOf(lesson.id to SktjfConflictChoice.KEEP_LOCAL)).lessons.single().content.subject)
+        assertEquals("配信の変更", again.resolve(mapOf(lesson.id to SktjfConflictChoice.APPLY_INCOMING)).lessons.single().content.subject)
+    }
+
     @Test fun profileVariantReplacesOnlyUneditedSourceAndPreservesIdentity() {
         val old = document(); val lesson = old.lessons.single()
         val local = SktjfLocalLesson("lesson:71:A", lesson.id, lesson.content())
@@ -36,7 +81,9 @@ class SktjfMergePlannerTest {
         val edited = local.copy(content = local.content.copy(subject = "手動変更"))
         val conflict = SktjfLessonMergePlan.create(baseline(old), partition(next, listOf(edited)), next)
         assertEquals(SktjfConflictReason.BOTH_CHANGED, conflict.conflicts.single().reason)
-        assertEquals("手動変更", conflict.resolve(mapOf("other-profile" to SktjfConflictChoice.KEEP_LOCAL)).lessons.single().content.subject)
+        val kept = conflict.resolve(mapOf("other-profile" to SktjfConflictChoice.KEEP_LOCAL)).lessons.single()
+        assertEquals("手動変更", kept.content.subject)
+        assertEquals("other-profile", kept.sourceLessonId)
     }
 
     @Test fun concurrentEditsAndLocalDeletionRequireExplicitChoice() {
@@ -72,7 +119,7 @@ class SktjfMergePlannerTest {
         }
     }
 
-    @Test fun deletedSourceWithLocalEditRequiresChoiceAndKeepUnlinksIt() {
+    @Test fun deletedSourceWithLocalEditRemainsSelectableAfterKeepingIt() {
         val old = document(); val lesson = old.lessons.single()
         val local = SktjfLocalLesson("source", lesson.id, lesson.content().copy(subject = "手動編集"))
         val next = old.copy(lessons = emptyList(), slotCoverage = old.slotCoverage.map { it.copy(state = SktjfSlotState.EMPTY) })
@@ -80,8 +127,11 @@ class SktjfMergePlannerTest {
         assertTrue(plan.conflicts.single().isDeletion)
         val kept = plan.resolve(mapOf(lesson.id to SktjfConflictChoice.KEEP_LOCAL))
         assertEquals("手動編集", kept.lessons.single().content.subject)
-        assertNull(kept.lessons.single().sourceLessonId)
-        assertNull(kept.baseline.lessons[lesson.id])
+        assertEquals(lesson.id, kept.lessons.single().sourceLessonId)
+        assertEquals(lesson.content(), kept.baseline.lessons[lesson.id])
+        val again = SktjfLessonMergePlan.create(kept.baseline, partition(next, listOf(local)), next)
+        assertTrue(again.conflicts.single().isDeletion)
+        assertTrue(again.resolve(mapOf(lesson.id to SktjfConflictChoice.APPLY_INCOMING)).lessons.isEmpty())
         val removed = plan.resolve(mapOf(lesson.id to SktjfConflictChoice.APPLY_INCOMING))
         assertTrue(removed.lessons.isEmpty()); assertEquals(setOf("source"), removed.clearedLocalKeys)
     }
@@ -128,6 +178,22 @@ class SktjfMergePlannerTest {
         assertEquals(SktjfCycle.WEEKLY, merged.lessons.single().content.cycle)
     }
 
+    @Test fun changingWeeklyToAlternatingAfterImportConflictsWithLaterWeeklyUpdate() {
+        val original = document(); val lesson = original.lessons.single().copy(cycle = SktjfCycle.WEEKLY)
+        val old = original.copy(lessons = listOf(lesson))
+        val a = SktjfLocalLesson("base:71:A", null, lesson.content().copy(cycle = SktjfCycle.A, subject = "手動A"))
+        val b = SktjfLocalLesson("base:71:B", null, lesson.content().copy(cycle = SktjfCycle.B, subject = "手動B"))
+        val next = old.copy(revision = "2026.S.1", lessons = listOf(lesson.copy(subject = "配信の変更")))
+        val plan = SktjfLessonMergePlan.create(baseline(old), partition(next, listOf(a, b)), next)
+        assertEquals(SktjfConflictReason.OVERLAPPING_LOCAL, plan.conflicts.single().reason)
+        val kept = plan.resolve(mapOf(lesson.id to SktjfConflictChoice.KEEP_LOCAL))
+        assertEquals(setOf("手動A", "手動B"), kept.lessons.map { it.content.subject }.toSet())
+        val replaced = plan.resolve(mapOf(lesson.id to SktjfConflictChoice.APPLY_INCOMING))
+        assertEquals("配信の変更", replaced.lessons.single().content.subject)
+        assertEquals("base:71:A", replaced.lessons.single().localKey)
+        assertEquals(setOf("base:71:B"), replaced.replacedLocalKeys)
+    }
+
     @Test fun mutuallyExclusiveAttributesAndDifferentCyclesCoexist() {
         val next = document(); val lesson = next.lessons.single()
         val notDd = SktjfLocalLesson("manual:1", null, lesson.content().copy(conditions = SktjfConditions(emptySet(), setOf("DD"))))
@@ -148,9 +214,18 @@ class SktjfMergePlannerTest {
         val local = SktjfLocalLesson("lesson:71:A", lesson.id, lesson.content().copy(subject = "手動版", teachers = teachers))
         val plan = SktjfLessonMergePlan.create(baseline(doc), partition(doc, listOf(local)), doc)
         teachers += "後から追加"
-        assertTrue(plan.conflicts.isEmpty())
-        assertEquals("手動版", plan.resolve(emptyMap()).lessons.single().content.subject)
-        assertEquals(listOf("手動の先生"), plan.resolve(emptyMap()).lessons.single().content.teachers)
+        assertEquals(SktjfConflictReason.LOCAL_CHANGED, plan.conflicts.single().reason)
+        val kept = plan.resolve(mapOf(lesson.id to SktjfConflictChoice.KEEP_LOCAL)).lessons.single()
+        assertEquals("手動版", kept.content.subject)
+        assertEquals(listOf("手動の先生"), kept.content.teachers)
+    }
+
+    @Test fun deletedLocalLessonCanBeRestoredEvenWhenDistributionIsUnchanged() {
+        val doc = document(); val lesson = doc.lessons.single()
+        val plan = SktjfLessonMergePlan.create(baseline(doc), partition(doc, emptyList()), doc)
+        assertEquals(SktjfConflictReason.LOCAL_CHANGED, plan.conflicts.single().reason)
+        assertTrue(plan.resolve(mapOf(lesson.id to SktjfConflictChoice.KEEP_LOCAL)).lessons.isEmpty())
+        assertEquals(lesson.subject, plan.resolve(mapOf(lesson.id to SktjfConflictChoice.APPLY_INCOMING)).lessons.single().content.subject)
     }
 
     @Test fun rejectsWrongProfileDuplicateSourcesAndLostBaseline() {

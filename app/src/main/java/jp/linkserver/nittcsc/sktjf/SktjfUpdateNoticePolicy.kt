@@ -14,11 +14,15 @@ internal sealed interface SktjfNoticeDecision {
 internal fun sktjfNoticeDecision(key: SktjfUpdateKey, incoming: String, applied: String?, dismissed: String?): SktjfNoticeDecision {
     if (key.academicYear !in 1900..9998 || key.term !in setOf("S", "F") ||
         !Regex("^(1-[1-4]|[2-5][MEIB]|AC-[A-Z0-9]+)$").matches(key.classId)) return SktjfNoticeDecision.Invalid
-    val pattern = Regex("^${key.academicYear}\\.${key.term}\\.(0|[1-9][0-9]{0,127})$")
-    fun parse(value: String): BigInteger? = pattern.matchEntire(value)?.groupValues?.get(1)?.let(::BigInteger)
-    val revision = parse(incoming) ?: return SktjfNoticeDecision.Invalid
-    val appliedNumber = applied?.let { parse(it) ?: return SktjfNoticeDecision.Invalid }
-    val dismissedNumber = dismissed?.let { parse(it) ?: return SktjfNoticeDecision.Invalid }
+    val incomingTag = parseSktjfRevision(incoming)
+        ?.takeIf { it.year == key.academicYear && it.term == key.term } ?: return SktjfNoticeDecision.Invalid
+    fun parse(value: String) = parseSktjfRevision(value)
+        ?.takeIf { it.year == key.academicYear && it.term == key.term }
+    val revision = incomingTag.number
+    val appliedTag = applied?.let { parse(it) ?: return SktjfNoticeDecision.Invalid }
+    val dismissedTag = dismissed?.let { parse(it) ?: return SktjfNoticeDecision.Invalid }
+    val appliedNumber = appliedTag?.takeIf { it.beta == incomingTag.beta }?.number
+    val dismissedNumber = dismissedTag?.takeIf { it.beta == incomingTag.beta }?.number
     if ((appliedNumber != null && revision <= appliedNumber) || (dismissedNumber != null && revision <= dismissedNumber))
         return SktjfNoticeDecision.AlreadyHandled
     return SktjfNoticeDecision.Offer(if (revision == BigInteger.ZERO) SktjfUpdateKind.INITIAL else SktjfUpdateKind.REVISION)

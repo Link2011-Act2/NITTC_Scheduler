@@ -11,9 +11,11 @@ import jp.linkserver.nittcsc.data.validateProfile
 import jp.linkserver.nittcsc.logic.TimetableTerm
 import jp.linkserver.nittcsc.logic.academicYearForDate
 import jp.linkserver.nittcsc.logic.timetableTermForDate
+import jp.linkserver.nittcsc.logic.lessonWeekApplies
 import java.time.LocalDate
 
-internal data class SktjfVisibleExtra(val id: String, val sourceLessonId: String?, val content: SktjfLessonContent, val storedContentJson: String = "")
+internal data class SktjfVisibleExtra(val id: String, val sourceLessonId: String?, val content: SktjfLessonContent, val storedContentJson: String = "",
+    val confirmedWeeks: Map<LocalDate, Int> = emptyMap())
 private data class ExtraSlot(val year: Int, val term: String, val day: Int, val period: Int)
 
 /** Decode and group outside the UI render path, preserving every applicable lesson. */
@@ -27,9 +29,11 @@ class SktjfExtraLessonResolver private constructor(private val bySlot: Map<Extra
         if (cycle == DayType.HOLIDAY) return emptyList()
         val term = if (timetableTermForDate(date, semesters, secondTermMonth, secondTermDay) == TimetableTerm.FIRST) "S" else "F"
         return bySlot[ExtraSlot(academicYearForDate(date), term, day, period)].orEmpty().filter {
-            it.content.cycle == SktjfCycle.WEEKLY ||
+            val matchingCycle = it.content.cycle == SktjfCycle.WEEKLY ||
                 (it.content.cycle == SktjfCycle.A && cycle == DayType.A) ||
                 (it.content.cycle == SktjfCycle.B && cycle == DayType.B)
+            val range = it.content.weekRange?.range
+            matchingCycle && (range == null || lessonWeekApplies(range, date, it.confirmedWeeks) == true)
         }
     }
 
@@ -44,10 +48,12 @@ class SktjfExtraLessonResolver private constructor(private val bySlot: Map<Extra
             for (lesson in lessons) {
                 val (profile, attributes) = byYear[lesson.academicYear] ?: continue
                 if (profile.classId != lesson.classId) continue
-                val content = SktjfBaselineCodec.decode(lesson.contentJson).lessons.lessons.getValue(lesson.id)
+                val baseline = SktjfBaselineCodec.decode(lesson.contentJson)
+                val content = baseline.lessons.lessons.getValue(lesson.id)
                 if (!content.conditions.matches(attributes)) continue
                 val slot = ExtraSlot(lesson.academicYear, lesson.term, content.dayOfWeek, content.period)
-                result.getOrPut(slot) { mutableListOf() } += SktjfVisibleExtra(lesson.id, lesson.sourceLessonId, content, lesson.contentJson)
+                result.getOrPut(slot) { mutableListOf() } += SktjfVisibleExtra(lesson.id, lesson.sourceLessonId, content, lesson.contentJson,
+                    baseline.weeks.mapValues { it.value.number })
             }
             return SktjfExtraLessonResolver(result.mapValues { (_, value) -> value.sortedBy { it.id } })
         }

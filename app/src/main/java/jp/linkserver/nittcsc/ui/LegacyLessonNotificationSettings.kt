@@ -1,5 +1,9 @@
 package jp.linkserver.nittcsc.ui
 
+import jp.linkserver.nittcsc.logic.sameSubject
+import jp.linkserver.nittcsc.logic.subjectContains
+import jp.linkserver.nittcsc.logic.subjectIdentityKey
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
@@ -92,8 +96,8 @@ internal fun LegacyLessonStartNotificationSettingsContent(
             .asSequence()
             .map { it.trim() }
             .filter { it.isNotBlank() }
-            .filter { query.isBlank() || it.contains(query, ignoreCase = true) }
-            .distinct()
+            .filter { query.isBlank() || subjectContains(it, query) }
+            .distinctBy(::subjectIdentityKey)
             .sorted()
             .take(8)
             .toList()
@@ -102,7 +106,7 @@ internal fun LegacyLessonStartNotificationSettingsContent(
         val key = subject.trim()
         if (key.isBlank()) emptyList()
         else subjectTeacherCandidates.entries
-            .firstOrNull { it.key.equals(key, ignoreCase = true) }
+            .firstOrNull { sameSubject(it.key, key) }
         ?.value.orEmpty()
             .map { it.trim() }
             .filter { it.isNotBlank() }

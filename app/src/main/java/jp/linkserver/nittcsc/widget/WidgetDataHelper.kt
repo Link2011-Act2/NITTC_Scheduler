@@ -1,5 +1,8 @@
 package jp.linkserver.nittcsc.widget
 
+import jp.linkserver.nittcsc.data.getEffectiveDayTypes
+import jp.linkserver.nittcsc.logic.sameSubject
+
 import android.content.Context
 import jp.linkserver.nittcsc.data.AppDatabase
 import jp.linkserver.nittcsc.data.ChangedLessonEntity
@@ -29,6 +32,11 @@ import jp.linkserver.nittcsc.logic.forExamTimetable
 import jp.linkserver.nittcsc.logic.generateClassSlots
 import jp.linkserver.nittcsc.logic.timetableTermForDate
 import jp.linkserver.nittcsc.sktjf.SktjfExtraLessonResolver
+import jp.linkserver.nittcsc.sktjf.SktjfTimedSchedule
+import jp.linkserver.nittcsc.sktjf.SktjfTimedSlotResult
+import jp.linkserver.nittcsc.sktjf.SktjfWeekSelection
+import jp.linkserver.nittcsc.sktjf.SktjfCycle
+import jp.linkserver.nittcsc.sktjf.resolvedLesson
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
@@ -47,7 +55,8 @@ data class WidgetData(
     val examLessons: Map<Pair<LocalDate, Int>, ExamLessonEntity>,
     val incompleteTasks: List<TaskEntity>,
     val incompletePlans: List<PlanEntity>,
-    val extraResolver: SktjfExtraLessonResolver? = null
+    val extraResolver: SktjfExtraLessonResolver? = null,
+    val timedSchedule: SktjfTimedSchedule? = null
 )
 
 data class NextLessonWidgetEntry(
@@ -71,12 +80,14 @@ object WidgetDataHelper {
         val profiles = dao.getNittcProfilesOnce()
         val extraLessons = dao.getSktjfExtraLessons()
         val extraResolver = runCatching { SktjfExtraLessonResolver.create(mode, profiles, extraLessons) }.getOrNull()
-        val dayTypes = dao.getDayTypesOnce().map { it.forTimetable(settings?.enableAbTimetable != false) }
+        val dayTypes = dao.getEffectiveDayTypes().map { it.forTimetable(settings?.enableAbTimetable != false) }
         val dayTypeEntities = dayTypes.associateBy { it.date }
         val dayTypeMap = dayTypes.associate { it.date to it.dayType }
         val cancelledLessons = dao.getCancelledLessonsOnce().map { it.date to it.slotIndex }.toSet()
         val changedLessons = dao.getChangedLessonsOnce().associateBy { it.date to it.slotIndex }
-        val lessons = dao.getLessonsOnce().map { it.forTimetable(settings?.enableAbTimetable != false) }.associateBy { it.lessonKey() }
+        val storedLessons = dao.getLessonsOnce()
+        val timedSchedule = SktjfTimedSchedule.create(mode, profiles, dao.getSktjfSourceStates(), storedLessons, extraLessons)
+        val lessons = storedLessons.map { it.forTimetable(settings?.enableAbTimetable != false) }.associateBy { it.lessonKey() }
         val examDaySchedules = dao.getExamDaySchedulesOnce().filter { settings?.enableExamTimetable != false }.associateBy { it.date }
         val examLessons = dao.getExamLessonsOnce().filter { settings?.enableExamTimetable != false }.associateBy { it.date to it.slotIndex }
         val incompleteTasks = dao.getIncompleteTasksOnce()
@@ -109,7 +120,8 @@ object WidgetDataHelper {
             examLessons = examLessons,
             incompleteTasks = incompleteTasks,
             incompletePlans = incompletePlans,
-            extraResolver = extraResolver
+            extraResolver = extraResolver,
+            timedSchedule = timedSchedule
         )
     }
 
@@ -127,7 +139,8 @@ object WidgetDataHelper {
         changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity> = emptyMap(),
         semesterTimetablesEnabled: Boolean = false,
         secondTermStartMonth: Int = 10,
-        secondTermStartDay: Int = 1
+        secondTermStartDay: Int = 1,
+        timedSchedule: SktjfTimedSchedule? = null
     ): ResolvedLesson? {
         val dayTypeEntity = dayTypeEntities[date]
         val dayType = dayTypeEntity?.dayType ?: dayTypeMap[date] ?: defaultDayType(date)
@@ -148,18 +161,23 @@ object WidgetDataHelper {
         ]
         val baseLesson = when (lesson?.mode) {
             LessonMode.WEEKLY -> if (lesson.weeklySubject.isBlank()) null
-            else ResolvedLesson(lesson.weeklySubject, lesson.weeklyTeacher, lesson.weeklyLocation)
+            else ResolvedLesson(lesson.weeklySubject, lesson.weeklyTeacher, lesson.weeklyLocation, lessonId = lesson.id.takeIf { it > 0 })
 
             LessonMode.ALTERNATING -> when (lessonDayType) {
                 DayType.A -> if (lesson.aSubject.isBlank()) null
-                else ResolvedLesson(lesson.aSubject, lesson.aTeacher, lesson.aLocation)
+                else ResolvedLesson(lesson.aSubject, lesson.aTeacher, lesson.aLocation, lessonId = lesson.id.takeIf { it > 0 })
                 DayType.B -> if (lesson.bSubject.isBlank()) null
-                else ResolvedLesson(lesson.bSubject, lesson.bTeacher, lesson.bLocation)
+                else ResolvedLesson(lesson.bSubject, lesson.bTeacher, lesson.bLocation, lessonId = lesson.id.takeIf { it > 0 })
                 DayType.HOLIDAY -> null
             }
             null -> null
         }
-        return applyChangedLesson(baseLesson, changedLessons[date to slotIndex])
+        val cycle = if (lessonDayType == DayType.B) SktjfCycle.B else SktjfCycle.A
+        val selected = when (val timed = timedSchedule?.resolve(academicYearForDate(date), timetableTerm, lessonDayOfWeek, slotIndex + 1, date, cycle)) {
+            null, SktjfTimedSlotResult.Unmanaged -> baseLesson
+            is SktjfTimedSlotResult.Managed -> (timed.selection as? SktjfWeekSelection.Selected)?.value?.resolvedLesson()
+        }
+        return applyChangedLesson(selected, changedLessons[date to slotIndex])
     }
 
     fun classSlotsForDate(data: WidgetData, date: LocalDate): List<ClassSlot> {
@@ -214,10 +232,16 @@ object WidgetDataHelper {
             changedLessons = data.changedLessons,
             semesterTimetablesEnabled = data.settings?.enableSemesterTimetables == true,
             secondTermStartMonth = data.settings?.secondTermStartMonth ?: 10,
-            secondTermStartDay = data.settings?.secondTermStartDay ?: 1
+            secondTermStartDay = data.settings?.secondTermStartDay ?: 1,
+            timedSchedule = data.timedSchedule
         )
         if (slotIndex !in 0..11) return listOfNotNull(base)
         val day = data.dayTypeEntities[date] ?: DayTypeEntity(date, data.dayTypeMap[date] ?: defaultDayType(date))
+        val cycle = if ((day.overrideLessonDayType ?: day.dayType) == DayType.B) SktjfCycle.B else SktjfCycle.A
+        val term = timetableTermForDate(date, data.settings?.enableSemesterTimetables == true,
+            data.settings?.secondTermStartMonth ?: 10, data.settings?.secondTermStartDay ?: 1)
+        if (data.timedSchedule?.resolve(academicYearForDate(date), term, day.overrideLessonDayOfWeek ?: date.dayOfWeek.value,
+                slotIndex + 1, date, cycle) is SktjfTimedSlotResult.Managed) return listOfNotNull(base)
         val extra = data.extraResolver?.lessonsOn(date, slotIndex + 1, day,
             data.settings?.enableSemesterTimetables == true, data.settings?.secondTermStartMonth ?: 10,
             data.settings?.secondTermStartDay ?: 1).orEmpty().map {
@@ -291,9 +315,9 @@ object WidgetDataHelper {
         return roundedEndHour * 60
     }
 
-    private fun matchesWidgetLesson(subject: String, extraLessonId: String?, lesson: ResolvedLesson): Boolean =
+    private fun matchesWidgetLesson(subject: String, lessonId: Long?, extraLessonId: String?, lesson: ResolvedLesson): Boolean =
         if (extraLessonId != null) extraLessonId == lesson.extraLessonId
-        else subject.trim().equals(lesson.subject.trim(), ignoreCase = true)
+        else (lessonId == null || lesson.lessonId == null || lessonId == lesson.lessonId) && sameSubject(subject, lesson.subject)
 
     /** 授業時間帯に提出期限がある未完了課題を返す */
     fun tasksForSlot(
@@ -306,7 +330,7 @@ object WidgetDataHelper {
         val slotEnd = slot.end.hour * 60 + slot.end.minute
         return data.incompleteTasks.filter { task ->
             task.dueDate == date &&
-                    matchesWidgetLesson(task.subject, task.extraLessonId, lesson) &&
+                    matchesWidgetLesson(task.subject, task.lessonId, task.extraLessonId, lesson) &&
                     (task.dueHour * 60 + task.dueMinute) in slotStart..slotEnd
         }
     }
@@ -322,7 +346,7 @@ object WidgetDataHelper {
         val slotEnd = slot.end.hour * 60 + slot.end.minute
         return data.incompletePlans.filter { plan ->
             plan.dueDate == date &&
-                    matchesWidgetLesson(plan.subject, plan.extraLessonId, lesson) &&
+                    matchesWidgetLesson(plan.subject, plan.lessonId, plan.extraLessonId, lesson) &&
                     (plan.dueHour * 60 + plan.dueMinute) in slotStart..slotEnd
         }
     }
@@ -332,7 +356,7 @@ object WidgetDataHelper {
         if (lesson == null) return false
         return data.incompleteTasks.any { task ->
             !task.isCompleted &&
-                    matchesWidgetLesson(task.subject, task.extraLessonId, lesson)
+                    matchesWidgetLesson(task.subject, task.lessonId, task.extraLessonId, lesson)
         }
     }
 
@@ -341,7 +365,7 @@ object WidgetDataHelper {
         if (lesson == null) return false
         return data.incompleteTasks.any { task ->
             task.dueDate == date &&
-                    matchesWidgetLesson(task.subject, task.extraLessonId, lesson)
+                    matchesWidgetLesson(task.subject, task.lessonId, task.extraLessonId, lesson)
         }
     }
 
@@ -350,7 +374,7 @@ object WidgetDataHelper {
         if (lesson == null) return false
         return data.incompletePlans.any { plan ->
             !plan.isCompleted &&
-                    matchesWidgetLesson(plan.subject, plan.extraLessonId, lesson)
+                    matchesWidgetLesson(plan.subject, plan.lessonId, plan.extraLessonId, lesson)
         }
     }
 
@@ -359,7 +383,7 @@ object WidgetDataHelper {
         if (lesson == null) return false
         return data.incompletePlans.any { plan ->
             plan.dueDate == date &&
-                    matchesWidgetLesson(plan.subject, plan.extraLessonId, lesson)
+                    matchesWidgetLesson(plan.subject, plan.lessonId, plan.extraLessonId, lesson)
         }
     }
 

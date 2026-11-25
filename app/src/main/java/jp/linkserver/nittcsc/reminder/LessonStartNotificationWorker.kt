@@ -1,5 +1,7 @@
 package jp.linkserver.nittcsc.reminder
 
+import jp.linkserver.nittcsc.logic.sameSubject
+
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -591,7 +593,7 @@ internal fun isExcluded(
     exclusions: List<LessonNotificationExclusionEntity>
 ): Boolean {
     return exclusions.any { exclusion ->
-        if (!lesson.subject.trim().equals(exclusion.subject.trim(), ignoreCase = true)) {
+        if (!sameSubject(lesson.subject, exclusion.subject)) {
             return@any false
         }
         if (!exclusion.matchTeacher) {

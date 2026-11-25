@@ -1,5 +1,10 @@
 package jp.linkserver.nittcsc.ui
 
+import jp.linkserver.nittcsc.logic.sameSubject
+import jp.linkserver.nittcsc.logic.normalizeSubjectRomanNumerals
+import jp.linkserver.nittcsc.logic.subjectContains
+import jp.linkserver.nittcsc.logic.subjectIdentityKey
+
 import jp.linkserver.nittcsc.ui.theme.appDialogSectionColor
 import jp.linkserver.nittcsc.ui.theme.appCardContainerColor
 import jp.linkserver.pyrite.screen.PyriteScreenTransition
@@ -149,6 +154,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.draw.alpha
@@ -447,6 +453,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel, openTransferRequest: Long =
             defaultYear = state.settings?.activeAcademicYear ?: 0,
             discover = viewModel::discoverSktjf, fetch = viewModel::fetchSktjf,
             preview = viewModel::previewSktjf, apply = viewModel::applySktjf,
+            previewTimed = viewModel::previewTimedSktjf,
             onApplied = {
                 rootScope.launch {
                     try {
@@ -579,6 +586,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
     var editingPlanId by rememberSaveable { mutableStateOf<Long?>(null) }
     var focusedPlanId by rememberSaveable { mutableStateOf<Long?>(null) }
     var prefillExtraLessonId by rememberSaveable { mutableStateOf<String?>(null) }
+    var prefillLessonId by rememberSaveable { mutableStateOf<Long?>(null) }
     var prefillSubject by rememberSaveable { mutableStateOf("") }
     var prefillTeacher by rememberSaveable { mutableStateOf("") }
     var prefillDueDateEpochDay by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -855,6 +863,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
 
     fun clearLessonTaskPrefill() {
         prefillExtraLessonId = null
+        prefillLessonId = null
         prefillSubject = ""
         prefillTeacher = ""
         prefillDueDateEpochDay = null
@@ -986,6 +995,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
         uiState.lessonNotificationExclusions,
         uiState.lessons,
         uiState.sktjfExtraResolver,
+        uiState.sktjfTimedSchedule,
         uiState.dayTypeEntities,
         uiState.changedLessons,
         uiState.cancelledLessons,
@@ -1003,6 +1013,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
         uiState.settings,
         uiState.lessons,
         uiState.sktjfExtraResolver,
+        uiState.sktjfTimedSchedule,
         uiState.dayTypeEntities,
         uiState.changedLessons,
         uiState.cancelledLessons,
@@ -1478,7 +1489,8 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
             dayTypeEntities = uiState.dayTypeEntities,
             semesterTimetablesEnabled = uiState.settings?.enableSemesterTimetables == true,
             secondTermStartMonth = uiState.settings?.secondTermStartMonth ?: 10,
-            secondTermStartDay = uiState.settings?.secondTermStartDay ?: 1
+            secondTermStartDay = uiState.settings?.secondTermStartDay ?: 1,
+            timedSchedule = uiState.sktjfTimedSchedule
         )
     }
 
@@ -1492,7 +1504,8 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
             changedLessons = uiState.changedLessons,
             semesterTimetablesEnabled = uiState.settings?.enableSemesterTimetables == true,
             secondTermStartMonth = uiState.settings?.secondTermStartMonth ?: 10,
-            secondTermStartDay = uiState.settings?.secondTermStartDay ?: 1
+            secondTermStartDay = uiState.settings?.secondTermStartDay ?: 1,
+            timedSchedule = uiState.sktjfTimedSchedule
         )
     }
 
@@ -2082,6 +2095,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                     defaultYear = uiState.settings?.activeAcademicYear ?: 0,
                     discover = viewModel::discoverSktjf, fetch = viewModel::fetchSktjf,
                     preview = viewModel::previewSktjf, apply = viewModel::applySktjf,
+                    previewTimed = viewModel::previewTimedSktjf,
                     onApplied = {
                         appScope.launch { snackbarHostState.showSnackbar(resources.getString(R.string.sktjf_applied)) }
                         appScope.launch {
@@ -2203,6 +2217,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                     naturalLanguageTaskDraft != null -> naturalLanguageTaskDraft
                     prefillSubject.isNotBlank() -> TaskEntity(
                         subject = prefillSubject,
+                        lessonId = prefillLessonId,
                         extraLessonId = prefillExtraLessonId,
                         teacher = prefillTeacher.takeIf { it.isNotBlank() },
                         title = "",
@@ -2216,6 +2231,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                 val prefillPlanTemplate = if (editingPlan == null && showPlanEditor && prefillSubject.isNotBlank()) {
                     TaskEntity(
                         subject = prefillSubject,
+                        lessonId = prefillLessonId,
                         extraLessonId = prefillExtraLessonId,
                         teacher = prefillTeacher.takeIf { it.isNotBlank() },
                         title = "",
@@ -2263,13 +2279,13 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                         ?.takeIf { it.isNotBlank() }
                         ?.let { aiSubject ->
                             naturalLanguageLessonCandidates.firstOrNull { candidate ->
-                                candidate.subject.equals(aiSubject, ignoreCase = true) &&
+                                sameSubject(candidate.subject, aiSubject) &&
                                     (
                                         aiResult.teacher.isNullOrBlank() ||
                                             candidate.teacher.equals(aiResult.teacher, ignoreCase = true)
                                         )
                             } ?: naturalLanguageLessonCandidates.firstOrNull { candidate ->
-                                candidate.subject.equals(aiSubject, ignoreCase = true)
+                                sameSubject(candidate.subject, aiSubject)
                             }
                         }
                     val resolvedSubject = matchedAiCandidate?.subject ?: fallbackResult.subject
@@ -2479,8 +2495,9 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                                             showPlanEditor = false
                                             focusedPlanId = plan.id.takeIf { it > 0 }
                                         },
-                                           onAddFromLesson = { subject, teacher, isPlan, date, time, isExamSlot ->
-                                               prefillExtraLessonId = null
+                                           onAddFromLesson = { subject, teacher, isPlan, date, time, isExamSlot, lessonId, extraLessonId ->
+                                               prefillExtraLessonId = extraLessonId.takeUnless { isExamSlot }
+                                               prefillLessonId = lessonId.takeUnless { isExamSlot }
                                                prefillSubject = subject
                                                prefillTeacher = lessonAutocompleteOptions
                                                    .resolveTeacherForAutoFill(subject, teacher).orEmpty()
@@ -2507,6 +2524,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                                            },
                                         onAddFromExtra = { lesson, isPlan, date, time ->
                                             prefillExtraLessonId = lesson.id
+                                            prefillLessonId = null
                                             prefillSubject = lesson.content.subject
                                             prefillTeacher = lesson.content.teachers.joinToString("、")
                                             prefillFromExamSlot = false
@@ -2665,8 +2683,13 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                                         timetableTarget = selectedTimetableTarget,
                                         useLargeScreenLayout = useLargeScreenLayout,
                                         onSelectDay = viewModel::selectDayOfWeek,
-                                        onAutoSaveLesson = viewModel::saveLessonWithoutNotification,
-                                        onSaveLesson = viewModel::saveLesson
+                                        onSaveTimedLesson = viewModel::editSktjfExtraLesson,
+                                        onAutoSaveLesson = { year, term, day, slot, draft, original ->
+                                            viewModel.saveLessonWithoutNotification(year, term, day, slot, draft, original)
+                                        },
+                                        onSaveLesson = { year, term, day, slot, draft, original, follow ->
+                                            viewModel.saveLesson(year, term, day, slot, draft, original, follow)
+                                        }
                                     )
 
                                     AppTab.AbTable -> AbTableScreen(
@@ -2682,6 +2705,10 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                                             viewModel::prepareNextAcademicYear,
                                         onUpdateTerm = viewModel::updateTerm,
                                         onSaveBreak = viewModel::saveLongBreak,
+                                        schoolVacations = if (uiState.usageMode?.mode == jp.linkserver.nittcsc.data.SchedulerUsageMode.NITTC.name) {
+                                            { SchoolVacationsSection(viewModel, uiState.settings?.activeAcademicYear
+                                                ?.takeIf { it > 0 } ?: jp.linkserver.nittcsc.logic.academicYearForDate(LocalDate.now())) }
+                                        } else null,
                                         onDeleteBreak = viewModel::deleteLongBreak,
                                         onOpenExamTimetables = {
                                             showExamTimetablePeriods = true
@@ -3110,8 +3137,9 @@ private fun TimetableInputScreen(
     timetableTarget: TimetableEditTarget,
     useLargeScreenLayout: Boolean,
     onSelectDay: (Int) -> Unit,
-    onAutoSaveLesson: (Int, TimetableTerm, Int, Int, LessonDraft) -> Unit,
-    onSaveLesson: (Int, TimetableTerm, Int, Int, LessonDraft) -> Unit
+    onSaveTimedLesson: suspend (jp.linkserver.nittcsc.sktjf.SktjfVisibleExtra, jp.linkserver.nittcsc.sktjf.SktjfExtraLessonDraft) -> Boolean,
+    onAutoSaveLesson: (Int, TimetableTerm, Int, Int, LessonDraft, LessonEntity?) -> Unit,
+    onSaveLesson: (Int, TimetableTerm, Int, Int, LessonDraft, LessonEntity?, Boolean) -> Unit
 ) {
     val dayLabels = listOf(
         DayOfWeek.MONDAY.value to R.string.weekday_monday,
@@ -3190,29 +3218,37 @@ private fun TimetableInputScreen(
                     slot.index
                 )
             ]
+            val alternatives = state.sktjfTimedSchedule?.alternativesFor(timetableTarget.academicYear,
+                timetableTarget.timetableTerm, state.selectedDayOfWeek, slot.index + 1).orEmpty()
+            Column(modifier = cardModifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             LessonEditorCard(
-                modifier = cardModifier,
+                modifier = Modifier.fillMaxWidth(),
                 title = slot.label,
                 lesson = lesson,
-                onAutoSave = { draft ->
+                linkedSubjects = if (lesson == null) emptyList() else
+                    state.tasks.filter { it.lessonId == lesson.id && it.extraLessonId == null }.map { it.subject } +
+                    state.plans.filter { it.lessonId == lesson.id && it.extraLessonId == null }.map { it.subject },
+                onAutoSave = { draft, original ->
                     onAutoSaveLesson(
                         timetableTarget.academicYear,
                         timetableTarget.timetableTerm,
                         state.selectedDayOfWeek,
                         slot.index,
-                        draft
+                        draft, original
                     )
                 },
-                onSave = { draft ->
+                onSave = { draft, original, follow ->
                     onSaveLesson(
                         timetableTarget.academicYear,
                         timetableTarget.timetableTerm,
                         state.selectedDayOfWeek,
                         slot.index,
-                        draft
+                        draft, original, follow
                     )
                 }
             )
+            TimedAlternativeEditors(alternatives, state.tasks, state.plans, onSaveTimedLesson)
+            }
         }
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val columnCount = adaptiveEditorColumnCount(
@@ -3244,8 +3280,9 @@ internal fun LessonEditorCard(
     modifier: Modifier = Modifier,
     title: String,
     lesson: LessonEntity?,
-    onAutoSave: (LessonDraft) -> Unit,
-    onSave: (LessonDraft) -> Unit
+    linkedSubjects: List<String> = emptyList(),
+    onAutoSave: (LessonDraft, LessonEntity?) -> Unit,
+    onSave: (LessonDraft, LessonEntity?, Boolean) -> Unit
 ) {
     // 授業切り替え時は最初の描画から新しい入力状態を使う。
     // 描画後の一括代入による再コンポーズ・再計測が曜日Morphと競合するのを避ける。
@@ -3259,6 +3296,35 @@ internal fun LessonEditorCard(
     var bSubject by remember(lesson?.id, title) { mutableStateOf(lesson?.bSubject.orEmpty()) }
     var bTeacher by remember(lesson?.id, title) { mutableStateOf(lesson?.bTeacher.orEmpty()) }
     var bLocation by remember(lesson?.id, title) { mutableStateOf(lesson?.bLocation.orEmpty()) }
+    var originalLesson by remember(lesson?.id, title) { mutableStateOf(lesson) }
+    var pendingSubjectRename by remember(lesson?.id, title) { mutableStateOf<LessonDraft?>(null) }
+    var subjectFocused by remember(lesson?.id, title) { mutableStateOf(false) }
+    fun currentDraft() = LessonDraft(mode = mode, weeklySubject = weeklySubject, weeklyTeacher = weeklyTeacher,
+        weeklyLocation = weeklyLocation, aSubject = aSubject, aTeacher = aTeacher, aLocation = aLocation,
+        bSubject = bSubject, bTeacher = bTeacher, bLocation = bLocation)
+    fun needsRenameConfirmation(draft: LessonDraft): Boolean {
+        val original = originalLesson ?: return false
+        return linkedSubjects.any { subject ->
+            val rename = jp.linkserver.nittcsc.logic.linkedLessonSubjectRename(original, draft, subject)
+            rename != null && !jp.linkserver.nittcsc.logic.isClearlyRelatedSubjectRename(rename.first, rename.second)
+        }
+    }
+    fun subjectFocusChanged(focused: Boolean) {
+        val lostFocus = subjectFocused && !focused
+        subjectFocused = focused
+        if (lostFocus && pendingSubjectRename == null) {
+            val draft = currentDraft()
+            if (needsRenameConfirmation(draft)) pendingSubjectRename = draft
+        }
+    }
+    fun saveDraft(draft: LessonDraft, follow: Boolean) {
+        val original = originalLesson
+        onSave(draft, original, follow)
+        originalLesson = original?.copy(mode = draft.mode, weeklySubject = draft.weeklySubject,
+            weeklyTeacher = draft.weeklyTeacher, weeklyLocation = draft.weeklyLocation,
+            aSubject = draft.aSubject, aTeacher = draft.aTeacher, aLocation = draft.aLocation,
+            bSubject = draft.bSubject, bTeacher = draft.bTeacher, bLocation = draft.bLocation)
+    }
 
     // 入力があるたびに500ms後に自動保存
     val isInitialized = remember(lesson?.id, title) { mutableStateOf(false) }
@@ -3275,7 +3341,7 @@ internal fun LessonEditorCard(
                 weeklySubject = weeklySubject, weeklyTeacher = weeklyTeacher, weeklyLocation = weeklyLocation,
                 aSubject = aSubject, aTeacher = aTeacher, aLocation = aLocation,
                 bSubject = bSubject, bTeacher = bTeacher, bLocation = bLocation
-            )
+            ), originalLesson
         )
     }
 
@@ -3318,7 +3384,7 @@ internal fun LessonEditorCard(
                     onValueChange = { weeklySubject = it },
                     placeholder = { Text(stringResource(R.string.placeholder_not_set), style = MaterialTheme.typography.titleMedium) },
                     textStyle = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().onFocusChanged { subjectFocusChanged(it.isFocused) },
                     singleLine = true,
                     colors = fieldColors
                 )
@@ -3359,7 +3425,7 @@ internal fun LessonEditorCard(
                             onValueChange = { aSubject = it },
                             placeholder = { Text(stringResource(R.string.placeholder_not_set), style = MaterialTheme.typography.titleMedium) },
                             textStyle = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().onFocusChanged { subjectFocusChanged(it.isFocused) },
                             singleLine = true,
                             colors = fieldColors
                         )
@@ -3402,7 +3468,7 @@ internal fun LessonEditorCard(
                             onValueChange = { bSubject = it },
                             placeholder = { Text(stringResource(R.string.placeholder_not_set), style = MaterialTheme.typography.titleMedium) },
                             textStyle = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().onFocusChanged { subjectFocusChanged(it.isFocused) },
                             singleLine = true,
                             colors = fieldColors
                         )
@@ -3447,26 +3513,25 @@ internal fun LessonEditorCard(
                 }
                 TextButton(
                     onClick = {
-                        onSave(
-                            LessonDraft(
-                                mode = mode,
-                                weeklySubject = weeklySubject,
-                                weeklyTeacher = weeklyTeacher,
-                                weeklyLocation = weeklyLocation,
-                                aSubject = aSubject,
-                                aTeacher = aTeacher,
-                                aLocation = aLocation,
-                                bSubject = bSubject,
-                                bTeacher = bTeacher,
-                                bLocation = bLocation
-                            )
-                        )
+                        val draft = currentDraft()
+                        if (needsRenameConfirmation(draft)) pendingSubjectRename = draft else saveDraft(draft, false)
                     }
                 ) {
                     Text(stringResource(R.string.btn_save))
                 }
             }
         }
+    }
+    pendingSubjectRename?.let { draft ->
+        AlertDialog(onDismissRequest = { pendingSubjectRename = null },
+            title = { Text(stringResource(R.string.lesson_rename_related_title)) },
+            text = { Text(stringResource(R.string.lesson_rename_related_message)) },
+            confirmButton = { TextButton(onClick = { pendingSubjectRename = null; saveDraft(draft, true) }) {
+                Text(stringResource(R.string.lesson_rename_related_confirm))
+            } },
+            dismissButton = { TextButton(onClick = { pendingSubjectRename = null; saveDraft(draft, false) }) {
+                Text(stringResource(R.string.lesson_rename_related_keep))
+            } })
     }
 }
 
@@ -3497,7 +3562,7 @@ internal fun OutputScreen(
     onUpdateHolidaySpecialLabel: (LocalDate, HolidaySpecialLabel?) -> Unit,
     onOpenTask: (TaskEntity) -> Unit,
     onOpenPlan: (PlanEntity) -> Unit,
-    onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean, date: LocalDate, time: LocalTime, isExamSlot: Boolean) -> Unit)? = null,
+    onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean, date: LocalDate, time: LocalTime, isExamSlot: Boolean, lessonId: Long?, extraLessonId: String?) -> Unit)? = null,
     onAddFromExtra: ((jp.linkserver.nittcsc.sktjf.SktjfVisibleExtra, Boolean, LocalDate, LocalTime) -> Unit)? = null,
     onSetLessonCancelled: (LocalDate, Int, Boolean) -> Unit,
     onEditChangedLesson: (LocalDate, Int) -> Unit,
@@ -3514,6 +3579,15 @@ internal fun OutputScreen(
     val scope = rememberCoroutineScope()
     val useExpressiveDesign = LocalUiDesignMode.current == UiDesignMode.MATERIAL_3_EXPRESSIVE
     val today = rememberCurrentDate()
+    fun timedSlotManaged(date: LocalDate, slotIndex: Int): Boolean {
+        val day = state.dayTypeEntities[date]
+        val type = day?.overrideLessonDayType ?: day?.dayType ?: dayTypeForDate(date)
+        val cycle = if (type == DayType.B) jp.linkserver.nittcsc.sktjf.SktjfCycle.B else jp.linkserver.nittcsc.sktjf.SktjfCycle.A
+        val term = timetableTermForDate(date, state.settings?.enableSemesterTimetables == true,
+            state.settings?.secondTermStartMonth ?: 10, state.settings?.secondTermStartDay ?: 1)
+        return state.sktjfTimedSchedule?.manages(academicYearForDate(date), term,
+            day?.overrideLessonDayOfWeek ?: date.dayOfWeek.value, slotIndex + 1, cycle) == true
+    }
     val missingAffiliation = jp.linkserver.nittcsc.logic.missingNittcAffiliation(
         state.usageMode?.mode?.let { name -> jp.linkserver.nittcsc.data.SchedulerUsageMode.entries.firstOrNull { it.name == name } },
         state.nittcProfiles, today, rememberUpcomingAffiliationAnnounced(today), state.nittcYearTransitions)
@@ -3901,12 +3975,13 @@ internal fun OutputScreen(
                             val pagePlans = plansByDueDate[pageDate].orEmpty()
                             val isExamDate = isExamScheduleDate(pageDate)
                             val pageClassSlots = if (isExamDate) examSlotsForDate(pageDate) else classSlots
-                            val extraLessons = remember(state.sktjfExtraResolver, state.dayTypeEntities, state.dayTypeMap,
+                            val extraLessons = remember(state.sktjfExtraResolver, state.sktjfTimedSchedule, state.dayTypeEntities, state.dayTypeMap,
                                 state.settings, state.cancelledLessons, pageDate, isExamDate, pageClassSlots) {
                                 if (isExamDate) emptyList() else {
                                     val effectiveDay = state.dayTypeEntities[pageDate]
                                         ?: DayTypeEntity(pageDate, dayTypeForDate(pageDate))
                                     pageClassSlots.flatMap { slot ->
+                                        if (timedSlotManaged(pageDate, slot.index)) return@flatMap emptyList()
                                         state.sktjfExtraResolver?.lessonsOn(pageDate, slot.index + 1, effectiveDay,
                                             state.settings?.enableSemesterTimetables == true,
                                             state.settings?.secondTermStartMonth ?: 10,
@@ -4022,7 +4097,7 @@ internal fun OutputScreen(
                                 resolveLesson = resolveLesson,
                                 resolveExtraLessons = { date, slotIndex ->
                                     val effectiveDay = state.dayTypeEntities[date] ?: DayTypeEntity(date, dayTypeForDate(date))
-                                    state.sktjfExtraResolver?.lessonsOn(date, slotIndex + 1, effectiveDay,
+                                    if (timedSlotManaged(date, slotIndex)) emptyList() else state.sktjfExtraResolver?.lessonsOn(date, slotIndex + 1, effectiveDay,
                                         state.settings?.enableSemesterTimetables == true,
                                         state.settings?.secondTermStartMonth ?: 10,
                                         state.settings?.secondTermStartDay ?: 1).orEmpty()
@@ -5698,7 +5773,7 @@ private fun DayScheduleTable(
     examMemos: Map<Int, String> = emptyMap(),
     showCurrentTimeMarker: Boolean = false,
     showTaskPlanDetails: Boolean = true,
-    onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean, date: LocalDate, time: LocalTime, isExamSlot: Boolean) -> Unit)? = null,
+    onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean, date: LocalDate, time: LocalTime, isExamSlot: Boolean, lessonId: Long?, extraLessonId: String?) -> Unit)? = null,
     onSetLessonCancelled: (LocalDate, Int, Boolean) -> Unit,
     onEditChangedLesson: (LocalDate, Int) -> Unit,
     onSaveLessonNote: (LocalDate, Int, String) -> Unit,
@@ -5744,13 +5819,13 @@ private fun DayScheduleTable(
             onAddTask = if (actionLesson != null && onAddFromLesson != null) {
                 {
                     lessonActionDialog = null
-                    onAddFromLesson(actionLesson.subject, actionLesson.teacher, false, date, lessonSnap.lessonStartTime, lessonSnap.isExam)
+                    onAddFromLesson(actionLesson.subject, actionLesson.teacher, false, date, lessonSnap.lessonStartTime, lessonSnap.isExam, actionLesson.lessonId, actionLesson.extraLessonId)
                 }
             } else null,
             onAddPlan = if (actionLesson != null && onAddFromLesson != null) {
                 {
                     lessonActionDialog = null
-                    onAddFromLesson(actionLesson.subject, actionLesson.teacher, true, date, lessonSnap.lessonStartTime, lessonSnap.isExam)
+                    onAddFromLesson(actionLesson.subject, actionLesson.teacher, true, date, lessonSnap.lessonStartTime, lessonSnap.isExam, actionLesson.lessonId, actionLesson.extraLessonId)
                 }
             } else null,
             onToggleCancelled = if (!lessonSnap.isExam && actionLesson != null) {
@@ -6676,7 +6751,7 @@ private fun DayScheduleTable(
                                         lesson != null &&
                                         originalLesson.subject.isNotBlank() &&
                                         (
-                                            originalLesson.subject.trim() != lesson.subject.trim() ||
+                                            normalizeSubjectRomanNumerals(originalLesson.subject.trim()) != normalizeSubjectRomanNumerals(lesson.subject.trim()) ||
                                             originalLesson.teacher.trim() != lesson.teacher.trim()
                                         )
 
@@ -6936,7 +7011,7 @@ private fun WeekScheduleTable(
     onSaveLessonOverride: (LocalDate, Int, DayType) -> Unit,
     onClearLessonOverride: (LocalDate) -> Unit,
     onUpdateHolidaySpecialLabel: (LocalDate, HolidaySpecialLabel?) -> Unit,
-    onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean, date: LocalDate, time: LocalTime, isExamSlot: Boolean) -> Unit)? = null,
+    onAddFromLesson: ((subject: String, teacher: String, isPlan: Boolean, date: LocalDate, time: LocalTime, isExamSlot: Boolean, lessonId: Long?, extraLessonId: String?) -> Unit)? = null,
     onSetLessonCancelled: (LocalDate, Int, Boolean) -> Unit,
     onEditChangedLesson: (LocalDate, Int) -> Unit,
     onSaveLessonNote: (LocalDate, Int, String) -> Unit,
@@ -7411,13 +7486,13 @@ private fun WeekScheduleTable(
             onAddTask = if (actionLesson != null && onAddFromLesson != null) {
                 {
                     lessonActionDialog = null
-                    onAddFromLesson(actionLesson.subject, actionLesson.teacher, false, target.date, target.lessonStartTime, target.isExam)
+                    onAddFromLesson(actionLesson.subject, actionLesson.teacher, false, target.date, target.lessonStartTime, target.isExam, actionLesson.lessonId, actionLesson.extraLessonId)
                 }
             } else null,
             onAddPlan = if (actionLesson != null && onAddFromLesson != null) {
                 {
                     lessonActionDialog = null
-                    onAddFromLesson(actionLesson.subject, actionLesson.teacher, true, target.date, target.lessonStartTime, target.isExam)
+                    onAddFromLesson(actionLesson.subject, actionLesson.teacher, true, target.date, target.lessonStartTime, target.isExam, actionLesson.lessonId, actionLesson.extraLessonId)
                 }
             } else null,
             onToggleCancelled = if (!target.isExam && actionLesson != null) {
@@ -7585,28 +7660,28 @@ private fun ChangeLessonScreen(
     }
 
     val teacherCandidates = remember(subject, subjectTeacherCandidates) {
-        val key = subjectTeacherCandidates.keys.firstOrNull { it.equals(subject.trim(), ignoreCase = true) }
+        val key = subjectTeacherCandidates.keys.firstOrNull { sameSubject(it, subject) }
         key?.let { subjectTeacherCandidates[it].orEmpty() } ?: emptyList()
     }
     val subjectLocationOptions = remember(subject, subjectLocationCandidates) {
-        val key = subjectLocationCandidates.keys.firstOrNull { it.equals(subject.trim(), ignoreCase = true) }
+        val key = subjectLocationCandidates.keys.firstOrNull { sameSubject(it, subject) }
         key?.let { subjectLocationCandidates[it].orEmpty() } ?: emptyList()
     }
     val teacherLocationOptions = remember(subject, teacher, subjectTeacherLocationCandidates) {
         val key = subjectTeacherLocationCandidates.keys.firstOrNull {
-            it.first.equals(subject.trim(), ignoreCase = true) && it.second.equals(teacher.trim(), ignoreCase = true)
+            sameSubject(it.first, subject) && it.second.equals(teacher.trim(), ignoreCase = true)
         }
         key?.let { subjectTeacherLocationCandidates[it].orEmpty() } ?: emptyList()
     }
     val filteredSubjectSuggestions = remember(subject, subjectSuggestions) {
         val query = subject.trim()
-        subjectSuggestions.filter { query.isBlank() || it.contains(query, ignoreCase = true) }.take(8)
+        subjectSuggestions.filter { query.isBlank() || subjectContains(it, query) }.distinctBy(::subjectIdentityKey).take(8)
     }
 
     LaunchedEffect(subject.trim(), subjectEditedByUser, teacherCandidates) {
         if (!subjectEditedByUser && autoFilledTeacher == null) return@LaunchedEffect
-        if (subject.trim().equals(autoFilledSubject, ignoreCase = true) &&
-            subjectTeacherCandidates.keys.none { it.equals(subject.trim(), ignoreCase = true) }
+        if (sameSubject(subject, autoFilledSubject) &&
+            subjectTeacherCandidates.keys.none { sameSubject(it, subject) }
         ) return@LaunchedEffect
         val result = updateTeacherAutoFill(teacher, autoFilledTeacher, teacherCandidates)
         teacher = result.teacher
@@ -7735,7 +7810,7 @@ private fun ChangeLessonScreen(
                         ) {
                             filteredSubjectSuggestions.forEach { suggestion ->
                                 FilterChip(
-                                    selected = suggestion.equals(subject.trim(), ignoreCase = true),
+                                    selected = sameSubject(suggestion, subject),
                                     onClick = {
                                         subject = suggestion
                                         subjectEditedByUser = true

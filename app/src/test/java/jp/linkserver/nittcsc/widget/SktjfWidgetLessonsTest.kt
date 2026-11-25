@@ -46,6 +46,23 @@ class SktjfWidgetLessonsTest {
         assertFalse(WidgetDataHelper.hasTasksForDate(widget, date, lessons[2]))
     }
 
+    @Test fun ordinaryTaskMatchesRomanNumeralVariantsWithoutMatchingOtherLevels() {
+        val task = TaskEntity(subject = "英語II", title = "課題", dueDate = date, createdDate = date)
+        val widget = data(extras = emptyList()).copy(incompleteTasks = listOf(task))
+        assertTrue(WidgetDataHelper.hasTasksForDate(widget, date, ResolvedLesson("英語Ⅱ", "")))
+        assertFalse(WidgetDataHelper.hasTasksForDate(widget, date, ResolvedLesson("英語I", "")))
+    }
+
+    @Test fun ordinaryTaskUsesLessonIdBeforeSubjectFallback() {
+        val row = base.copy(id = 12, weeklySubject = "英語Ⅱ")
+        val task = TaskEntity(lessonId = 12, subject = "英語II", title = "課題", dueDate = date, createdDate = date)
+        val widget = data(row = row, extras = emptyList()).copy(incompleteTasks = listOf(task))
+        val lesson = requireNotNull(WidgetDataHelper.resolveLesson(widget, date, 0))
+        assertEquals(12L, lesson.lessonId)
+        assertTrue(WidgetDataHelper.hasTasksForDate(widget, date, lesson))
+        assertFalse(WidgetDataHelper.hasTasksForDate(widget, date, lesson.copy(lessonId = 13)))
+    }
+
     @Test fun holidayProfileAndWeekendSubstitution() {
         assertTrue(WidgetDataHelper.resolveLessons(data(day = DayTypeEntity(date, DayType.HOLIDAY)), date, 0).isEmpty())
         assertNull(WidgetDataHelper.resolveLesson(data(mode = SchedulerUsageMode.GENERIC), date, 0))

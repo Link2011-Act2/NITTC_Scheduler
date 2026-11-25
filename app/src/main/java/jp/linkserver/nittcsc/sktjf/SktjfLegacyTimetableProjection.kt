@@ -21,6 +21,7 @@ internal fun projectSktjfTimetable(
 ): SktjfTimetableProjection {
     fun blocked(reason: SktjfProjectionBlock, row: LessonEntity? = null) =
         SktjfTimetableProjection.Blocked(reason, row?.dayOfWeek, row?.slotIndex?.plus(1))
+    if (resolved.lessons.any { it.content.weekRange != null }) return blocked(SktjfProjectionBlock.NEEDS_ADDITIONAL_STORAGE)
     val partition = resolved.baseline
     val termCode = if (term == TimetableTerm.FIRST) "S" else "F"
     if (partition.academicYear != year || partition.term != termCode || partition.classId != classId || existing.any { it.academicYear != year || it.timetableTerm != term || it.id <= 0 || it.dayOfWeek !in 1..7 || it.slotIndex !in 0..11 } ||
@@ -66,7 +67,7 @@ internal fun projectSktjfTimetable(
         val (day, period) = slot
         if (day !in 1..7 || period !in 1..12) return blocked(SktjfProjectionBlock.INVALID_PARTITION)
         if (lessons.any { it.content.conditions.all.isNotEmpty() || it.content.conditions.none.isNotEmpty() ||
-                it.content.teachers.size > 1 || it.content.rooms.size > 1 || it.content.subject.isBlank() })
+                it.content.teachers.size > 1 || it.content.rooms.size > 1 || (it.content.subject.isBlank() && it.localKey == null) })
             return SktjfTimetableProjection.Blocked(SktjfProjectionBlock.NEEDS_ADDITIONAL_STORAGE, day, period)
         val weekly = lessons.filter { it.content.cycle == SktjfCycle.WEEKLY }
         val a = lessons.filter { it.content.cycle == SktjfCycle.A }; val b = lessons.filter { it.content.cycle == SktjfCycle.B }

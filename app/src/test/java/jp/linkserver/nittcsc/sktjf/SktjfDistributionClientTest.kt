@@ -9,9 +9,29 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.*
 import org.junit.Test
+import org.json.JSONObject
+import org.json.JSONArray
 import java.io.IOException
+import java.security.MessageDigest
 
 class SktjfDistributionClientTest {
+    @Test fun betaDiscoveryRequiresMatchingPrereleaseFlagAndUsesNumericRevision() = runBlocking {
+        fun tag(name: String, prerelease: Boolean) =
+            """{"tag_name":"$name","draft":false,"prerelease":$prerelease,"published_at":"2026-04-01T00:00:00Z"}"""
+        val releases = listOf(tag("2026.S.2.Beta", true), tag("2026.S.10.Beta", true),
+            tag("2026.S.99.Beta", false), tag("2026.S.50", true), tag("2026.S.3", false))
+            .joinToString(",", "[", "]").toByteArray()
+        val http = OkHttpClient.Builder().addInterceptor { response(it, 200, releases) }.build()
+        assertEquals(SktjfDiscoveryResult.Found("2026.S.10.Beta"),
+            SktjfDistributionClient("example/SKTJF", http, beta = true).discover(2026, "S"))
+        assertEquals(SktjfDiscoveryResult.Found("2026.S.3"),
+            SktjfDistributionClient("example/SKTJF", http).discover(2026, "S"))
+        val key = SktjfUpdateKey(2026, "S", "1-1")
+        assertEquals(SktjfNoticeDecision.Offer(SktjfUpdateKind.REVISION),
+            sktjfNoticeDecision(key, "2026.S.10.Beta", "2026.S.2.Beta", "2026.S.50"))
+        assertEquals(SktjfNoticeDecision.Offer(SktjfUpdateKind.INITIAL),
+            sktjfNoticeDecision(key, "2026.S.0", "2026.S.10.Beta", null))
+    }
     private fun resource(name: String) = requireNotNull(javaClass.getResourceAsStream("/sktjf/$name")).use { it.readBytes() }
     private val manifest get() = resource("synthetic-manifest-v1.json")
     private val document get() = resource("synthetic-v1.json")
@@ -33,6 +53,93 @@ class SktjfDistributionClientTest {
         assertTrue(result is SktjfFetchResult.Success)
         assertEquals("数学", (result as SktjfFetchResult.Success).document.lessons.single().subject)
         assertEquals(2, seen.size)
+    }
+
+    @Test fun localV2ImportRetainsWeekConditions() {
+        val asset = SktjfJson.localAsset(resource("synthetic-v2-week.json").inputStream()) as SktjfCandidateAsset.V2
+        assertTrue(asset.candidate.ranges.isNotEmpty())
+        assertTrue(SktjfJson.localAsset(document.inputStream()) is SktjfCandidateAsset.V1)
+    }
+
+    @Test fun downloadsAndVerifiesMixedVersionCandidatesWithoutApplyingThem() = runBlocking {
+        for ((filename, version) in listOf("synthetic-v1.json" to 1, "synthetic-v2-week.json" to 2)) {
+            val bytes = resource(filename)
+            val mixed = JSONObject(manifest.toString(Charsets.UTF_8)).apply {
+                put("dataFormatVersion", 2)
+                getJSONArray("assets").getJSONObject(0).apply {
+                    put("dataFormatVersion", version)
+                    put("sha256", MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) })
+                }
+            }.toString().toByteArray()
+            fun serving(asset: ByteArray) = client { chain ->
+                response(chain, 200, if (chain.request().url.encodedPath.endsWith("manifest.json")) mixed else asset)
+            }
+            val result = serving(bytes).fetchCandidate("2026.S.0", "1-1")
+            assertTrue(result is SktjfCandidateFetchResult.Success)
+            val candidate = (result as SktjfCandidateFetchResult.Success).asset
+            assertTrue(if (version == 1) candidate is SktjfCandidateAsset.V1 else candidate is SktjfCandidateAsset.V2)
+            if (candidate is SktjfCandidateAsset.V2) assertTrue(candidate.candidate.ranges.isNotEmpty())
+            assertEquals(SktjfCandidateFetchResult.InvalidData,
+                serving(bytes + byteArrayOf(32)).fetchCandidate("2026.S.0", "1-1"))
+            val ordinary = serving(bytes).fetch("2026.S.0", "1-1")
+            assertTrue(ordinary is SktjfFetchResult.Success)
+            ordinary as SktjfFetchResult.Success
+            if (version == 1) assertNull(ordinary.timed) else assertTrue(ordinary.timed!!.ranges.isNotEmpty())
+            assertNotNull(serving(bytes).verifiedManifest("2026.S.0"))
+        }
+    }
+
+    @Test fun candidateDownloadPreservesFailureDistinctions() = runBlocking {
+        assertEquals(SktjfCandidateFetchResult.ReleaseNotFound, client { response(it, 404) }.fetchCandidate("2026.S.0", "1-1"))
+        assertEquals(SktjfCandidateFetchResult.RateLimited, client { response(it, 429) }.fetchCandidate("2026.S.0", "1-1"))
+        assertEquals(SktjfCandidateFetchResult.NetworkFailure, client { throw IOException("offline") }.fetchCandidate("2026.S.0", "1-1"))
+        assertEquals(SktjfCandidateFetchResult.InvalidData, client { response(it, 200, manifest) }.fetchCandidate("2026.S.0", "1-1"))
+    }
+
+    @Test fun mixedManifestKeepsV1ClassesAvailableAndDoesNotApplyV2() = runBlocking {
+        val root = JSONObject(manifest.toString(Charsets.UTF_8))
+        root.put("dataFormatVersion", 2)
+        root.put("classIds", JSONArray(listOf("1-1", "2M")))
+        val assets = root.getJSONArray("assets")
+        val second = JSONObject(assets.getJSONObject(0).toString())
+            .put("classId", "2M").put("name", "2M.sktjf.json")
+            .put("url", "https://github.com/example/SKTJF/releases/download/2026.S.0/2M.sktjf.json")
+            .put("dataFormatVersion", 2)
+        assets.put(second)
+        val mixed = root.toString().toByteArray()
+        var downloads = 0
+        val client = client { chain ->
+            val isManifest = chain.request().url.encodedPath.endsWith("manifest.json")
+            if (!isManifest) downloads++
+            response(chain, 200, if (isManifest) mixed else document)
+        }
+        assertEquals(listOf("1-1", "2M"), client.verifiedManifest("2026.S.0")?.assets?.map { it.classId })
+        assertTrue(client.fetch("2026.S.0", "1-1") is SktjfFetchResult.Success)
+        assertEquals(SktjfFetchResult.InvalidData, client.fetch("2026.S.0", "2M"))
+        assertEquals(2, downloads)
+    }
+
+    @Test fun v2FetchPreservesWeekEvidenceForTimedApply() = runBlocking {
+        fun serve(json: JSONObject): SktjfDistributionClient {
+            val bytes = json.toString().toByteArray()
+            val root = JSONObject(manifest.toString(Charsets.UTF_8)).apply {
+                put("dataFormatVersion", 2)
+                getJSONArray("assets").getJSONObject(0).apply {
+                    put("dataFormatVersion", 2)
+                    put("sha256", MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) })
+                }
+            }.toString().toByteArray()
+            return client { chain -> response(chain, 200, if (chain.request().url.encodedPath.endsWith("manifest.json")) root else bytes) }
+        }
+        val ordinary = JSONObject(document.toString(Charsets.UTF_8)).put("schemaVersion", 2).put("weekCalendar", JSONArray())
+        val result = serve(ordinary).fetch("2026.S.0", "1-1")
+        assertTrue(result is SktjfFetchResult.Success)
+        assertEquals("数学", (result as SktjfFetchResult.Success).document.lessons.single().subject)
+        val withWeek = JSONObject(ordinary.toString()).put("weekCalendar", JSONArray().put(JSONObject()
+            .put("date", "2026-04-06").put("week", 1)
+            .put("sources", JSONArray().put(JSONObject().put("sourceId", "src").put("page", 1)))))
+        val timed = serve(withWeek).fetch("2026.S.0", "1-1") as SktjfFetchResult.Success
+        assertEquals(1, timed.timed!!.weeks.size)
     }
 
     @Test fun productionRepositoryIsUsedForDiscoveryAndVerifiedAssets() = runBlocking {
@@ -124,6 +231,19 @@ class SktjfDistributionClientTest {
         assertEquals("2026.S.0", valid.verifiedManifest("2026.S.0")?.revision)
         assertNull(valid.verifiedManifest("2026.S.1"))
         assertNull(client { response(it, 404) }.verifiedManifest("2026.S.0"))
+    }
+
+    @Test fun discoversLatestReleaseThatIncludesBothSchoolVacationAssets() = runBlocking {
+        fun release(tag: String, assets: String) =
+            """{"tag_name":"$tag","draft":false,"prerelease":false,"published_at":"2026-04-01T00:00:00Z","assets":[$assets]}"""
+        val pair = """{"name":"vacations.manifest.json"},{"name":"vacations.json"}"""
+        val releases = listOf(
+            release("2026.F.12", """{"name":"vacations.manifest.json"}"""),
+            release("2026.F.2", pair), release("2026.S.99", pair), release("2027.S.3", pair)
+        ).joinToString(",", "[", "]")
+        val client = client { response(it, 200, releases.toByteArray()) }
+        assertEquals(SktjfDiscoveryResult.Found("2026.F.2"), client.discoverVacations(2026))
+        assertEquals(SktjfDiscoveryResult.Found("2026.F.12"), client.discover(2026, "F"))
     }
 
     @Test fun discoveryDistinguishesUnpublishedOfflineRateLimitAndInvalidPayload() = runBlocking {

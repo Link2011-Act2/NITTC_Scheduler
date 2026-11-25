@@ -30,7 +30,7 @@ class LessonEditorStateTest {
                 Surface {
                     Box(Modifier.width(360.dp)) {
                         LessonEditorCard(title = "1/2校時", lesson = current,
-                            onAutoSave = { saved += it }, onSave = {})
+                            onAutoSave = { draft, _ -> saved += draft }, onSave = { _, _, _ -> })
                     }
                 }
             }
@@ -59,6 +59,22 @@ class LessonEditorStateTest {
             compose.runOnIdle { current = alternate }
             compose.mainClock.advanceTimeBy(1000)
         }
+    }
+
+    @Test fun differentSubjectAsksBeforeMovingLinkedTasksAndPlans() {
+        val weekly = lesson(1, LessonMode.WEEKLY, "英語II")
+        var decision: Boolean? = null
+        compose.setContent {
+            AppTheme(UiDesignMode.MATERIAL_3, dynamicColor = false) {
+                LessonEditorCard(title = "1/2校時", lesson = weekly, linkedSubjects = listOf("英語Ⅱ"),
+                    onAutoSave = { _, _ -> }, onSave = { _, _, follow -> decision = follow })
+            }
+        }
+        compose.onNodeWithText("英語II").performTextReplacement("物理")
+        compose.onNodeWithText("保存").performClick()
+        compose.onNodeWithText("関連する課題と予定の科目名も変更しますか？").assertExists()
+        compose.onNodeWithText("課題・予定も変更").performClick()
+        compose.runOnIdle { assertEquals(true, decision) }
     }
 
     private fun lesson(id: Long, mode: LessonMode, subject: String) = LessonEntity(

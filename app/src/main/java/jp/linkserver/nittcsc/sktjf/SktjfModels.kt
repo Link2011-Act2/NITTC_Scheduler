@@ -26,7 +26,7 @@ internal data class SktjfLesson(
     val id: String, val dayOfWeek: Int, val period: Int, val cycle: SktjfCycle,
     val subject: String, val teachers: List<String>, val rooms: List<String>,
     val conditions: SktjfConditions, val kind: SktjfLessonKind, val remote: Boolean?,
-    val sources: List<SktjfReference>
+    val sources: List<SktjfReference>, val weekRange: SktjfV2Range? = null
 )
 internal enum class SktjfDayType { A, B, HOLIDAY }
 internal enum class SktjfEventKind { MIDTERM, FINAL, EXCURSION, EVENT, EXAM_RETURN, OTHER }

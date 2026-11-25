@@ -25,7 +25,13 @@ import jp.linkserver.nittcsc.data.NittcProfileEntity
 import jp.linkserver.nittcsc.data.NittcYearOutcome
 import jp.linkserver.nittcsc.data.NittcYearTransitionEntity
 import jp.linkserver.nittcsc.data.SktjfExtraLessonEntity
+import jp.linkserver.nittcsc.data.SktjfSourceStateEntity
 import jp.linkserver.nittcsc.sktjf.SktjfExtraLessonResolver
+import jp.linkserver.nittcsc.sktjf.SktjfTimedSchedule
+import jp.linkserver.nittcsc.sktjf.SktjfTimedSlotResult
+import jp.linkserver.nittcsc.sktjf.SktjfWeekSelection
+import jp.linkserver.nittcsc.sktjf.SktjfCycle
+import jp.linkserver.nittcsc.sktjf.resolvedLesson
 import jp.linkserver.nittcsc.sktjf.SktjfVisibleExtra
 import jp.linkserver.nittcsc.sktjf.SktjfExtraLessonDraft
 import jp.linkserver.nittcsc.data.SettingsEntity
@@ -112,7 +118,7 @@ private data class SyncAndDesignState(
 
 private data class ExtraLessonState(val resolver: SktjfExtraLessonResolver?, val invalid: Boolean,
     val mode: UsageModeEntity?, val profiles: List<NittcProfileEntity>, val transitions: List<NittcYearTransitionEntity>,
-    val lessons: List<SktjfExtraLessonEntity>)
+    val lessons: List<SktjfExtraLessonEntity>, val sources: List<SktjfSourceStateEntity>, val timed: SktjfTimedSchedule? = null)
 
 data class SchedulerUiState(
     val settings: SettingsEntity? = null,
@@ -123,6 +129,7 @@ data class SchedulerUiState(
     val lessonNotificationExclusions: List<LessonNotificationExclusionEntity> = emptyList(),
     val lessons: Map<LessonKey, LessonEntity> = emptyMap(),
     val sktjfExtraResolver: SktjfExtraLessonResolver? = null,
+    val sktjfTimedSchedule: SktjfTimedSchedule? = null,
     val sktjfExtraDataError: Boolean = false,
     val sktjfExtraLessons: List<SktjfExtraLessonEntity> = emptyList(),
     val usageMode: UsageModeEntity? = null,
@@ -169,9 +176,37 @@ class SchedulerViewModel(
         expectedTransition: NittcYearTransitionEntity?, outcome: NittcYearOutcome, profile: NittcProfileEntity): Boolean =
         kotlinx.coroutines.withContext(Dispatchers.IO) { repository.completeNittcYearOutcome(year, expectedMode, expectedProfile, expectedTransition, outcome, profile) }
 
-    private val sktjfDistribution by lazy { jp.linkserver.nittcsc.sktjf.SktjfDistributionClient(jp.linkserver.nittcsc.sktjf.SKTJF_DISTRIBUTION_REPOSITORY) }
+    private val sktjfDistribution by lazy { jp.linkserver.nittcsc.sktjf.SktjfDistributionClient(jp.linkserver.nittcsc.sktjf.SKTJF_DISTRIBUTION_REPOSITORY,
+        beta = jp.linkserver.nittcsc.BuildConfig.VERSION_NAME.contains('-')) }
     internal suspend fun discoverSktjf(year: Int, term: String) = sktjfDistribution.discover(year, term)
     internal suspend fun fetchSktjf(revision: String, classId: String) = sktjfDistribution.fetch(revision, classId)
+    internal val schoolVacations = repository.schoolVacationsFlow
+
+    internal suspend fun checkSchoolVacations(year: Int): jp.linkserver.nittcsc.sktjf.SchoolVacationCheck =
+        when (val found = sktjfDistribution.discoverVacations(year)) {
+            is jp.linkserver.nittcsc.sktjf.SktjfDiscoveryResult.Found ->
+                when (val fetched = sktjfDistribution.fetchVacations(found.revision)) {
+                    is jp.linkserver.nittcsc.sktjf.SktjfVacationFetchResult.Success ->
+                        jp.linkserver.nittcsc.sktjf.SchoolVacationCheck.Ready(
+                            repository.previewSchoolVacations(found.revision, fetched.periods)
+                        )
+                    jp.linkserver.nittcsc.sktjf.SktjfVacationFetchResult.NotPublished ->
+                        jp.linkserver.nittcsc.sktjf.SchoolVacationCheck.NotPublished
+                    jp.linkserver.nittcsc.sktjf.SktjfVacationFetchResult.Failed ->
+                        jp.linkserver.nittcsc.sktjf.SchoolVacationCheck.Failed
+                }
+            jp.linkserver.nittcsc.sktjf.SktjfDiscoveryResult.NotPublished ->
+                jp.linkserver.nittcsc.sktjf.SchoolVacationCheck.NotPublished
+            else -> jp.linkserver.nittcsc.sktjf.SchoolVacationCheck.Failed
+        }
+
+    internal suspend fun applySchoolVacations(preview: jp.linkserver.nittcsc.sktjf.SchoolVacationPreview, selected: Set<String>) =
+        repository.applySchoolVacations(preview, selected)
+
+    internal suspend fun editSchoolVacation(
+        expected: jp.linkserver.nittcsc.data.SchoolVacationEntity,
+        period: jp.linkserver.nittcsc.data.SchoolVacationPeriod?
+    ) = repository.editSchoolVacation(expected, period)
     internal suspend fun checkSktjfUpdates(year: Int, term: String,
         acknowledged: (jp.linkserver.nittcsc.sktjf.SktjfUpdateKey) -> String?) =
         kotlinx.coroutines.withContext(Dispatchers.IO) {
@@ -180,6 +215,8 @@ class SchedulerViewModel(
         }
     internal suspend fun previewSktjf(document: jp.linkserver.nittcsc.sktjf.SktjfDocument) =
         kotlinx.coroutines.withContext(Dispatchers.IO) { repository.previewSktjf(document) }
+    internal suspend fun previewTimedSktjf(candidate: jp.linkserver.nittcsc.sktjf.SktjfV2Candidate) =
+        kotlinx.coroutines.withContext(Dispatchers.IO) { repository.previewTimedSktjf(candidate) }
     internal suspend fun applySktjf(preview: jp.linkserver.nittcsc.sktjf.SktjfApplyPreview,
         lessons: Map<String, jp.linkserver.nittcsc.sktjf.SktjfConflictChoice>,
         days: Map<LocalDate, jp.linkserver.nittcsc.sktjf.SktjfConflictChoice>) =
@@ -256,12 +293,15 @@ class SchedulerViewModel(
     }
 
     private val extraLessonFlow = combine(repository.usageModeFlow, repository.nittcProfilesFlow, repository.sktjfExtraLessonsFlow,
-        repository.nittcYearTransitionsFlow) { mode, profiles, lessons, transitions ->
+        repository.nittcYearTransitionsFlow, repository.sktjfSourceStatesFlow) { mode, profiles, lessons, transitions, sources ->
         val result = runCatching {
             val usageMode = mode?.mode?.let(SchedulerUsageMode::valueOf)
             SktjfExtraLessonResolver.create(usageMode, profiles, lessons)
         }
-        ExtraLessonState(result.getOrNull(), result.isFailure, mode, profiles, transitions, lessons)
+        ExtraLessonState(result.getOrNull(), result.isFailure, mode, profiles, transitions, lessons, sources)
+    }.combine(repository.lessonsFlow) { extra, rows ->
+        val mode = extra.mode?.mode?.let { value -> SchedulerUsageMode.entries.firstOrNull { it.name == value } }
+        extra.copy(timed = SktjfTimedSchedule.create(mode, extra.profiles, extra.sources, rows, extra.lessons))
     }.flowOn(Dispatchers.Default)
 
     private val coreDataFlow: kotlinx.coroutines.flow.Flow<CoreDataState> = combine(
@@ -347,7 +387,7 @@ class SchedulerViewModel(
             expressiveWarningAcknowledged = syncAndDesign.expressiveWarningAcknowledged
         )
     }.combine(extraLessonFlow) { state, extra ->
-        state.copy(sktjfExtraResolver = extra.resolver, sktjfExtraDataError = extra.invalid, sktjfExtraLessons = extra.lessons,
+        state.copy(sktjfExtraResolver = extra.resolver, sktjfTimedSchedule = extra.timed, sktjfExtraDataError = extra.invalid, sktjfExtraLessons = extra.lessons,
             usageMode = extra.mode, nittcProfiles = extra.profiles, nittcYearTransitions = extra.transitions)
     }.combine(appUpdates?.state ?: MutableStateFlow(GoldyState())) { state, update ->
         state.copy(appUpdate = update)
@@ -853,10 +893,12 @@ class SchedulerViewModel(
         timetableTerm: TimetableTerm,
         dayOfWeek: Int,
         slotIndex: Int,
-        draft: LessonDraft
+        draft: LessonDraft,
+        renameFrom: LessonEntity? = null,
+        followDifferentSubject: Boolean = false
     ) {
         viewModelScope.launch {
-            repository.upsertLesson(academicYear, timetableTerm, dayOfWeek, slotIndex, draft)
+            repository.upsertLesson(academicYear, timetableTerm, dayOfWeek, slotIndex, draft, followDifferentSubject, renameFrom)
             _snackbarMessages.emit("${dayLabel(dayOfWeek)} ${slotIndex + 1}枠目を保存しました。")
         }
     }
@@ -866,10 +908,11 @@ class SchedulerViewModel(
         timetableTerm: TimetableTerm,
         dayOfWeek: Int,
         slotIndex: Int,
-        draft: LessonDraft
+        draft: LessonDraft,
+        renameFrom: LessonEntity? = null
     ) {
         viewModelScope.launch {
-            repository.upsertLesson(academicYear, timetableTerm, dayOfWeek, slotIndex, draft)
+            repository.upsertLesson(academicYear, timetableTerm, dayOfWeek, slotIndex, draft, renameFrom = renameFrom)
         }
     }
 
@@ -886,7 +929,8 @@ class SchedulerViewModel(
         changedLessons: Map<Pair<LocalDate, Int>, ChangedLessonEntity> = emptyMap(),
         semesterTimetablesEnabled: Boolean = false,
         secondTermStartMonth: Int = 10,
-        secondTermStartDay: Int = 1
+        secondTermStartDay: Int = 1,
+        timedSchedule: SktjfTimedSchedule? = null
     ): ResolvedLesson? {
         if (date.dayOfWeek.value !in 1..5) return null
         val dayTypeEntity = dayTypeEntities[date]
@@ -901,7 +945,8 @@ class SchedulerViewModel(
                 dayTypeEntities,
                 semesterTimetablesEnabled,
                 secondTermStartMonth,
-                secondTermStartDay
+                secondTermStartDay,
+                timedSchedule
             ),
             changedLesson = changedLessons[date to slotIndex]
         )
@@ -915,7 +960,8 @@ class SchedulerViewModel(
         dayTypeEntities: Map<LocalDate, DayTypeEntity> = emptyMap(),
         semesterTimetablesEnabled: Boolean = false,
         secondTermStartMonth: Int = 10,
-        secondTermStartDay: Int = 1
+        secondTermStartDay: Int = 1,
+        timedSchedule: SktjfTimedSchedule? = null
     ): ResolvedLesson? {
         if (date.dayOfWeek.value !in 1..5) return null
 
@@ -928,6 +974,11 @@ class SchedulerViewModel(
         val timetableTerm = timetableTermForDate(
             date, semesterTimetablesEnabled, secondTermStartMonth, secondTermStartDay
         )
+        val cycle = if (lessonDayType == DayType.B) SktjfCycle.B else SktjfCycle.A
+        when (val timed = timedSchedule?.resolve(academicYearForDate(date), timetableTerm, lessonDayOfWeek, slotIndex + 1, date, cycle)) {
+            is SktjfTimedSlotResult.Managed -> return (timed.selection as? SktjfWeekSelection.Selected)?.value?.resolvedLesson()
+            else -> Unit
+        }
         val lesson = lessons[
             LessonKey(academicYearForDate(date), timetableTerm, lessonDayOfWeek, slotIndex)
         ] ?: return null
@@ -935,13 +986,13 @@ class SchedulerViewModel(
         return when (lesson.mode) {
             LessonMode.WEEKLY -> {
                 if (lesson.weeklySubject.isBlank()) null
-                else ResolvedLesson(lesson.weeklySubject, lesson.weeklyTeacher, lesson.weeklyLocation)
+                else ResolvedLesson(lesson.weeklySubject, lesson.weeklyTeacher, lesson.weeklyLocation, lessonId = lesson.id.takeIf { it > 0 })
             }
 
             LessonMode.ALTERNATING -> {
                 when (lessonDayType) {
-                    DayType.A -> if (lesson.aSubject.isBlank()) null else ResolvedLesson(lesson.aSubject, lesson.aTeacher, lesson.aLocation)
-                    DayType.B -> if (lesson.bSubject.isBlank()) null else ResolvedLesson(lesson.bSubject, lesson.bTeacher, lesson.bLocation)
+                    DayType.A -> if (lesson.aSubject.isBlank()) null else ResolvedLesson(lesson.aSubject, lesson.aTeacher, lesson.aLocation, lessonId = lesson.id.takeIf { it > 0 })
+                    DayType.B -> if (lesson.bSubject.isBlank()) null else ResolvedLesson(lesson.bSubject, lesson.bTeacher, lesson.bLocation, lessonId = lesson.id.takeIf { it > 0 })
                     DayType.HOLIDAY -> null
                 }
             }

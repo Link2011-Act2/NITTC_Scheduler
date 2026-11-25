@@ -10,6 +10,12 @@ import java.time.LocalDate
 class TaskPlanSearchTest {
     private val date = LocalDate.of(2026, 7, 13)
 
+    @Test fun subjectSearchFindsEitherRomanRepresentation() {
+        val task = TaskEntity(subject = "数学Ⅳ", title = "課題", dueDate = date, createdDate = date)
+        assertTrue(task.matchesTaskPlanSearch(tokenizeSearchQuery("数学IV")))
+        assertTrue(task.copy(subject = "英語II").matchesTaskPlanSearch(tokenizeSearchQuery("英語Ⅱ")))
+    }
+
     @Test
     fun tokenizerNormalizesWidthCaseAndSeparators() {
         val tokens = tokenizeSearchQuery(" 英語Ｉ　ＹＡＭＡＤＡ・先生 ")

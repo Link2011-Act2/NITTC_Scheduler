@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import jp.linkserver.nittcsc.InternalFeatureFlags
 import jp.linkserver.nittcsc.logic.PeriodLabelStyle
 import jp.linkserver.nittcsc.logic.TimetableTerm
+import jp.linkserver.nittcsc.logic.LessonKey
 import jp.linkserver.nittcsc.logic.importedExamTimetableEnabled
 import jp.linkserver.nittcsc.logic.academicYearForDate
 import java.time.DayOfWeek
@@ -17,7 +18,7 @@ internal class SchedulerDataTransfer(
 
     private companion object {
         val EXTRA_LESSON_ID = Regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-        const val CURRENT_EXPORT_VERSION = 24
+        const val CURRENT_EXPORT_VERSION = 27
         const val MIN_SUPPORTED_IMPORT_VERSION = 1
         const val DATASET_TASKS = SchedulerRepository.DATASET_TASKS
         const val DATASET_PLANS = SchedulerRepository.DATASET_PLANS
@@ -38,6 +39,7 @@ internal class SchedulerDataTransfer(
         val dayTypes = dao.getDayTypesOnce()
         val tasks = dao.getTasksOnce()
         val plans = dao.getPlansOnce()
+        val lessonsById = lessons.associateBy { it.id }
         val cancelledLessons = dao.getCancelledLessonsOnce()
         val changedLessons = dao.getChangedLessonsOnce()
         val lessonNotes = dao.getLessonNotesOnce()
@@ -57,6 +59,7 @@ internal class SchedulerDataTransfer(
         root.put("sktjfSourceState", SktjfSourceStateBackup.encode(sourceStates))
         root.put("sktjfExtraLessons", SktjfExtraLessonBackup.encode(extraLessons))
         root.put("nittcYearTransitions", NittcYearTransitionBackup.encode(yearTransitions))
+        root.put("schoolVacations", SchoolVacationBackup.encode(dao.getSchoolVacations()))
 
         if (settings != null) {
             root.put("settings", org.json.JSONObject().also { s ->
@@ -168,6 +171,7 @@ internal class SchedulerDataTransfer(
             tasks.forEach { task ->
                 arr.put(org.json.JSONObject().also { obj ->
                     if (task.lessonId != null) obj.put("lessonId", task.lessonId)
+                    task.lessonId?.let { lessonsById[it] }?.let { obj.put("lessonReference", lessonReferenceToJson(it)) }
                     if (task.extraLessonId != null) obj.put("extraLessonId", task.extraLessonId)
                     obj.put("subject", task.subject)
                     if (task.teacher != null) obj.put("teacher", task.teacher)
@@ -193,6 +197,7 @@ internal class SchedulerDataTransfer(
             plans.forEach { plan ->
                 arr.put(org.json.JSONObject().also { obj ->
                     if (plan.lessonId != null) obj.put("lessonId", plan.lessonId)
+                    plan.lessonId?.let { lessonsById[it] }?.let { obj.put("lessonReference", lessonReferenceToJson(it)) }
                     if (plan.extraLessonId != null) obj.put("extraLessonId", plan.extraLessonId)
                     obj.put("subject", plan.subject)
                     if (plan.teacher != null) obj.put("teacher", plan.teacher)
@@ -294,6 +299,7 @@ internal class SchedulerDataTransfer(
         val dayTypes = dao.getDayTypesOnce()
         val tasks = dao.getTasksOnce()
         val plans = dao.getPlansOnce()
+        val lessonsById = lessons.associateBy { it.id }
         val changedLessons = dao.getChangedLessonsOnce()
         val lessonNotes = dao.getLessonNotesOnce()
         val examDaySchedules = dao.getExamDaySchedulesOnce()
@@ -379,6 +385,7 @@ internal class SchedulerDataTransfer(
             tasks.forEach { task ->
                 arr.put(org.json.JSONObject().also { obj ->
                     if (task.lessonId != null) obj.put("lessonId", task.lessonId)
+                    task.lessonId?.let { lessonsById[it] }?.let { obj.put("lessonReference", lessonReferenceToJson(it)) }
                     if (task.extraLessonId != null) obj.put("extraLessonId", task.extraLessonId)
                     obj.put("subject", task.subject)
                     if (task.teacher != null) obj.put("teacher", task.teacher)
@@ -404,6 +411,7 @@ internal class SchedulerDataTransfer(
             plans.forEach { plan ->
                 arr.put(org.json.JSONObject().also { obj ->
                     if (plan.lessonId != null) obj.put("lessonId", plan.lessonId)
+                    plan.lessonId?.let { lessonsById[it] }?.let { obj.put("lessonReference", lessonReferenceToJson(it)) }
                     if (plan.extraLessonId != null) obj.put("extraLessonId", plan.extraLessonId)
                     obj.put("subject", plan.subject)
                     if (plan.teacher != null) obj.put("teacher", plan.teacher)
@@ -533,8 +541,17 @@ internal class SchedulerDataTransfer(
             val otherIds = dao.getSktjfExtraLessons().filter { it.academicYear != partition.academicYear || it.term != termCode }.map { it.id }.toSet()
             require(extras.none { it.id in otherIds }) { "追加授業の識別子が重複しています。" }
             touchedDatasets += key
+            val previousRows = dao.getLessonsOnce().filter { it.academicYear == partition.academicYear && it.timetableTerm == partition.term }
+            val previousByKey = previousRows.associateBy { it.lessonKey() }
+            val importedKeys = importedLessons.map { it.lessonKey() }.toSet()
+            val referencedIds = (dao.getTasksOnce().mapNotNull { it.lessonId } + dao.getPlansOnce().mapNotNull { it.lessonId }).toSet()
+            val retainedEmptyRows = previousRows.filter { it.lessonKey() !in importedKeys && it.id in referencedIds }.map {
+                it.copy(mode = LessonMode.WEEKLY, weeklySubject = "", weeklyTeacher = "", weeklyLocation = null,
+                    aSubject = "", aTeacher = "", aLocation = null, bSubject = "", bTeacher = "", bLocation = null)
+            }
             dao.deleteLessonsForPartition(partition.academicYear, partition.term)
-            importedLessons.forEach { dao.upsertLesson(it) }
+            importedLessons.forEach { dao.upsertLesson(it.copy(id = previousByKey[it.lessonKey()]?.id ?: 0)) }
+            retainedEmptyRows.forEach { dao.upsertLesson(it) }
             dao.deleteSktjfExtraLessonsForPartition(partition.academicYear, termCode)
             if (extras.isNotEmpty()) dao.upsertSktjfExtraLessons(extras)
         }
@@ -576,6 +593,7 @@ internal class SchedulerDataTransfer(
             }
         }
 
+        val syncedLessonsByKey = dao.getLessonsOnce().associateBy { it.lessonKey() }
         payload.optJSONArray(DATASET_TASKS)?.let { arr ->
             touchedDatasets += DATASET_TASKS
             dao.deleteAllTasks()
@@ -586,7 +604,7 @@ internal class SchedulerDataTransfer(
                 val completedDate = if (obj.has("completedDate")) runCatching { java.time.LocalDate.parse(obj.optString("completedDate")) }.getOrNull() else null
                 val reminderDate = if (obj.has("reminderDate")) runCatching { java.time.LocalDate.parse(obj.optString("reminderDate")) }.getOrNull() else null
                 dao.upsertTask(TaskEntity(
-                    lessonId = if (obj.has("lessonId")) obj.optLong("lessonId") else null,
+                    lessonId = lessonReferenceFromJson(obj.optJSONObject("lessonReference"))?.let { syncedLessonsByKey[it]?.id },
                     extraLessonId = obj.optString("extraLessonId", "").takeIf { EXTRA_LESSON_ID.matches(it) },
                     subject = obj.optString("subject", ""),
                     teacher = obj.optString("teacher", "").takeIf { it.isNotBlank() },
@@ -620,7 +638,7 @@ internal class SchedulerDataTransfer(
                 val completedDate = if (obj.has("completedDate")) runCatching { java.time.LocalDate.parse(obj.optString("completedDate")) }.getOrNull() else null
                 val reminderDate = if (obj.has("reminderDate")) runCatching { java.time.LocalDate.parse(obj.optString("reminderDate")) }.getOrNull() else null
                 dao.upsertPlan(PlanEntity(
-                    lessonId = if (obj.has("lessonId")) obj.optLong("lessonId") else null,
+                    lessonId = lessonReferenceFromJson(obj.optJSONObject("lessonReference"))?.let { syncedLessonsByKey[it]?.id },
                     extraLessonId = obj.optString("extraLessonId", "").takeIf { EXTRA_LESSON_ID.matches(it) },
                     subject = obj.optString("subject", ""),
                     teacher = obj.optString("teacher", "").takeIf { it.isNotBlank() },
@@ -774,13 +792,16 @@ internal class SchedulerDataTransfer(
             ModeProfileBackup.decode(normalizedRoot.getJSONObject("nittcProfile"))
         } else null
         val sourceStateBackup = if (normalizedRoot.has("sktjfSourceState")) {
-            SktjfSourceStateBackup.decode(normalizedRoot.getJSONArray("sktjfSourceState"))
+            SktjfSourceStateBackup.decode(normalizedRoot.getJSONArray("sktjfSourceState"), preserveLinkage = importVersion >= 25)
         } else null
         val extraLessonBackup = if (normalizedRoot.has("sktjfExtraLessons")) {
             SktjfExtraLessonBackup.decode(normalizedRoot.getJSONArray("sktjfExtraLessons"))
         } else null
         val yearTransitionBackup = if (normalizedRoot.has("nittcYearTransitions")) {
             NittcYearTransitionBackup.decode(normalizedRoot.getJSONArray("nittcYearTransitions"))
+        } else null
+        val vacationBackup = if (importVersion >= 26) {
+            SchoolVacationBackup.decode(normalizedRoot.getJSONArray("schoolVacations"))
         } else null
 
         val settingsEntity = normalizedRoot.optJSONObject("settings")?.let { s ->
@@ -942,6 +963,7 @@ internal class SchedulerDataTransfer(
         }
 
         val taskEntities = mutableListOf<TaskEntity>()
+        val taskLessonReferences = mutableListOf<LessonKey?>()
         normalizedRoot.optJSONArray("tasks")?.let { arr ->
             for (i in 0 until arr.length()) {
                 val obj = arr.getJSONObject(i)
@@ -969,11 +991,13 @@ internal class SchedulerDataTransfer(
                         reminderMinute = obj.optInt("reminderMinute", 0),
                         reminderCalendarEventId = null
                     )
+                    taskLessonReferences += lessonReferenceFromJson(obj.optJSONObject("lessonReference"))
                 } catch (_: Exception) { }
             }
         }
 
         val planEntities = mutableListOf<PlanEntity>()
+        val planLessonReferences = mutableListOf<LessonKey?>()
         normalizedRoot.optJSONArray("plans")?.let { arr ->
             for (i in 0 until arr.length()) {
                 val obj = arr.getJSONObject(i)
@@ -1001,6 +1025,7 @@ internal class SchedulerDataTransfer(
                         reminderMinute = obj.optInt("reminderMinute", 0),
                         reminderCalendarEventId = null
                     )
+                    planLessonReferences += lessonReferenceFromJson(obj.optJSONObject("lessonReference"))
                 } catch (_: Exception) { }
             }
         }
@@ -1100,6 +1125,10 @@ internal class SchedulerDataTransfer(
         }
 
         db.withTransaction {
+            if (vacationBackup != null) {
+                dao.deleteAllSchoolVacations()
+                if (vacationBackup.isNotEmpty()) dao.upsertSchoolVacations(vacationBackup)
+            }
             settingsEntity?.let { dao.upsertSettings(it) }
             extraLessonBackup?.let { lessons ->
                 dao.deleteAllSktjfExtraLessons()
@@ -1128,6 +1157,8 @@ internal class SchedulerDataTransfer(
                 lessonEntities.forEach { dao.upsertLesson(it) }
             }
             repository.ensureLessonRows()
+            val importedLessonKeys = lessonEntities.map { it.lessonKey() }.toSet()
+            val restoredLessonsByKey = dao.getLessonsOnce().filter { it.lessonKey() in importedLessonKeys }.associateBy { it.lessonKey() }
 
             dao.deleteAllLongBreaks()
             if (longBreakEntities.isNotEmpty()) {
@@ -1138,10 +1169,14 @@ internal class SchedulerDataTransfer(
             if (dayTypeEntities.isNotEmpty()) dao.upsertDayTypes(dayTypeEntities)
 
             dao.deleteAllTasks()
-            if (taskEntities.isNotEmpty()) dao.upsertTasks(taskEntities)
+            if (taskEntities.isNotEmpty()) dao.upsertTasks(taskEntities.mapIndexed { index, task ->
+                task.copy(lessonId = taskLessonReferences[index]?.let { restoredLessonsByKey[it]?.id })
+            })
 
             dao.deleteAllPlans()
-            if (planEntities.isNotEmpty()) dao.upsertPlans(planEntities)
+            if (planEntities.isNotEmpty()) dao.upsertPlans(planEntities.mapIndexed { index, plan ->
+                plan.copy(lessonId = planLessonReferences[index]?.let { restoredLessonsByKey[it]?.id })
+            })
 
             dao.deleteAllCancelledLessons()
             if (cancelledLessonEntities.isNotEmpty()) {
@@ -1186,6 +1221,22 @@ internal class SchedulerDataTransfer(
             )
             repository.refreshAcademicYear()
         }
+    }
+
+    private fun lessonReferenceToJson(lesson: LessonEntity): org.json.JSONObject = org.json.JSONObject()
+        .put("academicYear", lesson.academicYear).put("term", lesson.timetableTerm.name)
+        .put("dayOfWeek", lesson.dayOfWeek).put("slotIndex", lesson.slotIndex)
+
+    private fun lessonReferenceFromJson(value: org.json.JSONObject?): LessonKey? {
+        value ?: return null
+        return runCatching {
+            val year = value.getInt("academicYear")
+            val term = TimetableTerm.valueOf(value.getString("term"))
+            val day = value.getInt("dayOfWeek")
+            val slot = value.getInt("slotIndex")
+            require(year in 1900..9998 && day in 1..7 && slot in 0..11)
+            LessonKey(year, term, day, slot)
+        }.getOrNull()
     }
 
     private fun examLessonToJson(lesson: ExamLessonEntity): org.json.JSONObject {

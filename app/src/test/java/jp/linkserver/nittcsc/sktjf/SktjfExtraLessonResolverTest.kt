@@ -4,6 +4,7 @@ import jp.linkserver.nittcsc.data.*
 import org.junit.Assert.*
 import org.junit.Test
 import java.time.LocalDate
+import jp.linkserver.nittcsc.logic.LessonWeekRange
 
 class SktjfExtraLessonResolverTest {
     private val date = LocalDate.of(2026, 4, 6)
@@ -38,5 +39,19 @@ class SktjfExtraLessonResolverTest {
         val item = extra("same")
         assertTrue(runCatching { SktjfExtraLessonResolver.create(SchedulerUsageMode.NITTC, listOf(profile()), listOf(item, item)) }.isFailure)
         assertTrue(runCatching { SktjfExtraLessonResolver.create(SchedulerUsageMode.NITTC, listOf(profile(), profile()), emptyList()) }.isFailure)
+    }
+
+    @Test fun weekRestrictedExtraOnlyAppearsOnConfirmedApplicableDates() {
+        val original=extra("conditional")
+        val snapshot=SktjfBaselineCodec.decode(original.contentJson)
+        val lesson=snapshot.lessons.lessons.getValue("conditional").copy(weekRange=SktjfV2Range(LessonWeekRange(start=9),"（9週〜）"))
+        val changed=snapshot.copy(lessons=snapshot.lessons.copy(lessons=mapOf("conditional" to lesson)),
+            weeks=mapOf(date to SktjfV2Week(9,listOf(SktjfReference("src",1,null)))))
+        fun make(value:SktjfStoredBaseline)=SktjfExtraLessonResolver.create(SchedulerUsageMode.NITTC,listOf(profile()),
+            listOf(original.copy(contentJson=SktjfBaselineCodec.encode(value))))
+        assertEquals(listOf("conditional"),select(make(changed)))
+        assertTrue(select(make(changed.copy(weeks=mapOf(date to SktjfV2Week(8,listOf(SktjfReference("src",1,null))))))).isEmpty())
+        assertTrue(select(make(changed.copy(weeks=emptyMap()))).isEmpty())
+        assertTrue(select(make(changed),DayTypeEntity(date,DayType.B)).isEmpty())
     }
 }

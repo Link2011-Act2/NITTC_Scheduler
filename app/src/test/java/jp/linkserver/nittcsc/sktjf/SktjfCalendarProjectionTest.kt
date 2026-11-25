@@ -18,6 +18,11 @@ class SktjfCalendarProjectionTest {
         assertEquals(DayType.HOLIDAY, projection.day.dayType)
         assertEquals(HolidaySpecialLabel.MIDTERM, projection.day.holidaySpecialLabel)
         assertEquals(original, projection.original)
+        val withCycle = day(SktjfDayType.B, SktjfEvent("中間試験", SktjfEventKind.MIDTERM))
+        val projected = projectSktjfCalendarDay(withCycle) as SktjfCalendarProjection.Supported
+        assertEquals(DayType.HOLIDAY, projected.day.dayType)
+        assertEquals(HolidaySpecialLabel.MIDTERM, projected.day.holidaySpecialLabel)
+        assertEquals(SktjfDayType.B, projected.original.dayType)
     }
 
     @Test fun ordinarySubstitutionKeepsBothWeekdayAndCycle() {

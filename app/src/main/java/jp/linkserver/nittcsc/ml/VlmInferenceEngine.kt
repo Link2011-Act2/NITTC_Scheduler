@@ -1,5 +1,7 @@
 package jp.linkserver.nittcsc.ml
 
+import jp.linkserver.nittcsc.logic.subjectIdentityKey
+
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -79,7 +81,7 @@ class VlmInferenceEngine(private val context: Context) {
         val candidateJson = JSONArray().apply {
             candidates
                 .filter { it.subject.isNotBlank() }
-                .distinctBy { it.subject.trim() to it.teacher?.trim().orEmpty() }
+                .distinctBy { subjectIdentityKey(it.subject) to it.teacher?.trim().orEmpty() }
                 .forEach { candidate ->
                     put(JSONObject().apply {
                         put("subject", candidate.subject.trim())

@@ -7,9 +7,9 @@ import org.junit.Test
 
 class SyncProtocolVersionTest {
     @Test
-    fun currentProtocolVersionContractIsVersionEight() {
+    fun currentProtocolVersionContractIsVersionTen() {
         assertEquals("syncProtocolVersion", SYNC_PROTOCOL_VERSION_KEY)
-        assertEquals(8, CURRENT_SYNC_PROTOCOL_VERSION)
+        assertEquals(10, CURRENT_SYNC_PROTOCOL_VERSION)
         assertTrue(CURRENT_SYNC_PROTOCOL_VERSION > LEGACY_SYNC_PROTOCOL_VERSION)
     }
 
@@ -20,7 +20,7 @@ class SyncProtocolVersionTest {
 
     @Test
     fun mismatchedProtocolVersionsAreRejectedBeforeMerge() {
-        listOf(0, 1, 2, 3, 4, 5, 6, 7).forEach { olderVersion ->
+        listOf(0, 1, 2, 3, 4, 5, 6, 7, 8, 9).forEach { olderVersion ->
             assertThrows(IllegalArgumentException::class.java) {
                 requireCompatibleSyncProtocolVersions(
                     localVersion = CURRENT_SYNC_PROTOCOL_VERSION,

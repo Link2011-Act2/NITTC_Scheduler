@@ -1,5 +1,9 @@
 package jp.linkserver.nittcsc.ui
 
+import jp.linkserver.nittcsc.logic.sameSubject
+import jp.linkserver.nittcsc.logic.subjectContains
+import jp.linkserver.nittcsc.logic.subjectIdentityKey
+
 import jp.linkserver.nittcsc.ui.theme.appInsetContainerColor
 import jp.linkserver.nittcsc.ui.theme.appCardContainerColor
 import androidx.activity.compose.BackHandler
@@ -616,8 +620,8 @@ private fun ExamSlotEditorCard(
             .asSequence()
             .map { it.trim() }
             .filter { it.isNotBlank() }
-            .filter { query.isBlank() || it.contains(query, ignoreCase = true) }
-            .distinct()
+            .filter { query.isBlank() || subjectContains(it, query) }
+            .distinctBy(::subjectIdentityKey)
             .sorted()
             .take(8)
             .toList()
@@ -625,7 +629,7 @@ private fun ExamSlotEditorCard(
     val teacherCandidatesForSubject = remember(draft.subject, subjectTeacherCandidates) {
         val subject = draft.subject.trim()
         subjectTeacherCandidates.entries
-            .firstOrNull { it.key.equals(subject, ignoreCase = true) }
+            .firstOrNull { sameSubject(it.key, subject) }
             ?.value
             .orEmpty()
             .map { it.trim() }
@@ -638,7 +642,7 @@ private fun ExamSlotEditorCard(
     }
     fun updateSubject(value: String) {
         val candidates = subjectTeacherCandidates.entries
-            .firstOrNull { it.key.equals(value.trim(), ignoreCase = true) }?.value.orEmpty()
+            .firstOrNull { sameSubject(it.key, value) }?.value.orEmpty()
         val result = updateTeacherAutoFill(draft.teacher, autoFilledTeacher, candidates)
         autoFilledTeacher = result.autoFilledTeacher
         onUpdateDraft(draft.copy(subject = value, teacher = result.teacher))

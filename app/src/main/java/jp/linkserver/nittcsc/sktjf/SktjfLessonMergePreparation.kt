@@ -15,7 +15,7 @@ internal sealed interface SktjfLessonPreparation {
 /** Reconstruct current source links and create a conflict plan; this never writes data. */
 internal fun prepareSktjfLessonMerge(
     document: SktjfDocument, rows: List<LessonEntity>, state: SktjfSourceStateEntity?,
-    extras: List<SktjfExtraLessonEntity> = emptyList()
+    extras: List<SktjfExtraLessonEntity> = emptyList(), allowTimed: Boolean = false
 ): SktjfLessonPreparation {
     val term = when (document.term) { "S" -> TimetableTerm.FIRST; "F" -> TimetableTerm.SECOND; else -> return SktjfLessonPreparation.Blocked(SktjfLocalProjectionIssue.INVALID_PARTITION) }
     val decoded = if (state == null) null else runCatching {
@@ -25,7 +25,7 @@ internal fun prepareSktjfLessonMerge(
     }.getOrElse { return SktjfLessonPreparation.Blocked(SktjfLocalProjectionIssue.INVALID_SOURCE_LINKS) }
     val baseline = decoded?.first?.lessons
     val projection = projectSktjfLocalTimetable(document.academicYear, term, document.classId, rows,
-        baseline, decoded?.second.orEmpty(), state?.requiresRelinking ?: false)
+        baseline, decoded?.second.orEmpty(), state?.requiresRelinking ?: false, allowTimed)
     if (projection is SktjfLocalProjection.Blocked) return SktjfLessonPreparation.Blocked(projection.issue)
     val local = (projection as SktjfLocalProjection.Ready).timetable
     val additional = runCatching {

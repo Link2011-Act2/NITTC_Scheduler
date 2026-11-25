@@ -11,20 +11,31 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.ByteArrayOutputStream
 import java.io.IOException
-import java.math.BigInteger
 import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 internal const val SKTJF_DISTRIBUTION_REPOSITORY = "Link2011-Act2/NITTC_Timetable"
 
 internal sealed interface SktjfFetchResult {
-    data class Success(val manifest: SktjfManifest, val document: SktjfDocument) : SktjfFetchResult
+    data class Success(val manifest: SktjfManifest, val document: SktjfDocument,
+        val timed: SktjfV2Candidate? = null) : SktjfFetchResult
     data object ReleaseNotFound : SktjfFetchResult
     data object ClassNotFound : SktjfFetchResult
     data object RateLimited : SktjfFetchResult
     data object NetworkFailure : SktjfFetchResult
     data object InvalidData : SktjfFetchResult
     data class HttpFailure(val status: Int) : SktjfFetchResult
+}
+
+/** A verified candidate remains read-only until the v2 apply path supports every condition. */
+internal sealed interface SktjfCandidateFetchResult {
+    data class Success(val manifest: SktjfV2Manifest, val asset: SktjfCandidateAsset) : SktjfCandidateFetchResult
+    data object ReleaseNotFound : SktjfCandidateFetchResult
+    data object ClassNotFound : SktjfCandidateFetchResult
+    data object RateLimited : SktjfCandidateFetchResult
+    data object NetworkFailure : SktjfCandidateFetchResult
+    data object InvalidData : SktjfCandidateFetchResult
+    data class HttpFailure(val status: Int) : SktjfCandidateFetchResult
 }
 
 internal sealed interface SktjfDiscoveryResult {
@@ -36,10 +47,17 @@ internal sealed interface SktjfDiscoveryResult {
     data class HttpFailure(val status: Int) : SktjfDiscoveryResult
 }
 
+internal sealed interface SktjfVacationFetchResult {
+    data class Success(val periods: List<SktjfVacation>) : SktjfVacationFetchResult
+    data object NotPublished : SktjfVacationFetchResult
+    data object Failed : SktjfVacationFetchResult
+}
+
 /** Downloads and validates into memory only; no user data is written or replaced. */
 internal class SktjfDistributionClient(
     private val repository: String,
-    client: OkHttpClient = OkHttpClient()
+    client: OkHttpClient = OkHttpClient(),
+    private val beta: Boolean = false
 ) {
     private val client = client.newBuilder().followRedirects(false).followSslRedirects(false)
         .connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)
@@ -50,19 +68,28 @@ internal class SktjfDistributionClient(
     /** A missing or invalid manifest is not evidence that an academic year is available. */
     suspend fun verifiedManifest(revision: String): SktjfManifest? = withContext(Dispatchers.IO) {
         try {
-            require(Regex("^\\d{4}\\.[SF]\\.(0|[1-9][0-9]*)$").matches(revision))
-            SktjfJson.manifest(download("https://github.com/$repository/releases/download/$revision/manifest.json", 512 * 1024), repository)
-                .also { require(it.revision == revision) }
+            require(parseSktjfRevision(revision)?.beta == beta)
+            val bytes = download("https://github.com/$repository/releases/download/$revision/manifest.json", 512 * 1024)
+            val version = strictSktjfObject(bytes, 512 * 1024).integer("dataFormatVersion", 1..2)
+            val manifest = if (version == 1) SktjfJson.manifest(bytes, repository) else {
+                SktjfV2DistributionJson.manifest(bytes, repository).common
+            }
+            require(manifest.revision == revision)
+            manifest.takeIf { it.assets.isNotEmpty() }
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { null }
     }
 
     /** Scan every listed page before selecting the greatest numeric revision. */
-    suspend fun discover(year: Int, term: String): SktjfDiscoveryResult = withContext(Dispatchers.IO) {
+    suspend fun discover(year: Int, term: String): SktjfDiscoveryResult = discoverRevision(year, term)
+
+    suspend fun discoverVacations(year: Int): SktjfDiscoveryResult = discoverRevision(year, null)
+
+    private suspend fun discoverRevision(year: Int, term: String?): SktjfDiscoveryResult = withContext(Dispatchers.IO) {
         try {
-            require(year in 1900..9998 && term in setOf("S", "F"))
-            val pattern = Regex("^$year\\.$term\\.(0|[1-9][0-9]*)$")
-            var best: Pair<BigInteger, String>? = null
+            require(year in 1900..9998 && (term == null || term in setOf("S", "F")))
+            val ordering = compareBy<SktjfRevision>({ it.term == "F" }, { it.number })
+            var best: Pair<String, SktjfRevision>? = null
             for (page in 1..20) {
                 val bytes = download("https://api.github.com/repos/$repository/releases?per_page=30&page=$page", 4 * 1024 * 1024)
                 val wrapped = "{\"releases\":".toByteArray() + bytes + "}".toByteArray()
@@ -73,14 +100,19 @@ internal class SktjfDistributionClient(
                     val draft = item.get("draft") as? Boolean ?: error("Invalid draft flag")
                     val prerelease = item.get("prerelease") as? Boolean ?: error("Invalid prerelease flag")
                     val tag = item.get("tag_name") as? String ?: error("Invalid release tag")
-                    if (draft || prerelease) continue
-                    val match = pattern.matchEntire(tag) ?: continue
+                    if (draft || prerelease != beta) continue
+                    val parsed = parseSktjfRevision(tag) ?: continue
+                    if (parsed.year != year || parsed.beta != beta || (term != null && parsed.term != term)) continue
+                    if (term == null) {
+                        val assets = item.getJSONArray("assets")
+                        val names = (0 until assets.length()).map { assets.getJSONObject(it).getString("name") }.toSet()
+                        if (VACATION_MANIFEST_NAME !in names || VACATION_ASSET_NAME !in names) continue
+                    }
                     val published = item.get("published_at") as? String ?: error("Invalid publication date")
                     Instant.parse(published)
-                    val revision = BigInteger(match.groupValues[1])
-                    if (best == null || revision > best.first) best = revision to tag
+                    if (best == null || ordering.compare(parsed, best.second) > 0) best = tag to parsed
                 }
-                if (releases.length() < 30) return@withContext best?.let { SktjfDiscoveryResult.Found(it.second) }
+                if (releases.length() < 30) return@withContext best?.let { SktjfDiscoveryResult.Found(it.first) }
                     ?: SktjfDiscoveryResult.NotPublished
             }
             SktjfDiscoveryResult.InvalidData
@@ -100,14 +132,26 @@ internal class SktjfDistributionClient(
 
     suspend fun fetch(revision: String, classId: String): SktjfFetchResult = withContext(Dispatchers.IO) {
         try {
-            require(Regex("^\\d{4}\\.[SF]\\.(0|[1-9][0-9]*)$").matches(revision))
-            require(Regex("^(1-[1-4]|[2-5][MEIB]|AC-[A-Z0-9]+)$").matches(classId))
+            require(parseSktjfRevision(revision)?.beta == beta)
+            require(isSktjfUndergraduateClass(classId))
             val url = "https://github.com/$repository/releases/download/$revision/manifest.json"
-            val manifest = SktjfJson.manifest(download(url, 512 * 1024), repository)
+            val manifestBytes = download(url, 512 * 1024)
+            val version = strictSktjfObject(manifestBytes, 512 * 1024).integer("dataFormatVersion", 1..2)
+            val mixed = if (version == 2) SktjfV2DistributionJson.manifest(manifestBytes, repository) else null
+            val manifest = mixed?.common ?: SktjfJson.manifest(manifestBytes, repository)
             require(manifest.revision == revision)
             val asset = manifest.assets.singleOrNull { it.classId == classId } ?: return@withContext SktjfFetchResult.ClassNotFound
             val bytes = download(asset.url, 4 * 1024 * 1024)
-            SktjfFetchResult.Success(manifest, SktjfJson.verifiedDocument(bytes, manifest, asset))
+            var timed: SktjfV2Candidate? = null
+            val document = if (mixed == null) SktjfJson.verifiedDocument(bytes, manifest, asset) else
+                when (val candidate = SktjfV2DistributionJson.verifiedDocument(bytes, mixed, asset)) {
+                    is SktjfCandidateAsset.V1 -> candidate.document
+                    is SktjfCandidateAsset.V2 -> {
+                        timed = candidate.candidate
+                        candidate.candidate.document
+                    }
+                }
+            SktjfFetchResult.Success(manifest, document, timed)
         } catch (e: CancellationException) {
             throw e
         } catch (e: FetchHttpException) {
@@ -120,6 +164,51 @@ internal class SktjfDistributionClient(
             SktjfFetchResult.NetworkFailure
         } catch (_: Exception) {
             SktjfFetchResult.InvalidData
+        }
+    }
+
+    /** Verify a mixed-version release without changing the existing v1 apply path. */
+    suspend fun fetchCandidate(revision: String, classId: String): SktjfCandidateFetchResult = withContext(Dispatchers.IO) {
+        try {
+            require(parseSktjfRevision(revision)?.beta == beta)
+            require(isSktjfUndergraduateClass(classId))
+            val url = "https://github.com/$repository/releases/download/$revision/manifest.json"
+            val manifest = SktjfV2DistributionJson.manifest(download(url, 512 * 1024), repository)
+            require(manifest.common.revision == revision)
+            val asset = manifest.common.assets.singleOrNull { it.classId == classId }
+                ?: return@withContext SktjfCandidateFetchResult.ClassNotFound
+            val bytes = download(asset.url, 4 * 1024 * 1024)
+            SktjfCandidateFetchResult.Success(manifest, SktjfV2DistributionJson.inspectVerifiedDocument(bytes, manifest, asset))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: FetchHttpException) {
+            when {
+                e.rateLimited -> SktjfCandidateFetchResult.RateLimited
+                e.status == 404 -> SktjfCandidateFetchResult.ReleaseNotFound
+                else -> SktjfCandidateFetchResult.HttpFailure(e.status)
+            }
+        } catch (_: IOException) {
+            SktjfCandidateFetchResult.NetworkFailure
+        } catch (_: Exception) {
+            SktjfCandidateFetchResult.InvalidData
+        }
+    }
+
+    suspend fun fetchVacations(revision: String): SktjfVacationFetchResult = withContext(Dispatchers.IO) {
+        try {
+            require(parseSktjfRevision(revision)?.beta == beta)
+            val manifestBytes = try {
+                download("https://github.com/$repository/releases/download/$revision/$VACATION_MANIFEST_NAME", VACATION_MANIFEST_LIMIT)
+            } catch (error: FetchHttpException) {
+                if (error.status == 404) return@withContext SktjfVacationFetchResult.NotPublished
+                throw error
+            }
+            val asset = SktjfVacationJson.manifest(manifestBytes, repository, revision)
+            SktjfVacationFetchResult.Success(SktjfVacationJson.periods(download(asset.url, VACATION_ASSET_LIMIT), asset))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            SktjfVacationFetchResult.Failed
         }
     }
 

@@ -13,6 +13,10 @@ import jp.linkserver.nittcsc.sktjf.SktjfSourceLinks
 import org.json.JSONArray
 import org.junit.Assert.*
 import org.junit.Test
+import java.time.LocalDate
+import jp.linkserver.nittcsc.sktjf.SktjfV2Week
+import jp.linkserver.nittcsc.sktjf.SktjfReference
+import jp.linkserver.nittcsc.sktjf.SktjfV2WeekSeries
 
 class SktjfSourceStateBackupTest {
     private fun state(): SktjfSourceStateEntity {
@@ -28,6 +32,11 @@ class SktjfSourceStateBackupTest {
         val source = state()
         val result = SktjfSourceStateBackup.decode(SktjfSourceStateBackup.encode(listOf(source)))
         assertEquals(source.copy(requiresRelinking = true), result.single())
+        assertEquals(source, SktjfSourceStateBackup.decode(SktjfSourceStateBackup.encode(listOf(source)), preserveLinkage = true).single())
+        val stale = source.copy(requiresRelinking = true)
+        assertEquals(stale, SktjfSourceStateBackup.decode(SktjfSourceStateBackup.encode(listOf(stale)), preserveLinkage = true).single())
+        val older = SktjfSourceStateBackup.encode(listOf(source)).also { it.getJSONObject(0).remove("requiresRelinking") }
+        assertTrue(SktjfSourceStateBackup.decode(older, preserveLinkage = true).single().requiresRelinking)
         val local = source.copy(baselineJson = SktjfBaselineCodec.encode(SktjfBaselineCodec.decode(source.baselineJson).copy(localFile = true)))
         assertTrue(SktjfBaselineCodec.decode(SktjfSourceStateBackup.decode(SktjfSourceStateBackup.encode(listOf(local))).single().baselineJson).localFile)
     }
@@ -40,5 +49,25 @@ class SktjfSourceStateBackupTest {
         val encoded = SktjfSourceStateBackup.encode(listOf(source))
         val duplicate = JSONArray().put(encoded.getJSONObject(0)).put(encoded.getJSONObject(0))
         assertTrue(runCatching { SktjfSourceStateBackup.decode(duplicate) }.isFailure)
+    }
+
+    @Test fun sourceSnapshotBackupKeepsConfirmedWeekAndReference() {
+        val original=state()
+        val baseline=SktjfBaselineCodec.decode(original.baselineJson).copy(
+            weeks=mapOf(LocalDate.of(2026,4,6) to SktjfV2Week(9,listOf(SktjfReference("src",1,null)))))
+        val updated=original.copy(baselineJson=SktjfBaselineCodec.encode(baseline))
+        val restored=SktjfSourceStateBackup.decode(SktjfSourceStateBackup.encode(listOf(updated))).single()
+        assertEquals(baseline,SktjfBaselineCodec.decode(restored.baselineJson))
+        assertTrue(restored.requiresRelinking)
+    }
+
+    @Test fun sourceSnapshotBackupKeepsOpportunitySeries() {
+        val original = state()
+        val baseline = SktjfBaselineCodec.decode(original.baselineJson).copy(series = listOf(
+            SktjfV2WeekSeries("shared", 1, setOf(2), setOf("one"), SktjfCycle.A, listOf(SktjfReference("src", 1, null)))))
+        val updated = original.copy(baselineJson = SktjfBaselineCodec.encode(baseline))
+        val restored = SktjfSourceStateBackup.decode(SktjfSourceStateBackup.encode(listOf(updated))).single()
+        assertEquals(baseline, SktjfBaselineCodec.decode(restored.baselineJson))
+        assertTrue(restored.requiresRelinking)
     }
 }

@@ -63,6 +63,7 @@ internal fun AbTableScreen(
     onPrepareNextAcademicYear: () -> Unit,
     onUpdateTerm: (LocalDate, LocalDate) -> Unit,
     onSaveBreak: (Long?, String, LocalDate, LocalDate) -> Unit,
+    schoolVacations: (@Composable () -> Unit)? = null,
     onDeleteBreak: (LongBreakEntity) -> Unit,
     onOpenExamTimetables: () -> Unit,
     dayTypeForDate: (LocalDate) -> DayType,
@@ -210,7 +211,8 @@ internal fun AbTableScreen(
                         Button(onClick = { showBreakDialog = true }) { Text(stringResource(R.string.btn_add)) }
                     }
 
-                    if (state.longBreaks.isEmpty()) {
+                    schoolVacations?.invoke()
+                    if (state.longBreaks.isEmpty() && schoolVacations == null) {
                         Text(stringResource(R.string.label_not_registered), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
                         state.longBreaks.forEach { longBreak ->
@@ -708,14 +710,18 @@ private fun nextDayType(current: DayType, abEnabled: Boolean): DayType = when (c
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddBreakDialog(
+internal fun AddBreakDialog(
     showWeekdayOnDates: Boolean = false,
+    initialName: String = "",
+    initialStart: LocalDate = LocalDate.now(),
+    initialEnd: LocalDate = initialStart,
+    editing: Boolean = false,
     onDismiss: () -> Unit,
     onSave: (String, LocalDate, LocalDate) -> Unit
 ) {
-    var name by remember { mutableStateOf("") }
-    var start by remember { mutableStateOf(LocalDate.now()) }
-    var end by remember { mutableStateOf(LocalDate.now()) }
+    var name by remember { mutableStateOf(initialName) }
+    var start by remember { mutableStateOf(initialStart) }
+    var end by remember { mutableStateOf(initialEnd) }
     var showStartPicker by rememberSaveable { mutableStateOf(false) }
     var showEndPicker by rememberSaveable { mutableStateOf(false) }
 
@@ -748,7 +754,7 @@ private fun AddBreakDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.title_add_break)) },
+        title = { Text(stringResource(if (editing) R.string.sktjf_vacations_edit else R.string.title_add_break)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
@@ -766,7 +772,9 @@ private fun AddBreakDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(name, start, end) }) { Text(stringResource(R.string.btn_save)) }
+            TextButton(enabled = name.isNotBlank() && start <= end, onClick = { onSave(name, start, end) }) {
+                Text(stringResource(R.string.btn_save))
+            }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.btn_cancel)) }

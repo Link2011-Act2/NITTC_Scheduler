@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -29,12 +30,35 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.logic.ClassSlot
+import jp.linkserver.nittcsc.logic.isClearlyRelatedSubjectRename
+import jp.linkserver.nittcsc.logic.sameSubject
 import jp.linkserver.nittcsc.data.TaskEntity
 import jp.linkserver.nittcsc.data.PlanEntity
 import jp.linkserver.nittcsc.sktjf.SktjfVisibleExtra
 import jp.linkserver.nittcsc.sktjf.SktjfExtraLessonDraft
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+
+@Composable
+internal fun TimedAlternativeEditors(items: List<SktjfVisibleExtra>, tasks: List<TaskEntity>, plans: List<PlanEntity>,
+    onSave: suspend (SktjfVisibleExtra, SktjfExtraLessonDraft) -> Boolean) {
+    var editing by remember { mutableStateOf<SktjfVisibleExtra?>(null) }
+    items.forEach { lesson ->
+        val range = lesson.content.weekRange?.range
+        val label = when {
+            range?.start != null && range.end != null -> stringResource(R.string.sktjf_timed_between, range.start, range.end, lesson.content.subject)
+            range?.start != null -> stringResource(R.string.sktjf_timed_from, range.start, lesson.content.subject)
+            range?.end != null -> stringResource(R.string.sktjf_timed_until, range.end, lesson.content.subject)
+            else -> lesson.content.subject
+        }
+        OutlinedButton(onClick = { editing = lesson }, modifier = Modifier.fillMaxWidth()) { Text(label) }
+    }
+    editing?.let { selected ->
+        val subjects = tasks.filter { it.extraLessonId == selected.id }.map { it.subject } +
+            plans.filter { it.extraLessonId == selected.id }.map { it.subject }
+        SktjfExtraLessonEditDialog(selected, subjects, onSave) { editing = null }
+    }
+}
 
 @Composable
 internal fun SktjfAdditionalLessons(items: List<Triple<ClassSlot, SktjfVisibleExtra, Boolean>>, invalid: Boolean,
@@ -85,19 +109,32 @@ internal fun SktjfAdditionalLessons(items: List<Triple<ClassSlot, SktjfVisibleEx
         }
     }
     editing?.let { selected ->
-        if (onSave != null) SktjfExtraLessonEditDialog(selected, onSave, onDismiss = { editing = null })
+        val subjects = tasks.filter { it.extraLessonId == selected.id }.map { it.subject } +
+            plans.filter { it.extraLessonId == selected.id }.map { it.subject }
+        if (onSave != null) SktjfExtraLessonEditDialog(selected, subjects, onSave, onDismiss = { editing = null })
     }
 }
 
 @Composable
-private fun SktjfExtraLessonEditDialog(lesson: SktjfVisibleExtra,
+private fun SktjfExtraLessonEditDialog(lesson: SktjfVisibleExtra, linkedSubjects: List<String>,
     onSave: suspend (SktjfVisibleExtra, SktjfExtraLessonDraft) -> Boolean, onDismiss: () -> Unit) {
     var subject by remember(lesson.id, lesson.storedContentJson) { mutableStateOf(lesson.content.subject) }
     var teachers by remember(lesson.id, lesson.storedContentJson) { mutableStateOf(lesson.content.teachers.joinToString("\n")) }
     var rooms by remember(lesson.id, lesson.storedContentJson) { mutableStateOf(lesson.content.rooms.joinToString("\n")) }
     var saving by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
+    var confirmingRename by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    fun save(follow: Boolean) {
+        saving = true; failed = false
+        scope.launch {
+            val ok = try { onSave(lesson, SktjfExtraLessonDraft(subject, teachers, rooms, follow)) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { false }
+            saving = false
+            if (ok) onDismiss() else failed = true
+        }
+    }
     AlertDialog(onDismissRequest = { if (!saving) onDismiss() },
         title = { Text(stringResource(R.string.sktjf_extra_edit)) },
         text = {
@@ -109,16 +146,18 @@ private fun SktjfExtraLessonEditDialog(lesson: SktjfVisibleExtra,
             }
         },
         confirmButton = { TextButton(enabled = !saving && subject.isNotBlank(), onClick = {
-            saving = true; failed = false
-            scope.launch {
-                val ok = try { onSave(lesson, SktjfExtraLessonDraft(subject, teachers, rooms)) }
-                catch (cancelled: CancellationException) { throw cancelled }
-                catch (_: Exception) { false }
-                saving = false
-                if (ok) onDismiss() else failed = true
-            }
+            if (!isClearlyRelatedSubjectRename(lesson.content.subject, subject) &&
+                linkedSubjects.any { sameSubject(it, lesson.content.subject) }) confirmingRename = true
+            else save(false)
         }) { Text(stringResource(R.string.btn_save)) } },
         dismissButton = { TextButton(enabled = !saving, onClick = onDismiss) { Text(stringResource(R.string.btn_cancel)) } })
+    if (confirmingRename) AlertDialog(onDismissRequest = { confirmingRename = false },
+        title = { Text(stringResource(R.string.lesson_rename_related_title)) },
+        text = { Text(stringResource(R.string.lesson_rename_related_message)) },
+        confirmButton = { TextButton(onClick = { confirmingRename = false; save(true) }) {
+            Text(stringResource(R.string.lesson_rename_related_confirm)) } },
+        dismissButton = { TextButton(onClick = { confirmingRename = false; save(false) }) {
+            Text(stringResource(R.string.lesson_rename_related_keep)) } })
 }
 
 @Composable

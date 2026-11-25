@@ -9,6 +9,17 @@ import org.junit.Test
 import java.time.LocalDate
 
 class LessonAutocompleteTest {
+    @Test fun romanVariantsShareCandidatesWithoutChangingTheirStoredLabels() {
+        val result = options(listOf(
+            lesson(term = TimetableTerm.SECOND, weeklySubject = "英語Ⅱ", weeklyTeacher = "山田"),
+            lesson(term = TimetableTerm.SECOND, weeklySubject = "英語II", weeklyTeacher = "佐藤"),
+            lesson(term = TimetableTerm.SECOND, weeklySubject = "英語I", weeklyTeacher = "別の先生")
+        ))
+        assertEquals(2, result.subjectSuggestions.size)
+        assertEquals(1, result.subjectSuggestions.count { sameSubject(it, "英語II") })
+        assertEquals(listOf("佐藤", "山田"), result.subjectTeacherCandidates.getValue("英語Ⅱ"))
+        assertEquals("別の先生", result.resolveTeacherForAutoFill("英語Ⅰ", null))
+    }
     @Test
     fun buildsSubjectsAndTeachersFromWeeklyAndAlternatingLessons() {
         val options = buildLessonAutocompleteOptions(

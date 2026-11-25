@@ -132,8 +132,8 @@ class SurfaceAppearanceTest {
                                     LessonEditorCard(title = "1/2校時", lesson = LessonEntity(id = 1,
                                         academicYear = today.year, dayOfWeek = 3, slotIndex = 0, mode = LessonMode.WEEKLY,
                                         weeklySubject = "数学", weeklyTeacher = "担当教員", aSubject = "", aTeacher = "", bSubject = "", bTeacher = ""),
-                                        onAutoSave = {}, onSave = {})
-                                    LessonEditorCard(title = "3/4校時", lesson = null, onAutoSave = {}, onSave = {})
+                                        onAutoSave = { _, _ -> }, onSave = { _, _, _ -> })
+                                    LessonEditorCard(title = "3/4校時", lesson = null, onAutoSave = { _, _ -> }, onSave = { _, _, _ -> })
                                 }
                             }
                         }

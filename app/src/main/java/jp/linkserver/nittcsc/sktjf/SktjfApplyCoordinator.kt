@@ -3,7 +3,6 @@ package jp.linkserver.nittcsc.sktjf
 import androidx.room.withTransaction
 import jp.linkserver.nittcsc.data.*
 import jp.linkserver.nittcsc.logic.TimetableTerm
-import java.math.BigInteger
 import java.time.LocalDate
 
 internal data class SktjfApplySnapshot(
@@ -14,8 +13,24 @@ internal data class SktjfApplySnapshot(
 internal data class SktjfApplyPreview(
     val document: SktjfDocument, val snapshot: SktjfApplySnapshot,
     val lessonConflicts: List<SktjfLessonConflict>, val calendarConflicts: List<SktjfCalendarConflict>,
-    val localFile: Boolean = false
+    val localFile: Boolean = false, val lessonReview: List<SktjfLessonReview> = emptyList(),
+    val timed: SktjfV2ApplyPreview? = null
 )
+
+/** A previous import still needs review even if all its lessons were deleted. */
+internal fun SktjfApplyPreview.hasExistingLessons(): Boolean = snapshot.lessons.any { row ->
+    val term = if (document.term == "S") TimetableTerm.FIRST else TimetableTerm.SECOND
+    if (row.academicYear != document.academicYear || row.timetableTerm != term) return@any false
+    when (row.mode) {
+        LessonMode.WEEKLY -> row.weeklySubject.isNotBlank() || row.weeklyTeacher.isNotBlank() || !row.weeklyLocation.isNullOrBlank()
+        LessonMode.ALTERNATING -> row.aSubject.isNotBlank() || row.aTeacher.isNotBlank() || !row.aLocation.isNullOrBlank() ||
+            row.bSubject.isNotBlank() || row.bTeacher.isNotBlank() || !row.bLocation.isNullOrBlank()
+    }
+} || snapshot.extraLessons.any {
+    it.academicYear == document.academicYear && it.term == document.term && it.classId == document.classId
+} || snapshot.sourceStates.any {
+    it.academicYear == document.academicYear && it.term == document.term
+}
 internal sealed interface SktjfPreviewResult {
     data class Ready(val preview: SktjfApplyPreview) : SktjfPreviewResult
     data object Blocked : SktjfPreviewResult
@@ -25,6 +40,14 @@ internal sealed interface SktjfApplyResult {
     data object Stale : SktjfApplyResult
     data object Blocked : SktjfApplyResult
 }
+
+internal data class SktjfV2ApplyPreview(val snapshot: SktjfApplySnapshot, val preparation: SktjfV2MergePreparation.Ready,
+    val localFile: Boolean = false)
+
+internal fun SktjfV2ApplyPreview.forReview(): SktjfApplyPreview = SktjfApplyPreview(
+    document = preparation.candidate.documentForMerge(), snapshot = snapshot,
+    lessonConflicts = preparation.lessons.conflicts, calendarConflicts = preparation.calendar.conflicts,
+    localFile = localFile, lessonReview = preparation.lessons.reviewItems, timed = this)
 
 /** Internal integration point; caller must refresh notification/calendar/widget schedules after Applied. */
 internal class SktjfApplyCoordinator(private val db: AppDatabase, private val repository: SchedulerRepository) {
@@ -51,12 +74,67 @@ internal class SktjfApplyCoordinator(private val db: AppDatabase, private val re
         // Another class may have data in the same shared timetable; do not guess how to replace it.
         if (snapshot.extraLessons.any { it.academicYear == document.academicYear && it.term == document.term && it.classId != document.classId }) return false
         if (snapshot.profiles.singleOrNull { it.academicYear == document.academicYear }?.classId != document.classId) return false
-        val format = Regex("^${document.academicYear}\\.${document.term}\\.(0|[1-9][0-9]*)$")
-        val incoming = format.matchEntire(document.revision)?.groupValues?.get(1) ?: return false
+        if (!isSktjfUndergraduateClass(document.classId)) return false
+        val incoming = parseSktjfRevision(document.revision) ?: return false
+        if (incoming.year != document.academicYear || incoming.term != document.term) return false
         val old = source(document, snapshot) ?: return true
         if (old.isLocalSktjfSource()) return true
-        val previous = format.matchEntire(old.revision)?.groupValues?.get(1) ?: return false
-        return BigInteger(incoming) >= BigInteger(previous)
+        val previous = parseSktjfRevision(old.revision) ?: return false
+        return incoming.beta != previous.beta || incoming.number >= previous.number
+    }
+
+    /** Prepares a v2 merge without writing; it is not an authorization to apply it. */
+    suspend fun previewV2(candidate: SktjfV2Candidate): SktjfV2ApplyPreview? = db.withTransaction {
+        if (!candidate.weekEvidenceComplete) return@withTransaction null
+        val current = snapshot(candidate.document)
+        if (!acceptable(candidate.document, current)) return@withTransaction null
+        val profile = current.profiles.singleOrNull { it.academicYear == candidate.document.academicYear }
+            ?: return@withTransaction null
+        val state = source(candidate.document, current)?.takeUnless { it.requiresRelinking }
+        val extras = current.extraLessons.filter { it.academicYear == candidate.document.academicYear &&
+            it.term == candidate.document.term && it.classId == candidate.document.classId }
+        val prepared = prepareSktjfV2Merge(candidate, profile.attributes(), current.lessons, current.days, state, extras)
+            as? SktjfV2MergePreparation.Ready ?: return@withTransaction null
+        SktjfV2ApplyPreview(current, prepared)
+    }
+
+    /** Commit a validated v2 preview without dropping its opportunity evidence. */
+    suspend fun applyV2(preview: SktjfV2ApplyPreview, lessonChoices: Map<String, SktjfConflictChoice>,
+        calendarChoices: Map<LocalDate, SktjfConflictChoice>): SktjfApplyResult = db.withTransaction {
+        val candidate = preview.preparation.candidate
+        val document = candidate.document
+        val current = snapshot(document)
+        if (current != preview.snapshot || !acceptable(document, current)) return@withTransaction SktjfApplyResult.Stale
+        if (!candidate.weekEvidenceComplete) return@withTransaction SktjfApplyResult.Blocked
+        val oldState = source(document, current)?.takeUnless { it.requiresRelinking }
+        val existingExtras = current.extraLessons.filter { it.academicYear == document.academicYear && it.term == document.term && it.classId == document.classId }
+        val resolved = runCatching { preview.preparation.lessons.resolve(lessonChoices) }.getOrNull() ?: return@withTransaction SktjfApplyResult.Blocked
+        val calendar = runCatching { preview.preparation.calendar.resolve(calendarChoices) }.getOrNull() ?: return@withTransaction SktjfApplyResult.Blocked
+        val draft = draftSktjfTimedStorage(candidate, current.lessons, existingExtras, resolved, calendar.baseline)
+            ?: return@withTransaction SktjfApplyResult.Blocked
+        val oldCalendar = oldState?.let { SktjfBaselineCodec.decode(it.baselineJson).calendar }
+        val localCalendar = projectSktjfLocalCalendar(document.academicYear, document.term, document.classId, current.days, oldCalendar)
+        val changedDays = mutableListOf<DayTypeEntity>()
+        for ((date, content) in calendar.days) {
+            if (localCalendar.days[date] == content) continue
+            val day = projectSktjfCalendarDay(SktjfCalendarDay(date, content.dayType, content.overrideDayOfWeek,
+                content.overrideDayType, content.event, emptyList())) as? SktjfCalendarProjection.Supported ?: return@withTransaction SktjfApplyResult.Blocked
+            changedDays += day.day
+        }
+        val links = runCatching { SktjfSourceLinks.encode(draft.ordinary.metadata.values.flatten().mapNotNull { lesson ->
+            lesson.sourceLessonId?.let { id -> SktjfSourceLink(id, lesson.content.dayOfWeek, lesson.content.period, lesson.content.cycle) }
+        }) }.getOrNull() ?: return@withTransaction SktjfApplyResult.Blocked
+        val source = runCatching { SktjfSourceStateEntity(document.academicYear, document.term, document.classId, document.revision,
+            SktjfBaselineCodec.encode(draft.source.copy(localFile = preview.localFile)), false, links).also(SktjfSourceStateBackup::validate) }.getOrNull()
+            ?: return@withTransaction SktjfApplyResult.Blocked
+        val term = if (document.term == "S") TimetableTerm.FIRST else TimetableTerm.SECOND
+        draft.ordinary.rows.forEach { dao.upsertLesson(it) }
+        if (existingExtras.isNotEmpty()) dao.deleteSktjfExtraLessonsForPartition(document.academicYear, document.term)
+        if (draft.alternatives.isNotEmpty()) dao.upsertSktjfExtraLessons(draft.alternatives)
+        if (changedDays.isNotEmpty()) dao.upsertDayTypes(changedDays)
+        dao.upsertSktjfSourceStates(listOf(source))
+        repository.touchSyncDatasetMeta(LessonSyncPartition(document.academicYear, term).datasetKey, SchedulerRepository.DATASET_DAY_TYPES)
+        SktjfApplyResult.Applied
     }
 
     suspend fun preview(input: SktjfDocument): SktjfPreviewResult = db.withTransaction {
@@ -66,7 +144,9 @@ internal class SktjfApplyCoordinator(private val db: AppDatabase, private val re
             ?: return@withTransaction SktjfPreviewResult.Blocked
         val document = runCatching { selectSktjfLessons(incoming, profile.attributes()) }.getOrNull()
             ?: return@withTransaction SktjfPreviewResult.Blocked
-        val state = source(document, current)
+        // A stale origin cannot be trusted after a restore or sync. Treat existing
+        // lessons as local data and require explicit choices before replacing them.
+        val state = source(document, current)?.takeUnless { it.requiresRelinking }
         val extras = current.extraLessons.filter { it.academicYear == document.academicYear && it.term == document.term && it.classId == document.classId }
         val planningState = if (extras.isEmpty()) state else (prepareLegacyExtraMigration(state, extras, current.referencedExtraIds)
             ?: return@withTransaction SktjfPreviewResult.Blocked)
@@ -74,7 +154,8 @@ internal class SktjfApplyCoordinator(private val db: AppDatabase, private val re
             ?: return@withTransaction SktjfPreviewResult.Blocked
         val calendar = prepareSktjfCalendarMerge(document, current.days, state) as? SktjfCalendarPreparation.Ready
             ?: return@withTransaction SktjfPreviewResult.Blocked
-        SktjfPreviewResult.Ready(SktjfApplyPreview(document, current, lesson.plan.conflicts, calendar.plan.conflicts))
+        SktjfPreviewResult.Ready(SktjfApplyPreview(document, current, lesson.plan.conflicts, calendar.plan.conflicts,
+            lessonReview = lesson.plan.reviewItems))
     }
 
     suspend fun apply(preview: SktjfApplyPreview, lessonChoices: Map<String, SktjfConflictChoice>,
@@ -82,7 +163,7 @@ internal class SktjfApplyCoordinator(private val db: AppDatabase, private val re
         val document = preview.document
         val current = snapshot(document)
         if (current != preview.snapshot || !acceptable(document, current)) return@withTransaction SktjfApplyResult.Stale
-        val state = source(document, current)
+        val state = source(document, current)?.takeUnless { it.requiresRelinking }
         val existingExtras = current.extraLessons.filter { it.academicYear == document.academicYear && it.term == document.term && it.classId == document.classId }
         val planningState = if (existingExtras.isEmpty()) state else (prepareLegacyExtraMigration(state, existingExtras, current.referencedExtraIds)
             ?: return@withTransaction SktjfApplyResult.Blocked)
@@ -90,7 +171,8 @@ internal class SktjfApplyCoordinator(private val db: AppDatabase, private val re
             ?: return@withTransaction SktjfApplyResult.Blocked
         val calendar = prepareSktjfCalendarMerge(document, current.days, state) as? SktjfCalendarPreparation.Ready
             ?: return@withTransaction SktjfApplyResult.Blocked
-        if (lesson.plan.conflicts != preview.lessonConflicts || calendar.plan.conflicts != preview.calendarConflicts) return@withTransaction SktjfApplyResult.Stale
+        if (lesson.plan.conflicts != preview.lessonConflicts || calendar.plan.conflicts != preview.calendarConflicts ||
+            lesson.plan.reviewItems != preview.lessonReview) return@withTransaction SktjfApplyResult.Stale
         val resolvedLessons = runCatching { lesson.plan.resolve(lessonChoices) }.getOrNull() ?: return@withTransaction SktjfApplyResult.Blocked
         val resolvedCalendar = runCatching { calendar.plan.resolve(calendarChoices) }.getOrNull() ?: return@withTransaction SktjfApplyResult.Blocked
         val term = if (document.term == "S") TimetableTerm.FIRST else TimetableTerm.SECOND
@@ -130,7 +212,6 @@ internal class SktjfApplyCoordinator(private val db: AppDatabase, private val re
         projected.legacy.rows.forEach { dao.upsertLesson(it) }
         if (existingExtras.isNotEmpty()) dao.deleteSktjfExtraLessonsForPartition(document.academicYear, document.term)
         if (changedDays.isNotEmpty()) dao.upsertDayTypes(changedDays)
-        dao.requireSktjfRelinking()
         dao.upsertSktjfSourceStates(listOf(next))
         repository.touchSyncDatasetMeta(LessonSyncPartition(document.academicYear, term).datasetKey, SchedulerRepository.DATASET_DAY_TYPES)
         SktjfApplyResult.Applied

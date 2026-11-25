@@ -6,6 +6,7 @@ import jp.linkserver.nittcsc.data.TaskEntity
 
 fun taskMatchesLesson(task: TaskEntity, lesson: ResolvedLesson): Boolean {
     if (task.extraLessonId != null) return false
+    if (task.lessonId != null && lesson.lessonId != null && task.lessonId != lesson.lessonId) return false
     return itemMatchesLesson(
         subject = task.subject,
         teacher = task.teacher,
@@ -16,6 +17,7 @@ fun taskMatchesLesson(task: TaskEntity, lesson: ResolvedLesson): Boolean {
 
 fun planMatchesLesson(plan: PlanEntity, lesson: ResolvedLesson): Boolean {
     if (plan.extraLessonId != null) return false
+    if (plan.lessonId != null && lesson.lessonId != null && plan.lessonId != lesson.lessonId) return false
     return itemMatchesLesson(
         subject = plan.subject,
         teacher = plan.teacher,
@@ -46,7 +48,7 @@ private fun itemMatchesLesson(
     val itemSubject = subject.trim()
     val lessonSubject = lesson.subject.trim()
     if (itemSubject.isBlank() || lessonSubject.isBlank()) return false
-    if (!itemSubject.equals(lessonSubject, ignoreCase = true)) return false
+    if (!sameSubject(itemSubject, lessonSubject)) return false
     return !useTeacherMatching || teacherMatches(teacher, lesson.teacher)
 }
 

@@ -28,27 +28,24 @@ internal fun NittcConfigurationDialog(
     onDismiss: () -> Unit,
     required: Boolean = false,
     lockYear: Boolean = false,
-    lockMode: Boolean = false,
-    initialProgram: NittcProgram? = null,
-    lockProgram: Boolean = false
+    lockMode: Boolean = false
 ) {
     val expectedMode = remember { mode }
     var selection by remember { mutableStateOf(mode?.mode?.let { name -> SchedulerUsageMode.entries.firstOrNull { it.name == name } }) }
     var yearText by remember { mutableStateOf((defaultYear.takeIf { it in 1900..9998 } ?: academicYearForDate(LocalDate.now())).toString()) }
     val year = yearText.toIntOrNull()?.takeIf { it in 1900..9998 }
     val expectedProfile = remember(year) { profiles.singleOrNull { it.academicYear == year } }
-    var program by remember(year) { mutableStateOf(expectedProfile?.program ?: initialProgram?.name ?: "UNDERGRADUATE") }
-    var grade by remember(year) { mutableIntStateOf(expectedProfile?.grade ?: 1) }
-    var classId by remember(year) { mutableStateOf(expectedProfile?.classId ?: if (initialProgram == NittcProgram.ADVANCED) "AC-" else "") }
+    val undergraduateProfile = expectedProfile?.takeIf { it.program == NittcProgram.UNDERGRADUATE.name }
+    var grade by remember(year) { mutableIntStateOf(undergraduateProfile?.grade ?: 1) }
+    var classId by remember(year) { mutableStateOf(undergraduateProfile?.classId.orEmpty()) }
     var dd by remember(year) { mutableStateOf(expectedProfile?.isDd ?: false) }
     var international by remember(year) { mutableStateOf(expectedProfile?.isInternational ?: false) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val undergraduate = program == "UNDERGRADUATE"
-    val grades = if (undergraduate) (1..5).toList() else (1..2).toList()
+    val grades = 1..5
     val classes = if (grade == 1) (1..4).map { "1-$it" } else listOf("M", "E", "I", "B").map { "$grade$it" }
-    val validClass = if (undergraduate) classId in classes else Regex("^AC-[A-Z0-9]+$").matches(classId)
+    val validClass = classId in classes
     val canSave = !saving && selection != null && (selection == SchedulerUsageMode.GENERIC || (year != null && grade in grades && validClass))
     AlertDialog(
         onDismissRequest = { if (!saving && !required) onDismiss() },
@@ -65,19 +62,12 @@ internal fun NittcConfigurationDialog(
                         label = { Text(stringResource(R.string.nittc_academic_year)) }, singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), enabled = !saving && !lockYear,
                         modifier = Modifier.fillMaxWidth())
-                    OptionMenu(stringResource(R.string.nittc_program), program,
-                        listOf("UNDERGRADUATE" to stringResource(R.string.nittc_undergraduate), "ADVANCED" to stringResource(R.string.nittc_advanced)), !saving && !lockProgram) {
-                        if (program != it) { program = it; grade = 1; classId = if (it == "UNDERGRADUATE") "" else "AC-" }
-                    }
                     OptionMenu(stringResource(R.string.nittc_grade), grade.toString(),
                         grades.map { it.toString() to stringResource(R.string.nittc_grade_value, it) }, !saving) {
                         val nextGrade = it.toInt()
-                        if (grade != nextGrade) { grade = nextGrade; if (undergraduate) classId = "" }
+                        if (grade != nextGrade) { grade = nextGrade; classId = "" }
                     }
-                    if (undergraduate) OptionMenu(stringResource(R.string.nittc_class), classId, classes.map { it to it }, !saving) { classId = it }
-                    else OutlinedTextField(classId, { classId = it.uppercase().take(32) },
-                        label = { Text(stringResource(R.string.nittc_class)) }, singleLine = true,
-                        enabled = !saving, modifier = Modifier.fillMaxWidth())
+                    OptionMenu(stringResource(R.string.nittc_class), classId, classes.map { it to it }, !saving) { classId = it }
                     Row { Checkbox(dd, { dd = it }, enabled = !saving); Text(stringResource(R.string.nittc_dd), modifier = Modifier.padding(top = 12.dp)) }
                     Row { Checkbox(international, { international = it }, enabled = !saving); Text(stringResource(R.string.nittc_international), modifier = Modifier.padding(top = 12.dp)) }
                 }
@@ -87,7 +77,7 @@ internal fun NittcConfigurationDialog(
         confirmButton = {
             TextButton(enabled = canSave, onClick = {
                 val selectedMode = selection ?: return@TextButton
-                val profile = if (selectedMode == SchedulerUsageMode.NITTC) NittcProfileEntity(year!!, program, grade, classId, dd,
+                val profile = if (selectedMode == SchedulerUsageMode.NITTC) NittcProfileEntity(year!!, NittcProgram.UNDERGRADUATE.name, grade, classId, dd,
                     international, expectedProfile?.additionalAttributesJson ?: "[]") else null
                 saving = true; error = false
                 scope.launch {

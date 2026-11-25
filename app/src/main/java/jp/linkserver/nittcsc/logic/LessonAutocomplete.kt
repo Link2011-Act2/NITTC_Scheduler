@@ -4,7 +4,6 @@ import jp.linkserver.nittcsc.data.LessonDraft
 import jp.linkserver.nittcsc.data.LessonEntity
 import jp.linkserver.nittcsc.data.LessonMode
 import java.time.LocalDate
-import java.util.Locale
 
 data class LessonAutocompleteOptions(
     val subjectSuggestions: List<String>,
@@ -21,7 +20,7 @@ data class LessonAutocompleteOptions(
         }
 
     fun resolveTeacherForAutoFill(subject: String, suggestedTeacher: String?): String? {
-        val key = subjectSuggestions.firstOrNull { it.equals(subject.trim(), ignoreCase = true) }
+        val key = subjectSuggestions.firstOrNull { sameSubject(it, subject) }
         val teachers = subjectTeacherCandidates[key].orEmpty()
         val suggested = suggestedTeacher?.trim()?.takeIf { it.isNotBlank() }
         // 現学期に教科がなければ、選択した授業や読み取り結果の教員も利用できる。
@@ -107,7 +106,7 @@ fun buildLessonAutocompleteOptions(
     )
 }
 
-private fun normalizeSubject(subject: String): String = subject.trim().lowercase(Locale.ROOT)
+private fun normalizeSubject(subject: String): String = subjectIdentityKey(subject)
 
 private fun LessonEntity.autocompleteEntries(): List<LessonAutocompleteEntry> = when (mode) {
     LessonMode.WEEKLY -> listOf(LessonAutocompleteEntry(weeklySubject, weeklyTeacher, weeklyLocation))

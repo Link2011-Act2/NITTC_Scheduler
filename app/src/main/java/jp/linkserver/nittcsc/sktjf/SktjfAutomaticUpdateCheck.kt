@@ -9,7 +9,8 @@ import jp.linkserver.nittcsc.logic.nittcGraduatedForYear
 
 internal data class SktjfUpdateSnapshot(val mode: SchedulerUsageMode?, val profiles: List<NittcProfileEntity>,
     val sourceStates: List<SktjfSourceStateEntity>, val yearTransitions: List<NittcYearTransitionEntity> = emptyList())
-internal data class SktjfAutomaticOffer(val key: SktjfUpdateKey, val kind: SktjfUpdateKind, val document: SktjfDocument)
+internal data class SktjfAutomaticOffer(val key: SktjfUpdateKey, val kind: SktjfUpdateKind, val document: SktjfDocument,
+    val timed: SktjfV2Candidate? = null)
 internal fun SktjfSourceStateEntity.isLocalSktjfSource(): Boolean =
     runCatching { SktjfBaselineCodec.decode(baselineJson).localFile }.getOrDefault(false)
 internal fun SktjfSourceStateEntity?.officialSktjfRevision(): String? =
@@ -54,11 +55,11 @@ internal suspend fun checkSktjfUpdates(
             }
             continue
         }
+        if (!isSktjfUndergraduateClass(profile.classId)) continue
         val terms = if (targetYear > year || preferredTerm == "S") listOf("S", "F") else listOf("F", "S")
         for (term in terms) {
             val key = SktjfUpdateKey(targetYear, term, profile.classId)
             val source = before.sourceStates.singleOrNull { it.academicYear == targetYear && it.term == term && it.classId == profile.classId }
-            if (source?.requiresRelinking == true) continue
             val discovery = discover(targetYear, term)
             if (discovery == SktjfDiscoveryResult.NotPublished) continue
             val revision = (discovery as? SktjfDiscoveryResult.Found)?.revision ?: return SktjfAutomaticCheckResult.Failed
@@ -67,11 +68,12 @@ internal suspend fun checkSktjfUpdates(
             if (decision !is SktjfNoticeDecision.Offer) continue
             val result = fetch(revision, profile.classId)
             if (result == SktjfFetchResult.ClassNotFound) continue
-            val doc = (result as? SktjfFetchResult.Success)?.document ?: return SktjfAutomaticCheckResult.Failed
+            val success = result as? SktjfFetchResult.Success ?: return SktjfAutomaticCheckResult.Failed
+            val doc = success.document
             if (doc.academicYear != key.academicYear || doc.term != key.term || doc.classId != key.classId || doc.revision != revision)
                 return SktjfAutomaticCheckResult.Failed
             if (snapshot() != before) return SktjfAutomaticCheckResult.Stale
-            return SktjfAutomaticCheckResult.Available(SktjfAutomaticOffer(key, decision.kind, doc))
+            return SktjfAutomaticCheckResult.Available(SktjfAutomaticOffer(key, decision.kind, doc, success.timed))
         }
     }
     return if (snapshot() == before) SktjfAutomaticCheckResult.NoUpdate else SktjfAutomaticCheckResult.Stale

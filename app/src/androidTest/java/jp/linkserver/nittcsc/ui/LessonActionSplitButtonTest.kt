@@ -42,6 +42,30 @@ class LessonActionSplitButtonTest {
         "lesson-split/font-${context.resources.configuration.fontScale}").apply { mkdirs() }
     private fun label(id: Int) = context.getString(id)
 
+    @Test fun timedAlternativeKeepsItsIdentityWhenAddingATask() {
+        val day = LocalDate.of(2026, 11, 12)
+        var selectedExtra: String? = null
+        compose.setContent {
+            AppTheme(UiDesignMode.MATERIAL_3, darkTheme = false, dynamicColor = false) {
+                val state = SchedulerUiState(initialized = true,
+                    settings = SettingsEntity(termStart = day.minusDays(1), termEnd = day.plusDays(1)), selectedResultDate = day)
+                OutputScreen(modifier = Modifier, state = state, dayTypeForDate = { DayType.A }, dayTypeEntityForDate = { null },
+                    resolveLesson = { date, slot -> if (date == day && slot == 0) ResolvedLesson("卒研", "先生", extraLessonId = "alternate") else null },
+                    resolveOriginalLesson = { _, _ -> null }, changedLessonForDate = { _, _ -> null }, lessonNotes = emptyList(),
+                    onShiftDate = {}, onPickDate = {}, requestedDayViewEpochDay = null, onRequestedDayViewHandled = {},
+                    requestedSlotIndex = null, onRequestedSlotHandled = {}, onOpenLessonSearch = {}, onSaveLessonOverride = { _, _, _ -> },
+                    onClearLessonOverride = {}, onUpdateHolidaySpecialLabel = { _, _ -> }, onOpenTask = {}, onOpenPlan = {},
+                    onAddFromLesson = { _, _, _, _, _, _, _, extraId -> selectedExtra = extraId },
+                    onSetLessonCancelled = { _, _, _ -> }, onEditChangedLesson = { _, _ -> }, onSaveLessonNote = { _, _, _ -> },
+                    onDeleteLessonNote = { _, _ -> }, onSaveExamMemo = { _, _, _ -> }, isLessonCancelled = { _, _ -> false },
+                    onLessonDayVisibilityChanged = {})
+            }
+        }
+        compose.onAllNodesWithText("卒研")[0].performTouchInput { longClick() }
+        compose.onNodeWithText(label(R.string.dialog_add_task_from_lesson)).performClick()
+        compose.runOnIdle { assertEquals("alternate", selectedExtra) }
+    }
+
     private fun assertTextFits(text: String, centered: Boolean) {
         val results = mutableListOf<TextLayoutResult>()
         compose.onNodeWithText(text, useUnmergedTree = true).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(results) }
@@ -95,15 +119,16 @@ class LessonActionSplitButtonTest {
                                 modifier = Modifier, state = state,
                                 dayTypeForDate = { if (exam && it == day) DayType.HOLIDAY else DayType.A },
                                 dayTypeEntityForDate = { state.dayTypeEntities[it] },
-                                resolveLesson = { date, slot -> if (!exam && date == day && slot == 0) ResolvedLesson("数学", "担当教員", "教室") else null },
+                                resolveLesson = { date, slot -> if (!exam && date == day && slot == 0) ResolvedLesson("数学", "担当教員", "教室", lessonId = 71) else null },
                                 resolveOriginalLesson = { _, _ -> null }, changedLessonForDate = { _, _ -> null },
                                 lessonNotes = emptyList(), onShiftDate = { selected = selected.plusDays(it) },
                                 onPickDate = { selected = it }, requestedDayViewEpochDay = null, onRequestedDayViewHandled = {},
                                 requestedSlotIndex = null, onRequestedSlotHandled = {}, onOpenLessonSearch = {},
                                 onSaveLessonOverride = { _, _, _ -> }, onClearLessonOverride = {}, onUpdateHolidaySpecialLabel = { _, _ -> },
                                 onOpenTask = {}, onOpenPlan = {},
-                                onAddFromLesson = { subject, _, plan, date, time, examSlot ->
+                                onAddFromLesson = { subject, _, plan, date, time, examSlot, lessonId, _ ->
                                     assertEquals(day, date); assertEquals(LocalTime.of(8, 40), time)
+                                    assertEquals(if (examSlot) null else 71L, lessonId)
                                     calls += Triple(subject, plan, examSlot)
                                 },
                                 onSetLessonCancelled = { _, _, _ -> }, onEditChangedLesson = { _, _ -> },

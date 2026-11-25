@@ -28,6 +28,15 @@ class SktjfAutomaticUpdateCheckTest {
         assertEquals(0, calls)
     }
 
+    @Test fun timedCandidateRemainsAttachedToAutomaticOffer() = runBlocking {
+        val doc = document()
+        val candidate = SktjfV2Candidate(doc, emptyMap(), emptyMap())
+        val result = checkSktjfUpdates(2026, "S", { base }, { null },
+            { _, _ -> SktjfDiscoveryResult.Found("2026.S.0") },
+            { _, _ -> success(doc).copy(timed = candidate) })
+        assertEquals(candidate, (result as SktjfAutomaticCheckResult.Available).offer.timed)
+    }
+
     @Test fun offersOnlyVerifiedUnacknowledgedNewerRevision() = runBlocking {
         val applied = SktjfSourceStateEntity(2026, "S", "1-1", "2026.S.1", "{}", false)
         val state = base.copy(sourceStates = listOf(applied))
@@ -64,7 +73,7 @@ class SktjfAutomaticUpdateCheckTest {
         assertEquals(SktjfAutomaticCheckResult.Stale, stale)
     }
 
-    @Test fun wrongDocumentIdentityAndUntrustedProvenanceAreNotOffered() = runBlocking {
+    @Test fun wrongDocumentIdentityIsRejectedAndStaleProvenanceDoesNotBlockDiscovery() = runBlocking {
         val wrong = checkSktjfUpdates(2026, "S", { base }, { null },
             { _, _ -> SktjfDiscoveryResult.Found("2026.S.0") }, { _, _ -> success(document().copy(classId = "1-2")) })
         assertEquals(SktjfAutomaticCheckResult.Failed, wrong)
@@ -73,7 +82,15 @@ class SktjfAutomaticUpdateCheckTest {
         val skipped = checkSktjfUpdates(2026, "S", { base.copy(sourceStates = listOf(source)) }, { null },
             { year, term -> if (year == 2026 && term == "S") sCalls++; SktjfDiscoveryResult.NotPublished }, { _, _ -> error("unexpected") })
         assertEquals(SktjfAutomaticCheckResult.NoUpdate, skipped)
-        assertEquals(0, sCalls)
+        assertEquals(1, sCalls)
+    }
+
+    @Test fun newerReleaseIsDetectedEvenWhenThePreviousSourceNeedsReview() = runBlocking {
+        val source = SktjfSourceStateEntity(2026, "S", "1-1", "2026.S.0", "{}", true)
+        val result = checkSktjfUpdates(2026, "S", { base.copy(sourceStates = listOf(source)) }, { null },
+            { year, term -> if (year == 2026 && term == "S") SktjfDiscoveryResult.Found("2026.S.1") else SktjfDiscoveryResult.NotPublished },
+            { _, _ -> success(document(revision = "2026.S.1")) })
+        assertEquals("2026.S.1", (result as SktjfAutomaticCheckResult.Available).offer.document.revision)
     }
 
     @Test fun nextAcademicYearStartsWithFirstTermEvenDuringCurrentSecondTerm() = runBlocking {
