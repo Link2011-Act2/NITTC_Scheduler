@@ -13,6 +13,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** Run each stage in a separate instrumentation process; only the isolated APK is force-stopped. */
+@DedicatedUpdateTest
 class ForegroundInstallProcessTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val app get() = instrumentation.targetContext.applicationContext as Application

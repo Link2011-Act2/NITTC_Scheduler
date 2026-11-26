@@ -14,6 +14,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 /** Runner changes the install AppOp and force-stops BETWEEN stages, never inside a test. */
+@DedicatedUpdateTest
 class UpdatePermissionRecoveryTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val app get() = instrumentation.targetContext.applicationContext as Application

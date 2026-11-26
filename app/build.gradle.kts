@@ -378,10 +378,17 @@ android {
         buildConfigField("boolean", "BUNDLED_AI_RUNTIME", bundleAiRuntime.toString())
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunnerArguments["notAnnotation"] =
+            "jp.linkserver.nittcsc.update.DedicatedUpdateTest"
         vectorDrawables.useSupportLibrary = true
     }
 
     buildTypes {
+        debug {
+            if (providers.gradleProperty("goldyVerification").orNull == "true") {
+                applicationIdSuffix = ".goldyverification"
+            }
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true

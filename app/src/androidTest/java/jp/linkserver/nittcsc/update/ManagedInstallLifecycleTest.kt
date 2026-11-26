@@ -22,6 +22,7 @@ import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.ui.UpdateOverviewScreen
 
 /** Host restoration/ledger/explicit-action tests; SDK crypto and its real-update tests are shared. */
+@DedicatedUpdateTest
 class ManagedInstallLifecycleTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -35,11 +36,13 @@ class ManagedInstallLifecycleTest {
 
     @Before fun setup() = runBlocking {
         assertTrue(app.packageName.endsWith(".goldyverification") || android.os.Build.FINGERPRINT.contains("generic") || android.os.Build.MODEL.contains("sdk"))
+        assertTrue("Allow installs for the verification APK before running this suite", app.packageManager.canRequestPackageInstalls())
         original = ledger.all.toMap()
         originalIds = installer.pendingRequests().map { it.id }.toSet()
         check(ledger.edit().clear().commit())
     }
     @After fun cleanup() = runBlocking {
+        if (!::original.isInitialized) return@runBlocking
         models.forEach { model -> instrumentation.runOnMainSync { model.onForegroundChanged(false); model.cancel() } }
         // Callbacks were recorded; no external installer/reader remains in these host fixtures.
         installer.pendingRequests().filter { it.id !in originalIds }.forEach { installer.release(it) }

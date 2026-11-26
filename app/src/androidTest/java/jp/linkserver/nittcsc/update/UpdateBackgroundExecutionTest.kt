@@ -16,6 +16,7 @@ import org.junit.Test
 import java.io.File
 
 /** Real Android scheduler/notification; only HTTP bytes and installer Activity launch are test fixtures. */
+@DedicatedUpdateTest
 class UpdateBackgroundExecutionTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val app get() = instrumentation.targetContext.applicationContext as Application

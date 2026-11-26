@@ -34,6 +34,7 @@ class GoldyHostVerificationTest {
         try { ApkVerifier.verify(installed,unrelated,selfApkCandidate(app).release,ApkVersionBindings.Published); fail("Foreign signer accepted") }
         catch(error: ApkException) { assertEquals(ApkFailure.SignerMismatch,error.reason) }
     }
+    @DedicatedUpdateTest
     @Test fun validForeignSignerApkNeverCreatesVerifiedAuthority() = runBlocking<Unit> {
         val fixture=File.createTempFile("goldy-foreign-", ".apk",app.cacheDir)
         try {

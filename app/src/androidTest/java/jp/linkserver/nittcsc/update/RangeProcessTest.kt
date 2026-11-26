@@ -18,6 +18,7 @@ import java.io.File
 import java.util.Properties
 
 /** Host server outlives the force-stopped app. Actual self APK, Gold inspector, OS jobs and leases. */
+@DedicatedUpdateTest
 class RangeProcessTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val app get() = instrumentation.targetContext.applicationContext as Application

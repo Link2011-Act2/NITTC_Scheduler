@@ -14,6 +14,7 @@ import org.junit.Test
 import java.util.concurrent.CopyOnWriteArrayList
 
 /** Real APK verification and leases, with controlled completion and recorded Activity handoffs. */
+@DedicatedUpdateTest
 class ForegroundInstallCompletionTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val app get() = instrumentation.targetContext.applicationContext as Application
