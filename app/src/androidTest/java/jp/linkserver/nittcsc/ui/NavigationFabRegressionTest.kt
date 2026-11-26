@@ -43,9 +43,11 @@ class NavigationFabRegressionTest {
         val preferences = UiDesignPreferences(context)
         val originalMode = runBlocking { preferences.uiDesignMode.first() }
         val originalSettings = runBlocking(Dispatchers.IO) { dao.getSettings() }
+        val originalUsageMode = runBlocking(Dispatchers.IO) { dao.getUsageMode() }
         runBlocking(Dispatchers.IO) {
             preferences.setUiDesignMode(mode)
             preferences.acknowledgeExpressiveWarning()
+            dao.upsertUsageMode(UsageModeEntity(mode = SchedulerUsageMode.GENERIC.name))
             dao.upsertSettings((originalSettings ?: SettingsEntity(
                 termStart = LocalDate.now().minusMonths(1), termEnd = LocalDate.now().plusMonths(1)
             )).copy(initialSetupCompleted = true, pendingLegacyTimetableYear = null,
@@ -152,6 +154,7 @@ class NavigationFabRegressionTest {
             runBlocking(Dispatchers.IO) {
                 preferences.setUiDesignMode(originalMode)
                 originalSettings?.let { dao.upsertSettings(it) }
+                if (originalUsageMode == null) dao.deleteUsageMode() else dao.upsertUsageMode(originalUsageMode)
             }
         }
     }

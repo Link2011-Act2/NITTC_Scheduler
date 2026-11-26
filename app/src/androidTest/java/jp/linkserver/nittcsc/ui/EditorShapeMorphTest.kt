@@ -28,9 +28,11 @@ class EditorShapeMorphTest {
         val dao = AppDatabase.getInstance(context).schedulerDao()
         val originalMode = runBlocking { preferences.uiDesignMode.first() }
         val originalSettings = runBlocking(Dispatchers.IO) { dao.getSettings() }
+        val originalUsageMode = runBlocking(Dispatchers.IO) { dao.getUsageMode() }
         runBlocking(Dispatchers.IO) {
             preferences.setUiDesignMode(UiDesignMode.MATERIAL_3_EXPRESSIVE)
             preferences.acknowledgeExpressiveWarning()
+            dao.upsertUsageMode(UsageModeEntity(mode = SchedulerUsageMode.GENERIC.name))
             dao.upsertSettings((originalSettings ?: SettingsEntity(termStart=LocalDate.now(), termEnd=LocalDate.now().plusMonths(1)))
                 .copy(initialSetupCompleted=true,pendingLegacyTimetableYear=null,useDrawerNavigation=false))
         }
@@ -89,6 +91,7 @@ class EditorShapeMorphTest {
             runBlocking(Dispatchers.IO) {
                 preferences.setUiDesignMode(originalMode)
                 originalSettings?.let { dao.upsertSettings(it) }
+                if (originalUsageMode == null) dao.deleteUsageMode() else dao.upsertUsageMode(originalUsageMode)
             }
         }
     }

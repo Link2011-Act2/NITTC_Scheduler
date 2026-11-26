@@ -15,6 +15,8 @@ import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.AppDatabase
 import jp.linkserver.nittcsc.data.UiDesignMode
 import jp.linkserver.nittcsc.data.UiDesignPreferences
+import jp.linkserver.nittcsc.data.UsageModeEntity
+import jp.linkserver.nittcsc.data.SchedulerUsageMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -39,10 +41,12 @@ class PyriteActivityMigrationTest {
                 "lesson_long_press_hint_shown", "ab_multi_day_drag_hint_shown", "ab_custom_long_press_hint_shown")) putBoolean(key, true)
         }.commit()
         val dao = AppDatabase.getInstance(context).schedulerDao()
+        val originalUsageMode = runBlocking(Dispatchers.IO) { dao.getUsageMode() }
+        runBlocking(Dispatchers.IO) { dao.upsertUsageMode(UsageModeEntity(mode = SchedulerUsageMode.GENERIC.name)) }
         fun settings() = runBlocking(Dispatchers.IO) { dao.getSettings() }
         val log = File(context.getExternalFilesDir(null), "pyrite-migration/after/geometry-real-${mode.name}.txt")
         log.parentFile?.mkdirs(); log.writeText("")
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+        try { ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             compose.waitUntil(timeoutMillis = 15_000) {
                 settings() != null && (compose.onAllNodesWithContentDescription(text(R.string.cd_settings)).fetchSemanticsNodes().isNotEmpty() ||
                     compose.onAllNodesWithContentDescription(text(R.string.cd_more_actions)).fetchSemanticsNodes().isNotEmpty())
@@ -148,6 +152,10 @@ class PyriteActivityMigrationTest {
             compose.mainClock.autoAdvance = true
             compose.onNodeWithText(text(R.string.settings_title)).assertIsDisplayed()
             assertEquals(expectedMarker, settings()!!.showCurrentTimeMarker)
+        } } finally {
+            runBlocking(Dispatchers.IO) {
+                if (originalUsageMode == null) dao.deleteUsageMode() else dao.upsertUsageMode(originalUsageMode)
+            }
         }
     }
 }
