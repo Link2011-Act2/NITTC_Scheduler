@@ -154,7 +154,7 @@ class SktjfImportDialogTest {
         assertEquals(0, applies)
     }
 
-    @Test fun timedSwitchDoesNotAppearInPersonalCourseSelection() {
+    @Test fun timedSwitchDoesNotTurnAnUngroupedCollisionIntoAnElective() {
         val date = LocalDate.of(2026, 4, 6)
         val condition = SktjfConditions(emptySet(), emptySet())
         val first = SktjfLesson("first", 1, 1, SktjfCycle.WEEKLY, "製図", emptyList(), emptyList(), condition, SktjfLessonKind.NORMAL, null, emptyList())
@@ -178,14 +178,9 @@ class SktjfImportDialogTest {
         } }
         compose.onNodeWithText("配信を確認").performClick()
         compose.waitForIdle()
-        compose.onNodeWithText("受講する授業を選択").assertExists()
-        compose.onNodeWithText("製図").assertDoesNotExist()
-        compose.onNodeWithText("卒研").assertDoesNotExist()
-        compose.onNodeWithText("選択B").performClick()
-        compose.onNodeWithText("授業を決定").assertIsEnabled().performClick()
-        compose.waitForIdle()
-        assertEquals(setOf("first", "after", "choice-b"), previewed?.document?.lessons?.map { it.id }?.toSet())
-        assertEquals(setOf("first", "after"), previewed?.ranges?.keys)
+        compose.onNodeWithText("受講する授業を選択").assertDoesNotExist()
+        compose.onNodeWithText(ApplicationProvider.getApplicationContext<Context>().getString(jp.linkserver.nittcsc.R.string.sktjf_cannot_apply)).assertExists()
+        assertNull(previewed)
     }
 
     @Test fun timedDistributionAppliesToEmptyTermAndSwitchesAtNinthOpportunity() {
@@ -240,7 +235,7 @@ class SktjfImportDialogTest {
         } finally { db.close() }
     }
 
-    @Test fun conflictingCoursesAreChosenBeforePreviewAndOtherCycleIsKept() {
+    @Test fun ungroupedConflictingCoursesAreNotAssumedToBeElectives() {
         val date = LocalDate.of(2026, 4, 6)
         val conditions = SktjfConditions(emptySet(), emptySet())
         val first = SktjfLesson("a1", 1, 1, SktjfCycle.A, "授業1", emptyList(), emptyList(), conditions, SktjfLessonKind.NORMAL, null, emptyList())
@@ -259,15 +254,12 @@ class SktjfImportDialogTest {
         } }
         compose.onNodeWithText("配信を確認").performClick()
         compose.waitForIdle()
-        compose.onNodeWithText("受講する授業を選択").assertExists()
+        compose.onNodeWithText("受講する授業を選択").assertDoesNotExist()
+        compose.onNodeWithText(ApplicationProvider.getApplicationContext<Context>().getString(jp.linkserver.nittcsc.R.string.sktjf_cannot_apply)).assertExists()
         assertNull(previewed)
-        compose.onNodeWithText("授業2 / A").performClick()
-        compose.onNodeWithText("授業を決定").assertIsEnabled().performClick()
-        compose.waitForIdle()
-        assertEquals(listOf("a2", "b"), previewed?.lessons?.map { it.id })
     }
 
-    @Test fun cancellingCourseSelectionDoesNotPreviewOrApply() {
+    @Test fun cancellingRejectedUngroupedCoursesDoesNotPreviewOrApply() {
         val date = LocalDate.of(2026, 4, 6)
         val first = SktjfLesson("a", 1, 1, SktjfCycle.WEEKLY, "授業1", emptyList(), emptyList(),
             SktjfConditions(emptySet(), emptySet()), SktjfLessonKind.NORMAL, null, emptyList())
@@ -283,7 +275,8 @@ class SktjfImportDialogTest {
         } }
         compose.onNodeWithText("配信を確認").performClick()
         compose.waitForIdle()
-        compose.onNodeWithText("受講する授業を選択").assertExists()
+        compose.onNodeWithText("受講する授業を選択").assertDoesNotExist()
+        compose.onNodeWithText(ApplicationProvider.getApplicationContext<Context>().getString(jp.linkserver.nittcsc.R.string.sktjf_cannot_apply)).assertExists()
         compose.onNodeWithText("キャンセル").performClick()
         compose.onNodeWithText("配信を確認").assertExists()
         assertEquals(0, previews); assertEquals(0, applies)

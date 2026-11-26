@@ -117,7 +117,7 @@ class SktjfAutomaticUpdatePromptTest {
         compose.onNodeWithText(fixture.context.getString(R.string.sktjf_notice_title)).assertDoesNotExist()
     }
 
-    @Test fun automaticOfferWithCourseAlternativesRequestsChoiceBeforeApplying() = withFixture { fixture ->
+    @Test fun automaticOfferDoesNotInferElectivesFromUngroupedAlternatives() = withFixture { fixture ->
         val today = LocalDate.now(); val year = academicYearForDate(today)
         val profile = NittcProfileEntity(year, "UNDERGRADUATE", 1, "1-1", false, false)
         val key = SktjfUpdateKey(year, "S", "1-1")
@@ -139,13 +139,10 @@ class SktjfAutomaticUpdatePromptTest {
         compose.waitUntil(10_000) { compose.onAllNodesWithText(notice).fetchSemanticsNodes().isNotEmpty() }
         assertNull(previewed); assertFalse(applied.value)
         compose.onNodeWithText(fixture.context.getString(R.string.sktjf_notice_apply)).performClick()
-        compose.waitUntil(10_000) { compose.onAllNodesWithText("受講する授業を選択").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText(fixture.context.getString(R.string.sktjf_cannot_apply)).fetchSemanticsNodes().isNotEmpty() }
         assertNull(previewed); assertFalse(applied.value)
-        compose.onNodeWithText("授業2").performClick()
-        compose.onNodeWithText("授業を決定").performClick()
-        compose.waitUntil(10_000) { applied.value }
-        assertEquals(listOf("second"), previewed?.lessons?.map { it.id })
-        assertEquals(document.revision, fixture.prefs.getString("notice:$year:S:1-1", null))
+        compose.onNodeWithText("受講する授業を選択").assertDoesNotExist()
+        assertNull(fixture.prefs.getString("notice:$year:S:1-1", null))
     }
 
     @Test fun cancellingReviewDoesNotAcknowledgeRevisionButApplyingDoes() = withFixture { fixture ->

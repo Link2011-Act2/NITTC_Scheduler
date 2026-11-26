@@ -34,9 +34,13 @@ internal object SktjfJson {
     fun localAsset(input: InputStream): SktjfCandidateAsset {
         val bytes = localBytes(input)
         val root = strictSktjfObject(bytes, MAX_DOCUMENT_BYTES)
-        return when (root.integer("schemaVersion", 1..2)) {
+        return when (root.integer("schemaVersion", 1..3)) {
             1 -> SktjfCandidateAsset.V1(document(root))
-            2 -> SktjfCandidateAsset.V2(SktjfV2CandidateJson.parse(bytes))
+            2 -> SktjfV2CandidateJson.parse(bytes).let { candidate ->
+                SktjfLegacySelectionCatalog.adapt(bytes, candidate)?.let(SktjfCandidateAsset::V3)
+                    ?: SktjfCandidateAsset.V2(candidate)
+            }
+            3 -> SktjfCandidateAsset.V3(SktjfV3CandidateJson.parse(bytes))
             else -> error("Unsupported SKTJF version")
         }
     }

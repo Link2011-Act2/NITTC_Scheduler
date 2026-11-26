@@ -37,6 +37,9 @@ import jp.linkserver.nittcsc.sktjf.SktjfTimedSlotResult
 import jp.linkserver.nittcsc.sktjf.SktjfWeekSelection
 import jp.linkserver.nittcsc.sktjf.SktjfCycle
 import jp.linkserver.nittcsc.sktjf.resolvedLesson
+import jp.linkserver.nittcsc.sktjf.SktjfElectiveSchedule
+import jp.linkserver.nittcsc.sktjf.SktjfElectiveSlotResult
+import jp.linkserver.nittcsc.sktjf.selectedLesson
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
@@ -56,7 +59,8 @@ data class WidgetData(
     val incompleteTasks: List<TaskEntity>,
     val incompletePlans: List<PlanEntity>,
     val extraResolver: SktjfExtraLessonResolver? = null,
-    val timedSchedule: SktjfTimedSchedule? = null
+    val timedSchedule: SktjfTimedSchedule? = null,
+    val electiveSchedule: SktjfElectiveSchedule? = null
 )
 
 data class NextLessonWidgetEntry(
@@ -79,14 +83,17 @@ object WidgetDataHelper {
         val mode = dao.getUsageMode()?.mode?.let { value -> SchedulerUsageMode.entries.firstOrNull { it.name == value } }
         val profiles = dao.getNittcProfilesOnce()
         val extraLessons = dao.getSktjfExtraLessons()
-        val extraResolver = runCatching { SktjfExtraLessonResolver.create(mode, profiles, extraLessons) }.getOrNull()
+        val groups = dao.getSktjfSelectionGroups()
+        val states = dao.getSktjfSourceStates()
+        val extraResolver = runCatching { SktjfExtraLessonResolver.create(mode, profiles, extraLessons, groups, states) }.getOrNull()
+        val electiveSchedule = runCatching { SktjfElectiveSchedule.create(mode, profiles, groups, extraLessons, states) }.getOrNull()
         val dayTypes = dao.getEffectiveDayTypes().map { it.forTimetable(settings?.enableAbTimetable != false) }
         val dayTypeEntities = dayTypes.associateBy { it.date }
         val dayTypeMap = dayTypes.associate { it.date to it.dayType }
         val cancelledLessons = dao.getCancelledLessonsOnce().map { it.date to it.slotIndex }.toSet()
         val changedLessons = dao.getChangedLessonsOnce().associateBy { it.date to it.slotIndex }
         val storedLessons = dao.getLessonsOnce()
-        val timedSchedule = SktjfTimedSchedule.create(mode, profiles, dao.getSktjfSourceStates(), storedLessons, extraLessons)
+        val timedSchedule = SktjfTimedSchedule.create(mode, profiles, states, storedLessons, extraLessons)
         val lessons = storedLessons.map { it.forTimetable(settings?.enableAbTimetable != false) }.associateBy { it.lessonKey() }
         val examDaySchedules = dao.getExamDaySchedulesOnce().filter { settings?.enableExamTimetable != false }.associateBy { it.date }
         val examLessons = dao.getExamLessonsOnce().filter { settings?.enableExamTimetable != false }.associateBy { it.date to it.slotIndex }
@@ -121,7 +128,8 @@ object WidgetDataHelper {
             incompleteTasks = incompleteTasks,
             incompletePlans = incompletePlans,
             extraResolver = extraResolver,
-            timedSchedule = timedSchedule
+            timedSchedule = timedSchedule,
+            electiveSchedule = electiveSchedule
         )
     }
 
@@ -140,7 +148,8 @@ object WidgetDataHelper {
         semesterTimetablesEnabled: Boolean = false,
         secondTermStartMonth: Int = 10,
         secondTermStartDay: Int = 1,
-        timedSchedule: SktjfTimedSchedule? = null
+        timedSchedule: SktjfTimedSchedule? = null,
+        electiveSchedule: SktjfElectiveSchedule? = null
     ): ResolvedLesson? {
         val dayTypeEntity = dayTypeEntities[date]
         val dayType = dayTypeEntity?.dayType ?: dayTypeMap[date] ?: defaultDayType(date)
@@ -173,9 +182,14 @@ object WidgetDataHelper {
             null -> null
         }
         val cycle = if (lessonDayType == DayType.B) SktjfCycle.B else SktjfCycle.A
-        val selected = when (val timed = timedSchedule?.resolve(academicYearForDate(date), timetableTerm, lessonDayOfWeek, slotIndex + 1, date, cycle)) {
+        val timedSelected = when (val timed = timedSchedule?.resolve(academicYearForDate(date), timetableTerm, lessonDayOfWeek, slotIndex + 1, date, cycle)) {
             null, SktjfTimedSlotResult.Unmanaged -> baseLesson
             is SktjfTimedSlotResult.Managed -> (timed.selection as? SktjfWeekSelection.Selected)?.value?.resolvedLesson()
+        }
+        val selected = when(val elective=electiveSchedule?.resolve(academicYearForDate(date),timetableTerm,lessonDayOfWeek,slotIndex+1,date,cycle)) {
+            null, SktjfElectiveSlotResult.Unmanaged -> timedSelected
+            SktjfElectiveSlotResult.Unconfirmed -> null
+            is SktjfElectiveSlotResult.Managed -> elective.selectedLesson()
         }
         return applyChangedLesson(selected, changedLessons[date to slotIndex])
     }
@@ -233,7 +247,8 @@ object WidgetDataHelper {
             semesterTimetablesEnabled = data.settings?.enableSemesterTimetables == true,
             secondTermStartMonth = data.settings?.secondTermStartMonth ?: 10,
             secondTermStartDay = data.settings?.secondTermStartDay ?: 1,
-            timedSchedule = data.timedSchedule
+            timedSchedule = data.timedSchedule,
+            electiveSchedule = data.electiveSchedule
         )
         if (slotIndex !in 0..11) return listOfNotNull(base)
         val day = data.dayTypeEntities[date] ?: DayTypeEntity(date, data.dayTypeMap[date] ?: defaultDayType(date))

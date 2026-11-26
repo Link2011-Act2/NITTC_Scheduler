@@ -7,6 +7,7 @@ internal data class SktjfV2Manifest(val common: SktjfManifest, val assetVersions
 internal sealed interface SktjfCandidateAsset {
     data class V1(val document: SktjfDocument) : SktjfCandidateAsset
     data class V2(val candidate: SktjfV2Candidate) : SktjfCandidateAsset
+    data class V3(val candidate: SktjfV3Candidate) : SktjfCandidateAsset
 }
 
 internal object SktjfV2DistributionJson {
@@ -49,6 +50,7 @@ internal object SktjfV2DistributionJson {
         val document = when (result) {
             is SktjfCandidateAsset.V1 -> result.document
             is SktjfCandidateAsset.V2 -> result.candidate.document
+            is SktjfCandidateAsset.V3 -> error("Version 3 is not valid in a version 2 manifest")
         }
         require(document.academicYear == manifest.common.academicYear && document.term == manifest.common.term &&
             document.revision == manifest.common.revision && document.classId == asset.classId)

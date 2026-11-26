@@ -97,4 +97,14 @@ class SktjfVacationsTest {
         assertFalse(change.defaultSelected(manual = true))
         assertEquals(transferred, listOf(transferred).withSchoolVacations(listOf(change.candidate)).first())
     }
+
+    @Test fun preservesExplicitCycleOverridesWithinVacation() {
+        val period = SktjfVacationJson.periods(document.toByteArray(), asset(document)).single()
+        val override = DayTypeEntity(period.start, DayType.A, overrideLessonDayType = DayType.B)
+        val change = planSchoolVacations(revision, listOf(period), emptyList(), listOf(override)).changes.single()
+        assertEquals(listOf(override.date), change.teachingDates)
+        assertFalse(change.defaultSelected(manual = true))
+        assertEquals(override, listOf(override).withSchoolVacations(listOf(change.candidate)).first())
+        assertEquals(listOf(override), listOf(override).withSchoolVacations(listOf(change.candidate.copy(local = null))))
+    }
 }

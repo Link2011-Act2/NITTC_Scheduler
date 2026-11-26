@@ -41,6 +41,16 @@ class SktjfExtraLessonResolverTest {
         assertTrue(runCatching { SktjfExtraLessonResolver.create(SchedulerUsageMode.NITTC, listOf(profile(), profile()), emptyList()) }.isFailure)
     }
 
+    @Test fun qrReplacementHidesOnlySourceAlternativesInTheReplacedSlot() {
+        val old = extra("old")
+        val independent = extra("personal").copy(sourceLessonId = null)
+        val state = SktjfSourceStateEntity(2026, "S", "1-1", "2026.S.0.Beta", old.contentJson,
+            replacedTimedSlotsJson = "[[1,1]]")
+        val resolver = SktjfExtraLessonResolver.create(SchedulerUsageMode.NITTC, listOf(profile()),
+            listOf(old, independent), states = listOf(state))
+        assertEquals(listOf("personal"), select(resolver))
+    }
+
     @Test fun weekRestrictedExtraOnlyAppearsOnConfirmedApplicableDates() {
         val original=extra("conditional")
         val snapshot=SktjfBaselineCodec.decode(original.contentJson)

@@ -60,7 +60,7 @@ internal class SktjfLessonMergePlan private constructor(
     private val removedBaseline: Map<String, SktjfLessonContent>
 ) {
     /** Every conflict needs an explicit choice; replacement retains the existing row identity. */
-    fun resolve(choices: Map<String, SktjfConflictChoice>): SktjfResolvedLessonMerge {
+    fun resolve(choices: Map<String, SktjfConflictChoice>, selectionGroups: List<SktjfSelectionGroup> = emptyList()): SktjfResolvedLessonMerge {
         val conflictIds = conflicts.map { it.sourceLessonId }.toSet()
         val changeIds = changes.map { it.sourceId }.toSet()
         require(choices.keys.containsAll(conflictIds) && choices.keys.all { it in conflictIds || it in changeIds })
@@ -91,7 +91,41 @@ internal class SktjfLessonMergePlan private constructor(
             rows[index] = rows[index].copy(sourceLessonId = conflict.sourceLessonId)
         }
         val handled = mutableSetOf<String>()
+        // An explicitly grouped set replaces the slot as a whole. Keep the old
+        // row itself (and therefore task/plan references), but clear its active
+        // values and store every incoming candidate separately.
+        for (group in selectionGroups) {
+            val members = group.lessonIds.filter { it in nextBaseline.lessons }
+            if (members.size < 2) continue
+            val groupConflicts = conflicts.filter { it.sourceLessonId in members }
+            if (groupConflicts.size != members.size || groupConflicts.any {
+                    it.isDeletion || it.reason != SktjfConflictReason.OVERLAPPING_LOCAL || it.current != null ||
+                        choices[it.sourceLessonId] != SktjfConflictChoice.APPLY_INCOMING
+                }) continue
+            val overlaps = groupConflicts.map { it.overlappingLocal.map(SktjfLocalLesson::localKey).toSet() }
+            if (overlaps.isEmpty() || overlaps.any { it != overlaps.first() } || overlaps.first().isEmpty()) continue
+            val localKeys = overlaps.first()
+            val localRows = current.filter { it.localKey in localKeys }
+            if (localRows.size != localKeys.size || localRows.any { !it.localKey.startsWith("base:") } ||
+                localRows.map { it.localKey.split(':').getOrNull(1) }.distinct().size != 1) continue
+            val cycles = localRows.map { it.content.cycle }.toSet()
+            val incomingCycles = groupConflicts.map { it.incoming.cycle }.toSet()
+            val splitWeekly = cycles == setOf(SktjfCycle.WEEKLY) && incomingCycles.size == 1 &&
+                incomingCycles.single() in setOf(SktjfCycle.A, SktjfCycle.B)
+            if (incomingCycles.size != 1 || !(cycles == incomingCycles ||
+                    incomingCycles == setOf(SktjfCycle.WEEKLY) && cycles == setOf(SktjfCycle.A, SktjfCycle.B) || splitWeekly)) continue
+            if (rows.count { it.localKey in localKeys } != localKeys.size) continue
+            rows.removeAll { it.localKey in localKeys }
+            if (splitWeekly) {
+                val old = localRows.single()
+                val otherCycle = if (incomingCycles.single() == SktjfCycle.A) SktjfCycle.B else SktjfCycle.A
+                rows += SktjfMergedLesson(old.localKey, old.sourceLessonId, old.content.copy(cycle = otherCycle))
+            } else clearedKeys += localKeys
+            groupConflicts.forEach { conflict -> rows += SktjfMergedLesson(null, conflict.sourceLessonId, conflict.incoming) }
+            handled += members
+        }
         val weeklyGroups = conflicts.filter { it.reason == SktjfConflictReason.OVERLAPPING_LOCAL &&
+            it.sourceLessonId !in handled &&
             it.current == null && it.overlappingLocal.size == 1 &&
             it.overlappingLocal.single().content.cycle == SktjfCycle.WEEKLY && it.incoming.cycle != SktjfCycle.WEEKLY }
             .groupBy { it.overlappingLocal.single().localKey }
@@ -143,7 +177,8 @@ internal class SktjfLessonMergePlan private constructor(
     }
 
     companion object {
-        fun create(previous: SktjfBaseline?, current: SktjfLocalTimetable, incoming: SktjfDocument): SktjfLessonMergePlan {
+        fun create(previous: SktjfBaseline?, current: SktjfLocalTimetable, incoming: SktjfDocument,
+            independentSourceIds: Set<String> = emptySet()): SktjfLessonMergePlan {
             require(previous == null || (previous.academicYear == incoming.academicYear && previous.term == incoming.term && previous.classId == incoming.classId))
             require(current.academicYear == incoming.academicYear && current.term == incoming.term && current.classId == incoming.classId)
             val local = current.lessons.map { it.copy(content = it.content.detached()) }
@@ -170,10 +205,10 @@ internal class SktjfLessonMergePlan private constructor(
                 val base = old[id]; val existing = bySource[id]
                 // A profile change can select a different source lesson for the same slot.
                 // Treat that as an update of the existing row, not as another lesson.
-                if (existing == null) {
+                if (existing == null && id !in independentSourceIds) {
                     val previousVariants = local.filter { candidate ->
                         val sourceId = candidate.sourceLessonId
-                        candidate.localKey !in reservedVariants && sourceId != null && sourceId in old && sourceId !in incomingById &&
+                        candidate.localKey !in reservedVariants && sourceId != null && sourceId !in independentSourceIds && sourceId in old && sourceId !in incomingById &&
                             candidate.content.dayOfWeek == next.dayOfWeek && candidate.content.period == next.period &&
                             candidate.content.cycle == next.cycle &&
                             (next.weekRange == null || normalizeSubjectRomanNumerals(old.getValue(sourceId).subject) == normalizeSubjectRomanNumerals(next.subject))

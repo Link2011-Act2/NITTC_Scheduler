@@ -10,6 +10,21 @@ import java.time.LocalDate
 @Dao
 interface SchedulerDao {
 
+    @Query("SELECT * FROM sktjf_selection_groups ORDER BY academicYear, term, classId, groupId")
+    suspend fun getSktjfSelectionGroups(): List<SktjfSelectionGroupEntity>
+
+    @Query("SELECT * FROM sktjf_selection_groups ORDER BY academicYear, term, classId, groupId")
+    fun observeSktjfSelectionGroups(): Flow<List<SktjfSelectionGroupEntity>>
+
+    @Upsert
+    suspend fun upsertSktjfSelectionGroups(groups: List<SktjfSelectionGroupEntity>)
+
+    @Query("DELETE FROM sktjf_selection_groups")
+    suspend fun deleteAllSktjfSelectionGroups()
+
+    @Query("DELETE FROM sktjf_selection_groups WHERE academicYear = :year AND term = :term")
+    suspend fun deleteSktjfSelectionGroupsForPartition(year: Int, term: String)
+
     @Query("SELECT * FROM nittc_year_transitions ORDER BY academicYear")
     fun observeNittcYearTransitions(): Flow<List<NittcYearTransitionEntity>>
 

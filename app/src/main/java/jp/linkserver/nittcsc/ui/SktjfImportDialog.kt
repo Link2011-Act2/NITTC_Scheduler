@@ -70,6 +70,8 @@ internal fun SktjfImportDialog(
     initialDocument: SktjfDocument? = null,
     previewTimed: suspend (SktjfV2Candidate) -> SktjfV2ApplyPreview? = { null },
     initialTimed: SktjfV2Candidate? = null,
+    previewSelections: suspend (SktjfV3Candidate, Map<String, String?>) -> SktjfV2ApplyPreview? = { _, _ -> null },
+    initialSelections: SktjfV3Candidate? = null,
 ) {
     var yearText by remember { mutableStateOf((initialPreview?.document?.academicYear ?: defaultYear.takeIf { it in 1900..9998 }
         ?: academicYearForDate(LocalDate.now())).toString()) }
@@ -81,6 +83,10 @@ internal fun SktjfImportDialog(
     var prepared by remember { mutableStateOf(initialPreview) }
     var courseSelection by remember { mutableStateOf<SktjfCourseSelection?>(null) }
     var timedCourseSelection by remember { mutableStateOf<SktjfV2Candidate?>(null) }
+    var electiveCandidate by remember { mutableStateOf<SktjfV3Candidate?>(null) }
+    var electiveLocalFile by remember { mutableStateOf(false) }
+    var electiveGroupIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var removedElectiveGroups by remember { mutableStateOf<List<jp.linkserver.nittcsc.data.SktjfSelectionGroupEntity>>(emptyList()) }
     val lessonChoices = remember { mutableStateMapOf<String, SktjfConflictChoice>().apply {
         initialPreview?.let { putAll(initialSktjfLessonChoices(it, automaticUpdate)) }
     } }
@@ -114,10 +120,8 @@ internal fun SktjfImportDialog(
         val attributes = target.attributes()
         val slots = sktjfProfileSlotOptions(document, attributes)
         if (slots.isNotEmpty()) {
-            // Time-dependent switches are not personal course selections.
-            if (slots.any { slot -> slot.lessons.any { it.weekRange != null } }) {
-                error = R.string.sktjf_cannot_apply
-            } else courseSelection = SktjfCourseSelection(document, attributes, localFile, slots)
+            // A collision in an older document does not establish an elective.
+            error = R.string.sktjf_cannot_apply
             return
         }
         when (val result = preview(document)) {
@@ -141,21 +145,45 @@ internal fun SktjfImportDialog(
             error = R.string.sktjf_cannot_apply; return
         }
         if (personal.isNotEmpty()) {
-            timedCourseSelection = candidate
-            courseSelection = SktjfCourseSelection(document.copy(lessons = document.lessons.filterNot {
-                (it.dayOfWeek to it.period) in timedSlots
-            }), attributes, localFile, personal)
+            // Only an explicit selection group can identify an elective.
+            error = R.string.sktjf_cannot_apply
             return
         }
         val timed = previewTimed(candidate)
         if (timed == null) error = R.string.sktjf_cannot_apply else acceptPreview(timed.copy(localFile = localFile).forReview())
     }
 
-    LaunchedEffect(initialDocument, initialTimed) {
-        if ((initialDocument != null || initialTimed != null) && initialPreview == null) {
+    suspend fun prepareSelections(candidate: SktjfV3Candidate, localFile: Boolean = false, choices: Map<String, String?>? = null) {
+        val document = candidate.timetable.document
+        val profile = profiles.singleOrNull { it.academicYear == document.academicYear && it.classId == document.classId }
+        if (profile == null) { error = R.string.sktjf_cannot_apply; return }
+        val checked = previewSelections(candidate, choices.orEmpty())
+        if (checked == null) { error = R.string.sktjf_cannot_apply; return }
+        val existing = checked.snapshot.selectionGroups
+        val needsChoice = candidate.selectionGroups.filter { group ->
+            val eligible = document.lessons.filter { it.id in group.lessonIds && it.conditions.matches(profile.attributes()) }
+            val previous = matchingSktjfSelectionGroup(group, existing)
+            (previous == null && sktjfElectiveNeedsChoice(eligible, candidate.timetable.ranges, candidate.timetable.series)) ||
+                (previous?.selectedLessonId != null && eligible.none { it.id == previous.selectedLessonId })
+        }.map { it.id }.toSet()
+        val removedGroups = checked.snapshot.selectionGroups.filter { old ->
+            old.selectedLessonId != null && candidate.selectionGroups.none { matchingSktjfSelectionGroup(it, existing)?.groupId == old.groupId }
+        }
+        if (choices == null && (needsChoice.isNotEmpty() || removedGroups.isNotEmpty())) {
+            electiveLocalFile = localFile
+            electiveGroupIds = needsChoice
+            removedElectiveGroups = removedGroups
+            electiveCandidate = candidate
+        } else acceptPreview(checked.copy(localFile = localFile).forReview())
+    }
+
+    LaunchedEffect(initialDocument, initialTimed, initialSelections) {
+        if ((initialDocument != null || initialTimed != null || initialSelections != null) && initialPreview == null) {
             pending = true; error = 0; progress = R.string.sktjf_progress_compare
             try {
-                if (initialTimed != null) {
+                if (initialSelections != null) {
+                    prepareSelections(initialSelections)
+                } else if (initialTimed != null) {
                     prepareTimed(initialTimed)
                 } else if (initialDocument != null) prepareDocument(initialDocument, false)
             }
@@ -177,6 +205,7 @@ internal fun SktjfImportDialog(
                     when (asset) {
                         is SktjfCandidateAsset.V1 -> prepareDocument(asset.document, true)
                         is SktjfCandidateAsset.V2 -> prepareTimed(asset.candidate, true)
+                        is SktjfCandidateAsset.V3 -> prepareSelections(asset.candidate, true)
                     }
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (_: Exception) { error = R.string.sktjf_file_read_failed }
@@ -188,6 +217,20 @@ internal fun SktjfImportDialog(
     val profile = profiles.singleOrNull { it.academicYear == year && jp.linkserver.nittcsc.sktjf.isSktjfUndergraduateClass(it.classId) }
     val canFetch = !pending && year != null && mode?.mode == SchedulerUsageMode.NITTC.name && profile != null
     val choosing = courseSelection
+    electiveCandidate?.let { candidate ->
+        val target = profiles.single { it.academicYear == candidate.timetable.document.academicYear && it.classId == candidate.timetable.document.classId }
+        SktjfElectiveImportDialog(candidate, target.attributes(), electiveGroupIds, removedElectiveGroups, onConfirm = { selected ->
+            electiveCandidate = null
+            pending = true; error = 0; progress = R.string.sktjf_progress_compare
+            scope.launch {
+                try { prepareSelections(candidate, electiveLocalFile, selected) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { error = R.string.sktjf_cannot_apply }
+                finally { pending = false; progress = 0 }
+            }
+        }, onCancel = { electiveCandidate = null })
+        return
+    }
     if (choosing != null) {
         SktjfCourseSelectionDialog(choosing, onConfirm = { selected ->
             courseSelection = null
@@ -277,7 +320,9 @@ internal fun SktjfImportDialog(
                                 when (val result = fetch(found.revision, profile!!.classId)) {
                                 is SktjfFetchResult.Success -> {
                                     progress = R.string.sktjf_progress_compare
-                                    if (result.timed != null) {
+                                    if (result.selections != null) {
+                                        prepareSelections(result.selections)
+                                    } else if (result.timed != null) {
                                         prepareTimed(result.timed)
                                     } else prepareDocument(result.document, false)
                                 }

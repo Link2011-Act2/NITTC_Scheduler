@@ -99,6 +99,7 @@ internal fun SktjfAutomaticUpdatePrompt(
         when (result) {
             is SktjfAutomaticCheckResult.Available -> {
                 val available = result.offer
+                if (available.selections != null) { offer = available; return@LaunchedEffect }
                 if (available.timed != null) {
                     if (needsCourseChoice(available)) { offer = available; return@LaunchedEffect }
                     val prepared = try { previewTimedUpdate(available.timed)?.forReview() }
@@ -191,7 +192,7 @@ internal fun SktjfAutomaticUpdatePrompt(
             },
             confirmButton = {
                 TextButton(enabled = !applying, onClick = {
-                    if (current.timed != null || needsCourseChoice(current)) {
+                    if (current.selections != null || current.timed != null || needsCourseChoice(current)) {
                         selectionOffer = current; offer = null
                         return@TextButton
                     }
@@ -243,7 +244,8 @@ internal fun SktjfAutomaticUpdatePrompt(
             { acknowledge(selectedOffer); onApplied(); Toast.makeText(context, R.string.sktjf_applied, Toast.LENGTH_SHORT).show() },
             { if (prefs.getString(noticeKey(selectedOffer.key), null) != selectedOffer.document.revision) retryLater(); selectionOffer = null },
             automaticUpdate = true, initialDocument = selectedOffer.document,
-            initialTimed = selectedOffer.timed, previewTimed = previewTimedUpdate)
+            initialTimed = selectedOffer.timed, previewTimed = previewTimedUpdate,
+            initialSelections = selectedOffer.selections, previewSelections = viewModel::previewSelectionSktjf)
     }
     review?.let { preview ->
         SktjfImportDialog(mode, profiles, currentYear, viewModel::discoverSktjf, viewModel::fetchSktjf,

@@ -454,6 +454,7 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel, openTransferRequest: Long =
             discover = viewModel::discoverSktjf, fetch = viewModel::fetchSktjf,
             preview = viewModel::previewSktjf, apply = viewModel::applySktjf,
             previewTimed = viewModel::previewTimedSktjf,
+            previewSelections = viewModel::previewSelectionSktjf,
             onApplied = {
                 rootScope.launch {
                     try {
@@ -996,6 +997,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
         uiState.lessons,
         uiState.sktjfExtraResolver,
         uiState.sktjfTimedSchedule,
+        uiState.sktjfElectiveSchedule,
         uiState.dayTypeEntities,
         uiState.changedLessons,
         uiState.cancelledLessons,
@@ -1014,6 +1016,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
         uiState.lessons,
         uiState.sktjfExtraResolver,
         uiState.sktjfTimedSchedule,
+        uiState.sktjfElectiveSchedule,
         uiState.dayTypeEntities,
         uiState.changedLessons,
         uiState.cancelledLessons,
@@ -1490,7 +1493,8 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
             semesterTimetablesEnabled = uiState.settings?.enableSemesterTimetables == true,
             secondTermStartMonth = uiState.settings?.secondTermStartMonth ?: 10,
             secondTermStartDay = uiState.settings?.secondTermStartDay ?: 1,
-            timedSchedule = uiState.sktjfTimedSchedule
+            timedSchedule = uiState.sktjfTimedSchedule,
+            electiveSchedule = uiState.sktjfElectiveSchedule
         )
     }
 
@@ -1505,7 +1509,8 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
             semesterTimetablesEnabled = uiState.settings?.enableSemesterTimetables == true,
             secondTermStartMonth = uiState.settings?.secondTermStartMonth ?: 10,
             secondTermStartDay = uiState.settings?.secondTermStartDay ?: 1,
-            timedSchedule = uiState.sktjfTimedSchedule
+            timedSchedule = uiState.sktjfTimedSchedule,
+            electiveSchedule = uiState.sktjfElectiveSchedule
         )
     }
 
@@ -2096,6 +2101,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                     discover = viewModel::discoverSktjf, fetch = viewModel::fetchSktjf,
                     preview = viewModel::previewSktjf, apply = viewModel::applySktjf,
                     previewTimed = viewModel::previewTimedSktjf,
+                    previewSelections = viewModel::previewSelectionSktjf,
                     onApplied = {
                         appScope.launch { snackbarHostState.showSnackbar(resources.getString(R.string.sktjf_applied)) }
                         appScope.launch {
@@ -2684,6 +2690,7 @@ private fun NittcSchedulerContent(viewModel: SchedulerViewModel, startOnTimetabl
                                         useLargeScreenLayout = useLargeScreenLayout,
                                         onSelectDay = viewModel::selectDayOfWeek,
                                         onSaveTimedLesson = viewModel::editSktjfExtraLesson,
+                                        onSelectSktjfCourse = viewModel::selectSktjfCourse,
                                         onAutoSaveLesson = { year, term, day, slot, draft, original ->
                                             viewModel.saveLessonWithoutNotification(year, term, day, slot, draft, original)
                                         },
@@ -3138,6 +3145,7 @@ private fun TimetableInputScreen(
     useLargeScreenLayout: Boolean,
     onSelectDay: (Int) -> Unit,
     onSaveTimedLesson: suspend (jp.linkserver.nittcsc.sktjf.SktjfVisibleExtra, jp.linkserver.nittcsc.sktjf.SktjfExtraLessonDraft) -> Boolean,
+    onSelectSktjfCourse: suspend (jp.linkserver.nittcsc.data.SktjfSelectionGroupEntity, String?) -> Boolean,
     onAutoSaveLesson: (Int, TimetableTerm, Int, Int, LessonDraft, LessonEntity?) -> Unit,
     onSaveLesson: (Int, TimetableTerm, Int, Int, LessonDraft, LessonEntity?, Boolean) -> Unit
 ) {
@@ -3220,6 +3228,8 @@ private fun TimetableInputScreen(
             ]
             val alternatives = state.sktjfTimedSchedule?.alternativesFor(timetableTarget.academicYear,
                 timetableTarget.timetableTerm, state.selectedDayOfWeek, slot.index + 1).orEmpty()
+            val electiveGroups = state.sktjfElectiveSchedule?.groupsFor(timetableTarget.academicYear,
+                timetableTarget.timetableTerm, state.selectedDayOfWeek, slot.index + 1).orEmpty()
             Column(modifier = cardModifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             LessonEditorCard(
                 modifier = Modifier.fillMaxWidth(),
@@ -3247,7 +3257,8 @@ private fun TimetableInputScreen(
                     )
                 }
             )
-            TimedAlternativeEditors(alternatives, state.tasks, state.plans, onSaveTimedLesson)
+            TimedAlternativeEditors((alternatives + electiveGroups.flatMap { it.options }).distinctBy { it.id }, state.tasks, state.plans, onSaveTimedLesson)
+            SktjfElectiveEditor(electiveGroups, onSelectSktjfCourse)
             }
         }
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -3588,6 +3599,19 @@ internal fun OutputScreen(
         return state.sktjfTimedSchedule?.manages(academicYearForDate(date), term,
             day?.overrideLessonDayOfWeek ?: date.dayOfWeek.value, slotIndex + 1, cycle) == true
     }
+    fun unresolvedElectiveOptions(date: LocalDate, slotIndex: Int): List<jp.linkserver.nittcsc.sktjf.SktjfVisibleExtra> {
+        val day = state.dayTypeEntities[date]
+        val type = day?.overrideLessonDayType ?: day?.dayType ?: dayTypeForDate(date)
+        if (type == DayType.HOLIDAY || isLessonCancelled(date, slotIndex) || state.changedLessons.containsKey(date to slotIndex)) return emptyList()
+        val cycle = if (type == DayType.B) jp.linkserver.nittcsc.sktjf.SktjfCycle.B else jp.linkserver.nittcsc.sktjf.SktjfCycle.A
+        val term = timetableTermForDate(date, state.settings?.enableSemesterTimetables == true,
+            state.settings?.secondTermStartMonth ?: 10, state.settings?.secondTermStartDay ?: 1)
+        val result = state.sktjfElectiveSchedule?.resolve(academicYearForDate(date),term,
+            day?.overrideLessonDayOfWeek ?: date.dayOfWeek.value,slotIndex+1,date,cycle)
+        return if (result is jp.linkserver.nittcsc.sktjf.SktjfElectiveSlotResult.Managed &&
+            (result.resolution is jp.linkserver.nittcsc.sktjf.SktjfElectiveResolution.Undecided ||
+                result.resolution is jp.linkserver.nittcsc.sktjf.SktjfElectiveResolution.NeedsReview)) result.options else emptyList()
+    }
     val missingAffiliation = jp.linkserver.nittcsc.logic.missingNittcAffiliation(
         state.usageMode?.mode?.let { name -> jp.linkserver.nittcsc.data.SchedulerUsageMode.entries.firstOrNull { it.name == name } },
         state.nittcProfiles, today, rememberUpcomingAffiliationAnnounced(today), state.nittcYearTransitions)
@@ -3710,10 +3734,14 @@ internal fun OutputScreen(
         )
     }
     val schoolSchedule = remember(state.settings, state.lessons, state.dayTypeEntities,
-        state.changedLessons, state.cancelledLessons, state.examLessons, state.examDaySchedules) {
+        state.changedLessons, state.cancelledLessons, state.examLessons, state.examDaySchedules,
+        state.usageMode, state.sktjfExtraResolver, state.sktjfTimedSchedule, state.sktjfElectiveSchedule) {
         state.settings?.let { settings ->
             EffectiveSchoolSchedule(settings, state.dayTypeEntities, state.lessons.values.toList(),
-                state.changedLessons, state.cancelledLessons, state.examDaySchedules, examLessonsByDate)
+                state.changedLessons, state.cancelledLessons, state.examDaySchedules, examLessonsByDate,
+                usageMode = state.usageMode?.mode?.let { runCatching { jp.linkserver.nittcsc.data.SchedulerUsageMode.valueOf(it) }.getOrNull() },
+                extraResolver = state.sktjfExtraResolver, timedSchedule = state.sktjfTimedSchedule,
+                electiveSchedule = state.sktjfElectiveSchedule)
         }
     }
     val todayCandidates = remember(schoolSchedule, today) { schoolSchedule?.lessonsOn(today).orEmpty() }
@@ -4023,6 +4051,7 @@ internal fun OutputScreen(
                                         }
                                     },
                                     resolveOriginalLesson = resolveOriginalLesson,
+                                    resolveElectiveOptions = ::unresolvedElectiveOptions,
                                     changedLessonForDate = changedLessonForDate,
                                     tasks = pageTasks,
                                     plans = pagePlans,
@@ -4095,6 +4124,7 @@ internal fun OutputScreen(
                                 dayTypeForDate = dayTypeForDate,
                                 dayTypeEntityForDate = dayTypeEntityForDate,
                                 resolveLesson = resolveLesson,
+                                resolveElectiveOptions = ::unresolvedElectiveOptions,
                                 resolveExtraLessons = { date, slotIndex ->
                                     val effectiveDay = state.dayTypeEntities[date] ?: DayTypeEntity(date, dayTypeForDate(date))
                                     if (timedSlotManaged(date, slotIndex)) emptyList() else state.sktjfExtraResolver?.lessonsOn(date, slotIndex + 1, effectiveDay,
@@ -5757,6 +5787,7 @@ private fun DayScheduleTable(
     dayType: DayType,
     resolveLesson: (LocalDate, Int) -> ResolvedLesson?,
     resolveOriginalLesson: (LocalDate, Int) -> ResolvedLesson?,
+    resolveElectiveOptions: (LocalDate, Int) -> List<jp.linkserver.nittcsc.sktjf.SktjfVisibleExtra> = { _, _ -> emptyList() },
     changedLessonForDate: (LocalDate, Int) -> ChangedLessonEntity?,
     tasks: List<TaskEntity>,
     plans: List<PlanEntity>,
@@ -6345,6 +6376,8 @@ private fun DayScheduleTable(
                 }
             }.sortedWith(compareBy<LessonDetailItem> { it.dueHour }.thenBy { it.dueMinute })
             val isCancelled = !isHoliday && !isExamSchedule && slot != null && isLessonCancelled(date, slot.index)
+            val electiveOptions = if (!isHoliday && !isExamSchedule && !isCancelled && slot != null && changedLesson == null)
+                resolveElectiveOptions(date, slot.index) else emptyList()
 
             Row(
                 modifier = Modifier.fillMaxWidth().height(heightDp)
@@ -6846,6 +6879,14 @@ private fun DayScheduleTable(
                                 }
                             }
                         }
+                        if (electiveOptions.isNotEmpty()) {
+                            SktjfElectiveCards(electiveOptions, onOpen = { option ->
+                                val content=option.content
+                                val chosen=ResolvedLesson(content.subject,content.teachers.joinToString("、"),
+                                    content.rooms.joinToString("、").ifBlank { null },extraLessonId=option.id)
+                                lessonActionDialog=LessonActionDialogData(chosen,chosen,false,slot.index,slot.start,false,false)
+                            }, modifier=Modifier.fillMaxSize().padding(start=overlayTickReserveWidth).offset(y=8.dp))
+                        }
                     } else if (seg.breakLabel != null) {
                         val breakLabelHeightDp = 24f
                         val tickBlockRangesDp = sortedSegTicks.mapIndexed { index, tick ->
@@ -6991,6 +7032,7 @@ private fun WeekScheduleTable(
     dayTypeForDate: (LocalDate) -> DayType,
     dayTypeEntityForDate: (LocalDate) -> DayTypeEntity?,
     resolveLesson: (LocalDate, Int) -> ResolvedLesson?,
+    resolveElectiveOptions: (LocalDate, Int) -> List<jp.linkserver.nittcsc.sktjf.SktjfVisibleExtra> = { _, _ -> emptyList() },
     resolveExtraLessons: (LocalDate, Int) -> List<jp.linkserver.nittcsc.sktjf.SktjfVisibleExtra> = { _, _ -> emptyList() },
     extraLessonsInvalid: Boolean = false,
     isExamScheduleDate: (LocalDate) -> Boolean = { false },
@@ -7243,6 +7285,8 @@ private fun WeekScheduleTable(
                     val lessonMemo = examMemoForDate(date, slot.index)
                         ?: lessonNotesByDateSlot[date to slot.index]?.text?.trim()?.ifBlank { null }
                     val isCancelled = !isHoliday && !isExamDate && isLessonCancelled(date, slot.index)
+                    val electiveOptions = if (!isHoliday && !isExamDate && !isCancelled && changedLesson == null)
+                        resolveElectiveOptions(date, slot.index) else emptyList()
                     val bgColor = timetableLessonContainerColor(usesNoLessonAppearance)
                     val contentColor = if (usesNoLessonAppearance) MaterialTheme.colorScheme.onSurfaceVariant
                                        else MaterialTheme.colorScheme.onSurface
@@ -7453,6 +7497,12 @@ private fun WeekScheduleTable(
                                     }
                                 }
                                 if (extraCount > 0) SktjfAdditionalLessonCount(extraCount, Modifier.align(Alignment.BottomEnd))
+                                if (electiveOptions.isNotEmpty()) SktjfElectiveCards(electiveOptions, onOpen = { option ->
+                                    val content=option.content
+                                    val chosen=ResolvedLesson(content.subject,content.teachers.joinToString("、"),
+                                        content.rooms.joinToString("、").ifBlank { null },extraLessonId=option.id)
+                                    lessonActionDialog=WeekLessonActionDialogData(date,slot.index,dateSlot.start,chosen,chosen,false,false,false)
+                                }, modifier=Modifier.fillMaxSize())
                             }
                         }
                         if (currentTimeOffsetDp != null) {

@@ -16,7 +16,7 @@ object NotificationScheduleCoordinator {
         val appContext = context.applicationContext
         scope.launch {
             AppDatabase.getInstance(appContext).invalidationTracker.createFlow(
-                "settings", "tasks", "lessons", "sktjf_extra_lessons", "sktjf_source_state", "usage_mode", "nittc_profiles", "day_types", "cancelled_lessons", "changed_lessons",
+                "settings", "tasks", "lessons", "sktjf_extra_lessons", "sktjf_source_state", "sktjf_selection_groups", "usage_mode", "nittc_profiles", "day_types", "cancelled_lessons", "changed_lessons",
                 "exam_day_schedules", "exam_lessons", "lesson_notification_exclusions"
             ).debounce(300).collect { refresh(appContext) }
         }

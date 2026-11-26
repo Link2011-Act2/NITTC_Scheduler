@@ -15,6 +15,24 @@ import java.io.IOException
 import java.security.MessageDigest
 
 class SktjfDistributionClientTest {
+    @Test fun publishedBetaCanBeDiscoveredAndFetched() = runBlocking {
+        org.junit.Assume.assumeTrue(System.getenv("SKTJF_LIVE_VERIFY") == "1")
+        val client = SktjfDistributionClient(SKTJF_DISTRIBUTION_REPOSITORY, beta = true)
+        for ((term, revision) in listOf("S" to "2026.S.2.Beta", "F" to "2026.F.1.Beta")) {
+            assertEquals(SktjfDiscoveryResult.Found(revision), client.discover(2026, term))
+            for (classId in listOf("1-1", "4M", "5M")) {
+                val result = client.fetch(revision, classId)
+                assertTrue("Cannot fetch $revision $classId: $result", result is SktjfFetchResult.Success)
+                assertEquals(classId, (result as SktjfFetchResult.Success).document.classId)
+            }
+        }
+        for ((revision, classId) in listOf("2026.S.2.Beta" to "4B", "2026.S.2.Beta" to "4E", "2026.F.1.Beta" to "5E")) {
+            val result = client.fetch(revision, classId) as? SktjfFetchResult.Success
+            assertNotNull("Cannot fetch $revision $classId", result)
+            assertEquals(1, requireNotNull(result).selections?.selectionGroups?.size)
+        }
+    }
+
     @Test fun betaDiscoveryRequiresMatchingPrereleaseFlagAndUsesNumericRevision() = runBlocking {
         fun tag(name: String, prerelease: Boolean) =
             """{"tag_name":"$name","draft":false,"prerelease":$prerelease,"published_at":"2026-04-01T00:00:00Z"}"""

@@ -10,7 +10,7 @@ import jp.linkserver.nittcsc.logic.nittcGraduatedForYear
 internal data class SktjfUpdateSnapshot(val mode: SchedulerUsageMode?, val profiles: List<NittcProfileEntity>,
     val sourceStates: List<SktjfSourceStateEntity>, val yearTransitions: List<NittcYearTransitionEntity> = emptyList())
 internal data class SktjfAutomaticOffer(val key: SktjfUpdateKey, val kind: SktjfUpdateKind, val document: SktjfDocument,
-    val timed: SktjfV2Candidate? = null)
+    val timed: SktjfV2Candidate? = null, val selections: SktjfV3Candidate? = null)
 internal fun SktjfSourceStateEntity.isLocalSktjfSource(): Boolean =
     runCatching { SktjfBaselineCodec.decode(baselineJson).localFile }.getOrDefault(false)
 internal fun SktjfSourceStateEntity?.officialSktjfRevision(): String? =
@@ -73,7 +73,7 @@ internal suspend fun checkSktjfUpdates(
             if (doc.academicYear != key.academicYear || doc.term != key.term || doc.classId != key.classId || doc.revision != revision)
                 return SktjfAutomaticCheckResult.Failed
             if (snapshot() != before) return SktjfAutomaticCheckResult.Stale
-            return SktjfAutomaticCheckResult.Available(SktjfAutomaticOffer(key, decision.kind, doc, success.timed))
+            return SktjfAutomaticCheckResult.Available(SktjfAutomaticOffer(key, decision.kind, doc, success.timed, success.selections))
         }
     }
     return if (snapshot() == before) SktjfAutomaticCheckResult.NoUpdate else SktjfAutomaticCheckResult.Stale

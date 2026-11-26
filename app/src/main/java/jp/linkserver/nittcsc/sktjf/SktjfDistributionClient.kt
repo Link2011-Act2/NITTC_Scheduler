@@ -18,7 +18,7 @@ internal const val SKTJF_DISTRIBUTION_REPOSITORY = "Link2011-Act2/NITTC_Timetabl
 
 internal sealed interface SktjfFetchResult {
     data class Success(val manifest: SktjfManifest, val document: SktjfDocument,
-        val timed: SktjfV2Candidate? = null) : SktjfFetchResult
+        val timed: SktjfV2Candidate? = null, val selections: SktjfV3Candidate? = null) : SktjfFetchResult
     data object ReleaseNotFound : SktjfFetchResult
     data object ClassNotFound : SktjfFetchResult
     data object RateLimited : SktjfFetchResult
@@ -70,9 +70,11 @@ internal class SktjfDistributionClient(
         try {
             require(parseSktjfRevision(revision)?.beta == beta)
             val bytes = download("https://github.com/$repository/releases/download/$revision/manifest.json", 512 * 1024)
-            val version = strictSktjfObject(bytes, 512 * 1024).integer("dataFormatVersion", 1..2)
-            val manifest = if (version == 1) SktjfJson.manifest(bytes, repository) else {
-                SktjfV2DistributionJson.manifest(bytes, repository).common
+            val version = strictSktjfObject(bytes, 512 * 1024).integer("dataFormatVersion", 1..3)
+            val manifest = when(version) {
+                1 -> SktjfJson.manifest(bytes, repository)
+                2 -> SktjfV2DistributionJson.manifest(bytes, repository).common
+                else -> SktjfV3DistributionJson.manifest(bytes, repository).common
             }
             require(manifest.revision == revision)
             manifest.takeIf { it.assets.isNotEmpty() }
@@ -136,22 +138,34 @@ internal class SktjfDistributionClient(
             require(isSktjfUndergraduateClass(classId))
             val url = "https://github.com/$repository/releases/download/$revision/manifest.json"
             val manifestBytes = download(url, 512 * 1024)
-            val version = strictSktjfObject(manifestBytes, 512 * 1024).integer("dataFormatVersion", 1..2)
+            val version = strictSktjfObject(manifestBytes, 512 * 1024).integer("dataFormatVersion", 1..3)
             val mixed = if (version == 2) SktjfV2DistributionJson.manifest(manifestBytes, repository) else null
-            val manifest = mixed?.common ?: SktjfJson.manifest(manifestBytes, repository)
+            val mixedV3 = if (version == 3) SktjfV3DistributionJson.manifest(manifestBytes, repository) else null
+            val manifest = mixedV3?.common ?: mixed?.common ?: SktjfJson.manifest(manifestBytes, repository)
             require(manifest.revision == revision)
             val asset = manifest.assets.singleOrNull { it.classId == classId } ?: return@withContext SktjfFetchResult.ClassNotFound
             val bytes = download(asset.url, 4 * 1024 * 1024)
             var timed: SktjfV2Candidate? = null
-            val document = if (mixed == null) SktjfJson.verifiedDocument(bytes, manifest, asset) else
+            var selections: SktjfV3Candidate? = null
+            val document = if (mixedV3 != null) when(val candidate=SktjfV3DistributionJson.verifiedDocument(bytes,mixedV3,asset)) {
+                is SktjfV3Asset.V1 -> candidate.document
+                is SktjfV3Asset.V2 -> {
+                    val legacy = SktjfLegacySelectionCatalog.adapt(bytes, candidate.candidate)
+                    if (legacy == null) timed = candidate.candidate else selections = legacy
+                    candidate.candidate.document
+                }
+                is SktjfV3Asset.V3 -> { selections=candidate.candidate;candidate.candidate.timetable.document }
+            } else if (mixed == null) SktjfJson.verifiedDocument(bytes, manifest, asset) else
                 when (val candidate = SktjfV2DistributionJson.verifiedDocument(bytes, mixed, asset)) {
                     is SktjfCandidateAsset.V1 -> candidate.document
                     is SktjfCandidateAsset.V2 -> {
-                        timed = candidate.candidate
+                        val legacy = SktjfLegacySelectionCatalog.adapt(bytes, candidate.candidate)
+                        if (legacy == null) timed = candidate.candidate else selections = legacy
                         candidate.candidate.document
                     }
+                    is SktjfCandidateAsset.V3 -> error("Version 3 is not valid in a version 2 manifest")
                 }
-            SktjfFetchResult.Success(manifest, document, timed)
+            SktjfFetchResult.Success(manifest, document, timed, selections)
         } catch (e: CancellationException) {
             throw e
         } catch (e: FetchHttpException) {

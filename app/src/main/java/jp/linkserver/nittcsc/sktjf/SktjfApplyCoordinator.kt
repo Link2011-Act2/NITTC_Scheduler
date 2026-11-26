@@ -8,7 +8,8 @@ import java.time.LocalDate
 internal data class SktjfApplySnapshot(
     val settings: SettingsEntity?, val mode: UsageModeEntity?, val profiles: List<NittcProfileEntity>,
     val lessons: List<LessonEntity>, val days: List<DayTypeEntity>, val sourceStates: List<SktjfSourceStateEntity>,
-    val extraLessons: List<SktjfExtraLessonEntity>, val referencedExtraIds: Set<String> = emptySet()
+    val extraLessons: List<SktjfExtraLessonEntity>, val referencedExtraIds: Set<String> = emptySet(),
+    val selectionGroups: List<SktjfSelectionGroupEntity> = emptyList()
 )
 internal data class SktjfApplyPreview(
     val document: SktjfDocument, val snapshot: SktjfApplySnapshot,
@@ -42,7 +43,8 @@ internal sealed interface SktjfApplyResult {
 }
 
 internal data class SktjfV2ApplyPreview(val snapshot: SktjfApplySnapshot, val preparation: SktjfV2MergePreparation.Ready,
-    val localFile: Boolean = false)
+    val localFile: Boolean = false, val selectionGroups: List<SktjfSelectionGroup> = emptyList(), val hasExplicitSelectionGroups: Boolean = false,
+    val selectionChoices: Map<String,String?> = emptyMap())
 
 internal fun SktjfV2ApplyPreview.forReview(): SktjfApplyPreview = SktjfApplyPreview(
     document = preparation.candidate.documentForMerge(), snapshot = snapshot,
@@ -61,7 +63,8 @@ internal class SktjfApplyCoordinator(private val db: AppDatabase, private val re
             (dao.getTasksOnce().mapNotNull { it.extraLessonId } + dao.getPlansOnce().mapNotNull { it.extraLessonId }).filter { it in extraIds }.toSet()
         return SktjfApplySnapshot(dao.getSettings(), dao.getUsageMode(), dao.getNittcProfilesOnce(),
             dao.getLessonsOnce().filter { it.academicYear == document.academicYear && it.timetableTerm == term },
-            dao.getDayTypesOnce().sortedBy { it.date }, dao.getSktjfSourceStates(), extras, references)
+            dao.getDayTypesOnce().sortedBy { it.date }, dao.getSktjfSourceStates(), extras, references,
+            dao.getSktjfSelectionGroups().filter { it.academicYear == document.academicYear && it.term == document.term })
     }
 
     private fun source(document: SktjfDocument, snapshot: SktjfApplySnapshot) = snapshot.sourceStates.singleOrNull {
@@ -73,6 +76,7 @@ internal class SktjfApplyCoordinator(private val db: AppDatabase, private val re
             !settingsSupportSktjf(snapshot.settings, document)) return false
         // Another class may have data in the same shared timetable; do not guess how to replace it.
         if (snapshot.extraLessons.any { it.academicYear == document.academicYear && it.term == document.term && it.classId != document.classId }) return false
+        if (snapshot.selectionGroups.any { it.classId != document.classId }) return false
         if (snapshot.profiles.singleOrNull { it.academicYear == document.academicYear }?.classId != document.classId) return false
         if (!isSktjfUndergraduateClass(document.classId)) return false
         val incoming = parseSktjfRevision(document.revision) ?: return false
@@ -87,6 +91,7 @@ internal class SktjfApplyCoordinator(private val db: AppDatabase, private val re
     suspend fun previewV2(candidate: SktjfV2Candidate): SktjfV2ApplyPreview? = db.withTransaction {
         if (!candidate.weekEvidenceComplete) return@withTransaction null
         val current = snapshot(candidate.document)
+        if (current.selectionGroups.isNotEmpty()) return@withTransaction null
         if (!acceptable(candidate.document, current)) return@withTransaction null
         val profile = current.profiles.singleOrNull { it.academicYear == candidate.document.academicYear }
             ?: return@withTransaction null
@@ -98,6 +103,30 @@ internal class SktjfApplyCoordinator(private val db: AppDatabase, private val re
         SktjfV2ApplyPreview(current, prepared)
     }
 
+    suspend fun previewV3(candidate: SktjfV3Candidate, choices: Map<String,String?> = emptyMap()): SktjfV2ApplyPreview? = db.withTransaction {
+        val document = candidate.timetable.document
+        if (!candidate.timetable.weekEvidenceComplete) return@withTransaction null
+        val current = snapshot(document)
+        if (!acceptable(document, current)) return@withTransaction null
+        val profile = current.profiles.singleOrNull { it.academicYear == document.academicYear } ?: return@withTransaction null
+        if (choices.keys.any { id -> candidate.selectionGroups.none { it.id == id } }) return@withTransaction null
+        if (choices.any { (groupId, selected) -> selected != null && candidate.selectionGroups.none { group ->
+            group.id == groupId && selected in group.lessonIds && document.lessons.any { it.id == selected && it.conditions.matches(profile.attributes()) }
+        } }) return@withTransaction null
+        val state = source(document, current)?.takeUnless { it.requiresRelinking }
+        val incomingIds = candidate.selectionGroups.flatMap { it.lessonIds }.toSet()
+        val retiredIds = current.selectionGroups.flatMap { sktjfGroupIds(it.retiredLessonIdsJson) }.toSet() - incomingIds
+        val extras = current.extraLessons.filter { it.academicYear == document.academicYear && it.term == document.term &&
+            it.classId == document.classId && it.sourceLessonId !in retiredIds }
+        val previousIds = current.selectionGroups.flatMap { group ->
+            sktjfGroupIds(group.lessonIdsJson) + sktjfGroupIds(group.retiredLessonIdsJson)
+        }.toSet()
+        val prepared = prepareSktjfV2Merge(candidate.timetable, profile.attributes(), current.lessons, current.days, state, extras,
+            candidate.selectionGroups, previousIds)
+            as? SktjfV2MergePreparation.Ready ?: return@withTransaction null
+        SktjfV2ApplyPreview(current, prepared, selectionGroups = candidate.selectionGroups, hasExplicitSelectionGroups = true, selectionChoices = choices.toMap())
+    }
+
     /** Commit a validated v2 preview without dropping its opportunity evidence. */
     suspend fun applyV2(preview: SktjfV2ApplyPreview, lessonChoices: Map<String, SktjfConflictChoice>,
         calendarChoices: Map<LocalDate, SktjfConflictChoice>): SktjfApplyResult = db.withTransaction {
@@ -105,13 +134,53 @@ internal class SktjfApplyCoordinator(private val db: AppDatabase, private val re
         val document = candidate.document
         val current = snapshot(document)
         if (current != preview.snapshot || !acceptable(document, current)) return@withTransaction SktjfApplyResult.Stale
+        if (!preview.hasExplicitSelectionGroups && current.selectionGroups.isNotEmpty()) return@withTransaction SktjfApplyResult.Blocked
         if (!candidate.weekEvidenceComplete) return@withTransaction SktjfApplyResult.Blocked
         val oldState = source(document, current)?.takeUnless { it.requiresRelinking }
         val existingExtras = current.extraLessons.filter { it.academicYear == document.academicYear && it.term == document.term && it.classId == document.classId }
-        val resolved = runCatching { preview.preparation.lessons.resolve(lessonChoices) }.getOrNull() ?: return@withTransaction SktjfApplyResult.Blocked
+        val incomingGroupIds = preview.selectionGroups.flatMap { it.lessonIds }.toSet()
+        val retiredIds = current.selectionGroups.flatMap { sktjfGroupIds(it.retiredLessonIdsJson) }.toSet() - incomingGroupIds
+        val parked = existingExtras.filter { it.sourceLessonId in retiredIds }
+        val activeExtras = existingExtras - parked.toSet()
+        val resolved = runCatching { preview.preparation.lessons.resolve(lessonChoices, preview.selectionGroups) }.getOrNull() ?: return@withTransaction SktjfApplyResult.Blocked
+        val removedExtraIds = resolved.clearedLocalKeys.filter { it.startsWith("extra:") }.map { it.removePrefix("extra:") }.toSet()
+        val preserveRemoved = activeExtras.filter { it.id in removedExtraIds && it.id in current.referencedExtraIds }
+        val newlyRetired = mutableMapOf<String, MutableSet<String>>()
+        for (extra in preserveRemoved) {
+            val sourceId = extra.sourceLessonId ?: return@withTransaction SktjfApplyResult.Blocked
+            val owner = current.selectionGroups.singleOrNull { sourceId in sktjfGroupIds(it.lessonIdsJson) || sourceId in sktjfGroupIds(it.retiredLessonIdsJson) }
+                ?: return@withTransaction SktjfApplyResult.Blocked
+            newlyRetired.getOrPut(owner.groupId) { mutableSetOf() }.add(sourceId)
+        }
         val calendar = runCatching { preview.preparation.calendar.resolve(calendarChoices) }.getOrNull() ?: return@withTransaction SktjfApplyResult.Blocked
-        val draft = draftSktjfTimedStorage(candidate, current.lessons, existingExtras, resolved, calendar.baseline)
+        // A kept local slot must not acquire the incoming group's metadata: that would
+        // hide the kept lesson or attach a selection to candidates never accepted.
+        val eligibleIds = candidate.document.lessons.map { it.id }.toSet()
+        val resolvedIds = resolved.lessons.mapNotNull { it.sourceLessonId }.toSet()
+        val acceptedGroups = preview.selectionGroups.filter { group ->
+            val members = group.lessonIds.filter { it in eligibleIds }
+            members.isNotEmpty() && members.all { it in resolvedIds }
+        }
+        val keptGroupIds = preview.selectionGroups.map { it.id }.toSet() - acceptedGroups.map { it.id }.toSet()
+        if (preview.selectionGroups.any { group -> group.id in keptGroupIds &&
+                group.lessonIds.any { lessonChoices[it] == SktjfConflictChoice.APPLY_INCOMING } })
+            return@withTransaction SktjfApplyResult.Blocked
+        val draft = draftSktjfTimedStorage(candidate, current.lessons, activeExtras, resolved, calendar.baseline, acceptedGroups)
             ?: return@withTransaction SktjfApplyResult.Blocked
+        val groups = if (preview.hasExplicitSelectionGroups) runCatching {
+            val previous = current.selectionGroups.filter { it.classId == document.classId }
+            val keptPreviousIds = preview.selectionGroups.filter { it.id in keptGroupIds }.mapNotNull {
+                matchingSktjfSelectionGroup(it, previous)?.groupId
+            }.toSet()
+            val merged = mergeSktjfSelectionGroups(SktjfV3Candidate(candidate, acceptedGroups), previous.filterNot { it.groupId in keptPreviousIds }, newlyRetired)
+            val kept = previous.filter { it.groupId in keptPreviousIds }.map { group ->
+                val retired = sktjfGroupIds(group.retiredLessonIdsJson) + newlyRetired[group.groupId].orEmpty()
+                group.copy(retiredLessonIdsJson = org.json.JSONArray((retired - sktjfGroupIds(group.lessonIdsJson)).sorted()).toString())
+            }
+            (merged + kept)
+                .map { if (it.groupId !in keptGroupIds && preview.selectionChoices.containsKey(it.groupId)) it.copy(selectedLessonId = preview.selectionChoices[it.groupId]) else it }
+                .also(SktjfSelectionGroupBackup::validateList)
+        }.getOrNull() ?: return@withTransaction SktjfApplyResult.Blocked else emptyList()
         val oldCalendar = oldState?.let { SktjfBaselineCodec.decode(it.baselineJson).calendar }
         val localCalendar = projectSktjfLocalCalendar(document.academicYear, document.term, document.classId, current.days, oldCalendar)
         val changedDays = mutableListOf<DayTypeEntity>()
@@ -124,13 +193,28 @@ internal class SktjfApplyCoordinator(private val db: AppDatabase, private val re
         val links = runCatching { SktjfSourceLinks.encode(draft.ordinary.metadata.values.flatten().mapNotNull { lesson ->
             lesson.sourceLessonId?.let { id -> SktjfSourceLink(id, lesson.content.dayOfWeek, lesson.content.period, lesson.content.cycle) }
         }) }.getOrNull() ?: return@withTransaction SktjfApplyResult.Blocked
+        val retainedReplacements = oldState?.let { state ->
+            jp.linkserver.nittcsc.data.decodeReplacedTimedSlots(state.replacedTimedSlotsJson).filter { (day, period) ->
+                preview.preparation.lessons.reviewItems.any { item -> item.day == day && item.period == period &&
+                    item.sourceLessonId?.let { lessonChoices[it] == SktjfConflictChoice.KEEP_LOCAL } == true }
+            }.toSet()
+        } ?: preview.preparation.lessons.reviewItems.filter { item ->
+            item.sourceLessonId?.let { lessonChoices[it] == SktjfConflictChoice.KEEP_LOCAL } == true &&
+                candidate.series.any { series -> series.dayOfWeek == item.day && item.period in series.periods }
+        }.map { it.day to it.period }.toSet()
         val source = runCatching { SktjfSourceStateEntity(document.academicYear, document.term, document.classId, document.revision,
-            SktjfBaselineCodec.encode(draft.source.copy(localFile = preview.localFile)), false, links).also(SktjfSourceStateBackup::validate) }.getOrNull()
+            SktjfBaselineCodec.encode(draft.source.copy(localFile = preview.localFile)), false, links,
+            jp.linkserver.nittcsc.data.encodeReplacedTimedSlots(retainedReplacements)).also(SktjfSourceStateBackup::validate) }.getOrNull()
             ?: return@withTransaction SktjfApplyResult.Blocked
         val term = if (document.term == "S") TimetableTerm.FIRST else TimetableTerm.SECOND
         draft.ordinary.rows.forEach { dao.upsertLesson(it) }
         if (existingExtras.isNotEmpty()) dao.deleteSktjfExtraLessonsForPartition(document.academicYear, document.term)
-        if (draft.alternatives.isNotEmpty()) dao.upsertSktjfExtraLessons(draft.alternatives)
+        val storedAlternatives = draft.alternatives + parked + preserveRemoved
+        if (storedAlternatives.isNotEmpty()) dao.upsertSktjfExtraLessons(storedAlternatives)
+        if (preview.hasExplicitSelectionGroups) {
+            dao.deleteSktjfSelectionGroupsForPartition(document.academicYear, document.term)
+            if (groups.isNotEmpty()) dao.upsertSktjfSelectionGroups(groups)
+        }
         if (changedDays.isNotEmpty()) dao.upsertDayTypes(changedDays)
         dao.upsertSktjfSourceStates(listOf(source))
         repository.touchSyncDatasetMeta(LessonSyncPartition(document.academicYear, term).datasetKey, SchedulerRepository.DATASET_DAY_TYPES)
@@ -139,6 +223,7 @@ internal class SktjfApplyCoordinator(private val db: AppDatabase, private val re
 
     suspend fun preview(input: SktjfDocument): SktjfPreviewResult = db.withTransaction {
         val incoming = input.detachedForApply(); val current = snapshot(incoming)
+        if (current.selectionGroups.isNotEmpty()) return@withTransaction SktjfPreviewResult.Blocked
         if (!acceptable(incoming, current)) return@withTransaction SktjfPreviewResult.Blocked
         val profile = current.profiles.singleOrNull { it.academicYear == incoming.academicYear }
             ?: return@withTransaction SktjfPreviewResult.Blocked

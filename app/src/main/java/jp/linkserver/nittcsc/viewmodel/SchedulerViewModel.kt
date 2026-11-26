@@ -20,6 +20,8 @@ import jp.linkserver.nittcsc.data.LongBreakEntity
 import jp.linkserver.nittcsc.data.ResolvedLesson
 import jp.linkserver.nittcsc.data.SchedulerRepository
 import jp.linkserver.nittcsc.data.SchedulerUsageMode
+import jp.linkserver.nittcsc.data.SktjfSelectionGroupEntity
+import jp.linkserver.nittcsc.sktjf.selectedLesson
 import jp.linkserver.nittcsc.data.UsageModeEntity
 import jp.linkserver.nittcsc.data.NittcProfileEntity
 import jp.linkserver.nittcsc.data.NittcYearOutcome
@@ -118,7 +120,8 @@ private data class SyncAndDesignState(
 
 private data class ExtraLessonState(val resolver: SktjfExtraLessonResolver?, val invalid: Boolean,
     val mode: UsageModeEntity?, val profiles: List<NittcProfileEntity>, val transitions: List<NittcYearTransitionEntity>,
-    val lessons: List<SktjfExtraLessonEntity>, val sources: List<SktjfSourceStateEntity>, val timed: SktjfTimedSchedule? = null)
+    val lessons: List<SktjfExtraLessonEntity>, val sources: List<SktjfSourceStateEntity>, val timed: SktjfTimedSchedule? = null,
+    val groups: List<SktjfSelectionGroupEntity> = emptyList(), val elective: jp.linkserver.nittcsc.sktjf.SktjfElectiveSchedule? = null)
 
 data class SchedulerUiState(
     val settings: SettingsEntity? = null,
@@ -130,6 +133,8 @@ data class SchedulerUiState(
     val lessons: Map<LessonKey, LessonEntity> = emptyMap(),
     val sktjfExtraResolver: SktjfExtraLessonResolver? = null,
     val sktjfTimedSchedule: SktjfTimedSchedule? = null,
+    val sktjfElectiveSchedule: jp.linkserver.nittcsc.sktjf.SktjfElectiveSchedule? = null,
+    val sktjfSelectionGroups: List<SktjfSelectionGroupEntity> = emptyList(),
     val sktjfExtraDataError: Boolean = false,
     val sktjfExtraLessons: List<SktjfExtraLessonEntity> = emptyList(),
     val usageMode: UsageModeEntity? = null,
@@ -163,6 +168,9 @@ class SchedulerViewModel(
 
     internal suspend fun editSktjfExtraLesson(expected: SktjfVisibleExtra, draft: SktjfExtraLessonDraft): Boolean =
         repository.editSktjfExtraLesson(expected, draft)
+
+    internal suspend fun selectSktjfCourse(expected: SktjfSelectionGroupEntity, selectedLessonId: String?): Boolean =
+        repository.selectSktjfCourse(expected, selectedLessonId)
 
     internal suspend fun saveNittcConfiguration(expectedMode: UsageModeEntity?, expectedProfile: NittcProfileEntity?,
         mode: SchedulerUsageMode, profile: NittcProfileEntity?): Boolean =
@@ -217,6 +225,10 @@ class SchedulerViewModel(
         kotlinx.coroutines.withContext(Dispatchers.IO) { repository.previewSktjf(document) }
     internal suspend fun previewTimedSktjf(candidate: jp.linkserver.nittcsc.sktjf.SktjfV2Candidate) =
         kotlinx.coroutines.withContext(Dispatchers.IO) { repository.previewTimedSktjf(candidate) }
+    internal suspend fun previewSelectionSktjf(candidate: jp.linkserver.nittcsc.sktjf.SktjfV3Candidate,
+        choices: Map<String, String?>) = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        repository.previewSelectionSktjf(candidate, choices)
+    }
     internal suspend fun applySktjf(preview: jp.linkserver.nittcsc.sktjf.SktjfApplyPreview,
         lessons: Map<String, jp.linkserver.nittcsc.sktjf.SktjfConflictChoice>,
         days: Map<LocalDate, jp.linkserver.nittcsc.sktjf.SktjfConflictChoice>) =
@@ -299,6 +311,14 @@ class SchedulerViewModel(
             SktjfExtraLessonResolver.create(usageMode, profiles, lessons)
         }
         ExtraLessonState(result.getOrNull(), result.isFailure, mode, profiles, transitions, lessons, sources)
+    }.combine(repository.sktjfSelectionGroupsFlow) { extra, groups ->
+        val mode = extra.mode?.mode?.let { value -> SchedulerUsageMode.entries.firstOrNull { it.name == value } }
+        val result=runCatching {
+            SktjfExtraLessonResolver.create(mode, extra.profiles, extra.lessons, groups, extra.sources) to
+                jp.linkserver.nittcsc.sktjf.SktjfElectiveSchedule.create(mode, extra.profiles, groups, extra.lessons, extra.sources)
+        }
+        extra.copy(resolver=result.getOrNull()?.first, elective=result.getOrNull()?.second,
+            invalid=extra.invalid || result.isFailure,groups=groups)
     }.combine(repository.lessonsFlow) { extra, rows ->
         val mode = extra.mode?.mode?.let { value -> SchedulerUsageMode.entries.firstOrNull { it.name == value } }
         extra.copy(timed = SktjfTimedSchedule.create(mode, extra.profiles, extra.sources, rows, extra.lessons))
@@ -387,7 +407,8 @@ class SchedulerViewModel(
             expressiveWarningAcknowledged = syncAndDesign.expressiveWarningAcknowledged
         )
     }.combine(extraLessonFlow) { state, extra ->
-        state.copy(sktjfExtraResolver = extra.resolver, sktjfTimedSchedule = extra.timed, sktjfExtraDataError = extra.invalid, sktjfExtraLessons = extra.lessons,
+        state.copy(sktjfExtraResolver = extra.resolver, sktjfTimedSchedule = extra.timed, sktjfElectiveSchedule = extra.elective,
+            sktjfSelectionGroups = extra.groups, sktjfExtraDataError = extra.invalid, sktjfExtraLessons = extra.lessons,
             usageMode = extra.mode, nittcProfiles = extra.profiles, nittcYearTransitions = extra.transitions)
     }.combine(appUpdates?.state ?: MutableStateFlow(GoldyState())) { state, update ->
         state.copy(appUpdate = update)
@@ -930,7 +951,8 @@ class SchedulerViewModel(
         semesterTimetablesEnabled: Boolean = false,
         secondTermStartMonth: Int = 10,
         secondTermStartDay: Int = 1,
-        timedSchedule: SktjfTimedSchedule? = null
+        timedSchedule: SktjfTimedSchedule? = null,
+        electiveSchedule: jp.linkserver.nittcsc.sktjf.SktjfElectiveSchedule? = null
     ): ResolvedLesson? {
         if (date.dayOfWeek.value !in 1..5) return null
         val dayTypeEntity = dayTypeEntities[date]
@@ -946,7 +968,8 @@ class SchedulerViewModel(
                 semesterTimetablesEnabled,
                 secondTermStartMonth,
                 secondTermStartDay,
-                timedSchedule
+                timedSchedule,
+                electiveSchedule
             ),
             changedLesson = changedLessons[date to slotIndex]
         )
@@ -961,7 +984,8 @@ class SchedulerViewModel(
         semesterTimetablesEnabled: Boolean = false,
         secondTermStartMonth: Int = 10,
         secondTermStartDay: Int = 1,
-        timedSchedule: SktjfTimedSchedule? = null
+        timedSchedule: SktjfTimedSchedule? = null,
+        electiveSchedule: jp.linkserver.nittcsc.sktjf.SktjfElectiveSchedule? = null
     ): ResolvedLesson? {
         if (date.dayOfWeek.value !in 1..5) return null
 
@@ -975,6 +999,11 @@ class SchedulerViewModel(
             date, semesterTimetablesEnabled, secondTermStartMonth, secondTermStartDay
         )
         val cycle = if (lessonDayType == DayType.B) SktjfCycle.B else SktjfCycle.A
+        when (val elective=electiveSchedule?.resolve(academicYearForDate(date),timetableTerm,lessonDayOfWeek,slotIndex+1,date,cycle)) {
+            jp.linkserver.nittcsc.sktjf.SktjfElectiveSlotResult.Unconfirmed -> return null
+            is jp.linkserver.nittcsc.sktjf.SktjfElectiveSlotResult.Managed -> return elective.selectedLesson()
+            else -> Unit
+        }
         when (val timed = timedSchedule?.resolve(academicYearForDate(date), timetableTerm, lessonDayOfWeek, slotIndex + 1, date, cycle)) {
             is SktjfTimedSlotResult.Managed -> return (timed.selection as? SktjfWeekSelection.Selected)?.value?.resolvedLesson()
             else -> Unit

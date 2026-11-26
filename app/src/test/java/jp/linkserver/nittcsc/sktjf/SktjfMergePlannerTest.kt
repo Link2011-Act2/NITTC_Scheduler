@@ -14,6 +14,40 @@ class SktjfMergePlannerTest {
     private fun partition(doc: SktjfDocument, rows: List<SktjfLocalLesson>) = SktjfLocalTimetable(doc.academicYear, doc.term, doc.classId, rows)
     private inline fun rejects(action: () -> Unit) { assertTrue(runCatching(action).isFailure) }
 
+    @Test fun explicitGroupReplacesBothHalvesOfLocalAbSlot() {
+        val template = document(); val original = template.lessons.single()
+        val first = original.copy(id = "first", cycle = SktjfCycle.WEEKLY)
+        val second = original.copy(id = "second", cycle = SktjfCycle.WEEKLY, subject = "別の候補")
+        val incoming = template.copy(lessons = listOf(first, second))
+        val a = SktjfLocalLesson("base:71:A", null, first.content().copy(cycle = SktjfCycle.A, subject = "手入力A"))
+        val b = SktjfLocalLesson("base:71:B", null, first.content().copy(cycle = SktjfCycle.B, subject = "手入力B"))
+        val plan = SktjfLessonMergePlan.create(null, partition(incoming, listOf(a, b)), incoming)
+        val group = SktjfSelectionGroup("choices", first.dayOfWeek, first.period, listOf(first.id, second.id), first.sources)
+        val choices = plan.conflicts.associate { it.sourceLessonId to SktjfConflictChoice.APPLY_INCOMING }
+        val result = plan.resolve(choices, listOf(group))
+        assertEquals(setOf("base:71:A", "base:71:B"), result.clearedLocalKeys)
+        assertEquals(setOf("first", "second"), result.lessons.mapNotNull { it.sourceLessonId }.toSet())
+        assertTrue(result.lessons.all { it.localKey == null })
+    }
+
+    @Test fun groupForOnlyOneCyclePreservesOtherHalfOfWeeklyLesson() {
+        val template = document(); val original = template.lessons.single()
+        val first = original.copy(id = "first", cycle = SktjfCycle.A)
+        val second = original.copy(id = "second", cycle = SktjfCycle.A, subject = "別の候補")
+        val incoming = template.copy(lessons = listOf(first, second))
+        val local = SktjfLocalLesson("base:71:WEEKLY", null,
+            first.content().copy(cycle = SktjfCycle.WEEKLY, subject = "手入力"))
+        val plan = SktjfLessonMergePlan.create(null, partition(incoming, listOf(local)), incoming)
+        val group = SktjfSelectionGroup("choices", first.dayOfWeek, first.period, listOf(first.id, second.id), first.sources)
+        val choices = plan.conflicts.associate { it.sourceLessonId to SktjfConflictChoice.APPLY_INCOMING }
+        val result = plan.resolve(choices, listOf(group))
+        val retained = result.lessons.single { it.localKey == local.localKey }
+        assertEquals(SktjfCycle.B, retained.content.cycle)
+        assertEquals("手入力", retained.content.subject)
+        assertEquals(setOf("first", "second"), result.lessons.mapNotNull { it.sourceLessonId }.toSet())
+        assertTrue(result.clearedLocalKeys.isEmpty())
+    }
+
     @Test fun updatesUneditedSourceWithoutChangingLocalIdentity() {
         val old = document(); val lesson = old.lessons.single(); val local = SktjfLocalLesson("lesson:71:A", lesson.id, lesson.content())
         val next = old.copy(revision = "2026.S.1", lessons = listOf(lesson.copy(subject = "新しい科目")))

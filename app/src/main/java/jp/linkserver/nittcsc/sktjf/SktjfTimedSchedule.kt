@@ -7,6 +7,7 @@ import jp.linkserver.nittcsc.data.SktjfExtraLessonEntity
 import jp.linkserver.nittcsc.data.SktjfSourceStateEntity
 import jp.linkserver.nittcsc.data.ResolvedLesson
 import jp.linkserver.nittcsc.data.attributes
+import jp.linkserver.nittcsc.data.decodeReplacedTimedSlots
 import jp.linkserver.nittcsc.logic.TimetableTerm
 import java.time.LocalDate
 
@@ -18,18 +19,19 @@ internal sealed interface SktjfTimedSlotResult {
 /** Builds the time-dependent view from persisted local rows and the official source snapshot. */
 class SktjfTimedSchedule private constructor(private val entries: List<Entry>) {
     private data class Entry(val year: Int, val term: TimetableTerm, val group: SktjfV2WeekSeries,
-        val draft: SktjfTimedStorageDraft?, val attributes: Set<String>, val editable: List<SktjfVisibleExtra>)
+        val draft: SktjfTimedStorageDraft?, val attributes: Set<String>, val editable: List<SktjfVisibleExtra>,
+        val replacedSlots: Set<Pair<Int, Int>>)
 
     internal fun alternativesFor(year: Int, term: TimetableTerm, day: Int, period: Int): List<SktjfVisibleExtra> =
-        entries.filter { it.year == year && it.term == term && it.group.dayOfWeek == day && period in it.group.periods }
+        entries.filter { it.year == year && it.term == term && it.group.dayOfWeek == day && period in it.group.periods && (day to period) !in it.replacedSlots }
             .flatMap { it.editable }.filter { it.content.dayOfWeek == day && it.content.period == period }.distinctBy { it.id }
 
     internal fun manages(year: Int, term: TimetableTerm, day: Int, period: Int, cycle: SktjfCycle): Boolean =
-        entries.any { it.year == year && it.term == term && it.group.dayOfWeek == day && period in it.group.periods &&
+        entries.any { it.year == year && it.term == term && it.group.dayOfWeek == day && period in it.group.periods && (day to period) !in it.replacedSlots &&
             (it.group.cycle == SktjfCycle.WEEKLY || it.group.cycle == cycle) }
 
     internal fun resolve(year: Int, term: TimetableTerm, day: Int, period: Int, date: LocalDate, cycle: SktjfCycle): SktjfTimedSlotResult {
-        val matches = entries.filter { it.year == year && it.term == term && it.group.dayOfWeek == day && period in it.group.periods &&
+        val matches = entries.filter { it.year == year && it.term == term && it.group.dayOfWeek == day && period in it.group.periods && (day to period) !in it.replacedSlots &&
             (it.group.cycle == SktjfCycle.WEEKLY || it.group.cycle == cycle) }
         if (matches.isEmpty()) return SktjfTimedSlotResult.Unmanaged
         if (matches.size != 1) return SktjfTimedSlotResult.Managed(SktjfWeekSelection.Conflict)
@@ -67,7 +69,7 @@ class SktjfTimedSchedule private constructor(private val entries: List<Entry>) {
                         val content = SktjfBaselineCodec.decode(extra.contentJson).lessons.lessons.getValue(extra.id)
                         if (!content.conditions.matches(profile.attributes())) null else SktjfVisibleExtra(extra.id, extra.sourceLessonId, content, extra.contentJson)
                     }
-                    entries += Entry(state.academicYear, term, group, draft, profile.attributes(), editable)
+                    entries += Entry(state.academicYear, term, group, draft, profile.attributes(), editable, decodeReplacedTimedSlots(state.replacedTimedSlotsJson))
                 }
             }
             return SktjfTimedSchedule(entries)

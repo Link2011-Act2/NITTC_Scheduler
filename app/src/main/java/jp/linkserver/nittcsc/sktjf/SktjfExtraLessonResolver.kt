@@ -6,6 +6,10 @@ import jp.linkserver.nittcsc.data.NittcProfileEntity
 import jp.linkserver.nittcsc.data.SchedulerUsageMode
 import jp.linkserver.nittcsc.data.SktjfExtraLessonBackup
 import jp.linkserver.nittcsc.data.SktjfExtraLessonEntity
+import jp.linkserver.nittcsc.data.SktjfSelectionGroupEntity
+import jp.linkserver.nittcsc.data.SktjfSelectionGroupBackup
+import jp.linkserver.nittcsc.data.SktjfSourceStateEntity
+import jp.linkserver.nittcsc.data.decodeReplacedTimedSlots
 import jp.linkserver.nittcsc.data.attributes
 import jp.linkserver.nittcsc.data.validateProfile
 import jp.linkserver.nittcsc.logic.TimetableTerm
@@ -38,14 +42,31 @@ class SktjfExtraLessonResolver private constructor(private val bySlot: Map<Extra
     }
 
     companion object {
-        internal fun create(mode: SchedulerUsageMode?, profiles: List<NittcProfileEntity>, lessons: List<SktjfExtraLessonEntity>): SktjfExtraLessonResolver {
+        internal fun create(mode: SchedulerUsageMode?, profiles: List<NittcProfileEntity>, lessons: List<SktjfExtraLessonEntity>,
+            groups: List<SktjfSelectionGroupEntity> = emptyList(), states: List<SktjfSourceStateEntity> = emptyList()): SktjfExtraLessonResolver {
             if (mode != SchedulerUsageMode.NITTC) return SktjfExtraLessonResolver(emptyMap())
             require(profiles.map { it.academicYear }.distinct().size == profiles.size)
             profiles.forEach { it.validateProfile() }
             SktjfExtraLessonBackup.validateList(lessons)
+            SktjfSelectionGroupBackup.validateList(groups)
+            val grouped=groups.flatMap { group ->
+                listOf(group.lessonIdsJson, group.retiredLessonIdsJson).flatMap { json ->
+                    val ids=org.json.JSONArray(json)
+                    (0 until ids.length()).map { listOf(group.academicYear.toString(),group.term,group.classId,ids.getString(it)) }
+                }
+            }.toSet()
+            val replaced = states.flatMap { state ->
+                val slots = decodeReplacedTimedSlots(state.replacedTimedSlotsJson)
+                if (slots.isEmpty()) return@flatMap emptyList()
+                val source = SktjfBaselineCodec.decode(state.baselineJson)
+                source.lessons.lessons.filter { (_, content) -> (content.dayOfWeek to content.period) in slots }
+                    .keys.map { id -> listOf(state.academicYear.toString(), state.term, state.classId, id) }
+            }.toSet()
             val byYear = profiles.associate { it.academicYear to (it to it.attributes()) }
             val result = linkedMapOf<ExtraSlot, MutableList<SktjfVisibleExtra>>()
             for (lesson in lessons) {
+                if (listOf(lesson.academicYear.toString(),lesson.term,lesson.classId,lesson.sourceLessonId) in grouped ||
+                    listOf(lesson.academicYear.toString(),lesson.term,lesson.classId,lesson.sourceLessonId) in replaced) continue
                 val (profile, attributes) = byYear[lesson.academicYear] ?: continue
                 if (profile.classId != lesson.classId) continue
                 val baseline = SktjfBaselineCodec.decode(lesson.contentJson)

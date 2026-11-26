@@ -18,7 +18,7 @@ internal class SchedulerDataTransfer(
 
     private companion object {
         val EXTRA_LESSON_ID = Regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-        const val CURRENT_EXPORT_VERSION = 27
+        const val CURRENT_EXPORT_VERSION = 30
         const val MIN_SUPPORTED_IMPORT_VERSION = 1
         const val DATASET_TASKS = SchedulerRepository.DATASET_TASKS
         const val DATASET_PLANS = SchedulerRepository.DATASET_PLANS
@@ -58,6 +58,7 @@ internal class SchedulerDataTransfer(
         root.put("nittcProfile", modeProfileBackup.encode())
         root.put("sktjfSourceState", SktjfSourceStateBackup.encode(sourceStates))
         root.put("sktjfExtraLessons", SktjfExtraLessonBackup.encode(extraLessons))
+        root.put("sktjfSelectionGroups", SktjfSelectionGroupBackup.encode(dao.getSktjfSelectionGroups()))
         root.put("nittcYearTransitions", NittcYearTransitionBackup.encode(yearTransitions))
         root.put("schoolVacations", SchoolVacationBackup.encode(dao.getSchoolVacations()))
 
@@ -295,6 +296,14 @@ internal class SchedulerDataTransfer(
             val term = when (it.term) { "S" -> TimetableTerm.FIRST; "F" -> TimetableTerm.SECOND; else -> error("Invalid term") }
             LessonSyncPartition(it.academicYear, term).datasetKey
         }
+        val selectionGroups = dao.getSktjfSelectionGroups().groupBy {
+            val term = when (it.term) { "S" -> TimetableTerm.FIRST; "F" -> TimetableTerm.SECOND; else -> error("Invalid term") }
+            LessonSyncPartition(it.academicYear, term).datasetKey
+        }
+        val timedReplacements = dao.getSktjfSourceStates().filter { decodeReplacedTimedSlots(it.replacedTimedSlotsJson).isNotEmpty() }.groupBy {
+            val term = if (it.term == "S") TimetableTerm.FIRST else TimetableTerm.SECOND
+            LessonSyncPartition(it.academicYear, term).datasetKey
+        }
         val longBreaks = dao.getLongBreaksOnce()
         val dayTypes = dao.getDayTypesOnce()
         val tasks = dao.getTasksOnce()
@@ -308,7 +317,7 @@ internal class SchedulerDataTransfer(
         val now = System.currentTimeMillis()
         val datasetMetaByKey = dao.getAllSyncDatasetMeta().associateBy { it.datasetKey }
         val lessonPartitionKeys = (
-            lessonGroups.keys + extraGroups.keys + datasetMetaByKey.keys.filter { lessonSyncPartition(it) != null }
+            lessonGroups.keys + extraGroups.keys + selectionGroups.keys + timedReplacements.keys + datasetMetaByKey.keys.filter { lessonSyncPartition(it) != null }
         ).toSortedSet()
 
         val root = org.json.JSONObject().putCurrentSyncProtocolVersion()
@@ -354,6 +363,12 @@ internal class SchedulerDataTransfer(
             }
             val extra = SktjfExtraLessonBackup.encode(extraGroups[key].orEmpty())
             for (index in 0 until extra.length()) arr.put(extra.getJSONObject(index).put("recordType", "sktjf-extra"))
+            val selections = SktjfSelectionGroupBackup.encode(selectionGroups[key].orEmpty())
+            for (index in 0 until selections.length()) arr.put(selections.getJSONObject(index).put("recordType", "sktjf-selection"))
+            timedReplacements[key].orEmpty().forEach { state ->
+                arr.put(org.json.JSONObject().put("recordType", "sktjf-timed-replacement")
+                    .put("classId", state.classId).put("slots", org.json.JSONArray(state.replacedTimedSlotsJson)))
+            }
             })
         }
 
@@ -505,11 +520,25 @@ internal class SchedulerDataTransfer(
             val arr = payload.getJSONArray(key)
             val importedLessons = mutableListOf<LessonEntity>()
             val extraRecords = org.json.JSONArray()
+            val selectionRecords = org.json.JSONArray()
+            val timedReplacements = mutableMapOf<String, String>()
             for (i in 0 until arr.length()) {
                 val obj = requireNotNull(arr.optJSONObject(i)) { "時間割の同期データが不正です。" }
                 if (obj.has("recordType")) {
-                    require(obj.get("recordType") == "sktjf-extra") { "時間割の同期データが不正です。" }
-                    extraRecords.put(org.json.JSONObject(obj.toString()).also { it.remove("recordType") })
+                    if (obj.get("recordType") == "sktjf-timed-replacement") {
+                        require(obj.keys().asSequence().toSet() == setOf("recordType", "classId", "slots"))
+                        val classId = obj.get("classId") as? String ?: error("時間割の同期データが不正です。")
+                        require(Regex("^(1-[1-4]|[2-5][MEIB])$").matches(classId))
+                        val slots = obj.getJSONArray("slots").toString()
+                        require(decodeReplacedTimedSlots(slots).isNotEmpty() && timedReplacements.put(classId, slots) == null)
+                        continue
+                    }
+                    val target = when(obj.get("recordType")) {
+                        "sktjf-extra" -> extraRecords
+                        "sktjf-selection" -> selectionRecords
+                        else -> error("時間割の同期データが不正です。")
+                    }
+                    target.put(org.json.JSONObject(obj.toString()).also { it.remove("recordType") })
                     continue
                 }
                 require(obj.optInt("academicYear") == partition.academicYear &&
@@ -536,8 +565,14 @@ internal class SchedulerDataTransfer(
                 )
             }
             val extras = SktjfExtraLessonBackup.decode(extraRecords)
+            val selections = SktjfSelectionGroupBackup.decode(selectionRecords)
             val termCode = if (partition.term == TimetableTerm.FIRST) "S" else "F"
+            val localStates = dao.getSktjfSourceStates().filter { it.academicYear == partition.academicYear && it.term == termCode }
+            if (localStates.isNotEmpty()) dao.upsertSktjfSourceStates(localStates.map {
+                it.copy(replacedTimedSlotsJson = timedReplacements[it.classId] ?: "[]")
+            })
             require(extras.all { it.academicYear == partition.academicYear && it.term == termCode }) { "時間割の年度・学期が一致しません。" }
+            require(selections.all { it.academicYear == partition.academicYear && it.term == termCode }) { "時間割の年度・学期が一致しません。" }
             val otherIds = dao.getSktjfExtraLessons().filter { it.academicYear != partition.academicYear || it.term != termCode }.map { it.id }.toSet()
             require(extras.none { it.id in otherIds }) { "追加授業の識別子が重複しています。" }
             touchedDatasets += key
@@ -554,6 +589,8 @@ internal class SchedulerDataTransfer(
             retainedEmptyRows.forEach { dao.upsertLesson(it) }
             dao.deleteSktjfExtraLessonsForPartition(partition.academicYear, termCode)
             if (extras.isNotEmpty()) dao.upsertSktjfExtraLessons(extras)
+            dao.deleteSktjfSelectionGroupsForPartition(partition.academicYear, termCode)
+            if (selections.isNotEmpty()) dao.upsertSktjfSelectionGroups(selections)
         }
 
         payload.optJSONArray(DATASET_LONG_BREAKS)?.let { arr ->
@@ -796,6 +833,9 @@ internal class SchedulerDataTransfer(
         } else null
         val extraLessonBackup = if (normalizedRoot.has("sktjfExtraLessons")) {
             SktjfExtraLessonBackup.decode(normalizedRoot.getJSONArray("sktjfExtraLessons"))
+        } else null
+        val selectionGroupBackup = if (normalizedRoot.has("sktjfSelectionGroups")) {
+            SktjfSelectionGroupBackup.decode(normalizedRoot.getJSONArray("sktjfSelectionGroups"))
         } else null
         val yearTransitionBackup = if (normalizedRoot.has("nittcYearTransitions")) {
             NittcYearTransitionBackup.decode(normalizedRoot.getJSONArray("nittcYearTransitions"))
@@ -1133,6 +1173,10 @@ internal class SchedulerDataTransfer(
             extraLessonBackup?.let { lessons ->
                 dao.deleteAllSktjfExtraLessons()
                 if (lessons.isNotEmpty()) dao.upsertSktjfExtraLessons(lessons)
+            }
+            selectionGroupBackup?.let { groups ->
+                dao.deleteAllSktjfSelectionGroups()
+                if (groups.isNotEmpty()) dao.upsertSktjfSelectionGroups(groups)
             }
             if (sourceStateBackup != null) {
                 dao.deleteAllSktjfSourceStates()

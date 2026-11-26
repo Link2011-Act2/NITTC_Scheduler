@@ -112,6 +112,17 @@ internal class QrShareTransfer(private val repository: SchedulerRepository, priv
             // 既存の課題・予定が持つ端末内の授業IDを、同じ曜日・時限について維持する。
             qrTimetableReplacement(dao.getLessonsOnce(), data.lessons, data.academicYear, term)
                 .forEach { dao.upsertLesson(it) }
+            // The shared timetable replaces this term. Keep elective choices and references for
+            // later restoration, but do not let the old candidates override the received rows.
+            val termCode = if (term == TimetableTerm.FIRST) "S" else "F"
+            val groups = dao.getSktjfSelectionGroups().filter { it.academicYear == data.academicYear && it.term == termCode }
+            if (groups.isNotEmpty()) dao.upsertSktjfSelectionGroups(groups.map { it.copy(suspendedByTimetableReplacement = true) })
+            val states = dao.getSktjfSourceStates().filter { it.academicYear == data.academicYear && it.term == termCode }
+            if (states.isNotEmpty()) dao.upsertSktjfSourceStates(states.map { state ->
+                val series = jp.linkserver.nittcsc.sktjf.SktjfBaselineCodec.decode(state.baselineJson).series
+                val slots = series.flatMap { item -> item.periods.map { item.dayOfWeek to it } }.toSet()
+                state.copy(replacedTimedSlotsJson = encodeReplacedTimedSlots(decodeReplacedTimedSlots(state.replacedTimedSlotsJson) + slots))
+            })
             touched += LessonSyncPartition(data.academicYear, term).datasetKey
         }
         if (QrShareSection.CANCELLATIONS in data.sections) {

@@ -10,6 +10,9 @@ import jp.linkserver.nittcsc.sktjf.SktjfTimedSchedule
 import jp.linkserver.nittcsc.sktjf.SktjfTimedSlotResult
 import jp.linkserver.nittcsc.sktjf.SktjfWeekSelection
 import jp.linkserver.nittcsc.sktjf.resolvedLesson
+import jp.linkserver.nittcsc.sktjf.SktjfElectiveSchedule
+import jp.linkserver.nittcsc.sktjf.SktjfElectiveSlotResult
+import jp.linkserver.nittcsc.sktjf.SktjfElectiveResolution
 import java.time.LocalDate
 import java.time.LocalTime
 
@@ -39,7 +42,8 @@ class EffectiveSchoolSchedule internal constructor(
     private val notificationOrigins: SktjfNotificationOrigins? = null,
     private val usageMode: SchedulerUsageMode? = null,
     private val extraResolver: SktjfExtraLessonResolver? = null,
-    private val timedSchedule: SktjfTimedSchedule? = null
+    private val timedSchedule: SktjfTimedSchedule? = null,
+    private val electiveSchedule: SktjfElectiveSchedule? = null
 ) {
     private val originalLessons = lessons.associateBy { it.lessonKey() }
     private val lessons = lessons.map { it.forTimetable(settings.enableAbTimetable) }.associateBy { it.lessonKey() }
@@ -74,9 +78,20 @@ class EffectiveSchoolSchedule internal constructor(
                 }
             }
             val cycle = if (lessonType == DayType.B) SktjfCycle.B else SktjfCycle.A
-            val base = when (val timed = timedSchedule?.resolve(academicYearForDate(date), term, lessonDay, slot.index + 1, date, cycle)) {
+            val timedBase = when (val timed = timedSchedule?.resolve(academicYearForDate(date), term, lessonDay, slot.index + 1, date, cycle)) {
                 null, SktjfTimedSlotResult.Unmanaged -> ordinaryBase
                 is SktjfTimedSlotResult.Managed -> (timed.selection as? SktjfWeekSelection.Selected)?.value?.resolvedLesson()
+            }
+            val base = when (val elective = electiveSchedule?.resolve(academicYearForDate(date), term, lessonDay, slot.index + 1, date, cycle)) {
+                null, SktjfElectiveSlotResult.Unmanaged -> timedBase
+                SktjfElectiveSlotResult.Unconfirmed -> null
+                is SktjfElectiveSlotResult.Managed -> {
+                    val id=(elective.resolution as? SktjfElectiveResolution.Chosen)?.lessonId
+                    elective.options.singleOrNull { it.sourceLessonId==id }?.let { item ->
+                        ResolvedLesson(item.content.subject,item.content.teachers.joinToString("、"),
+                            item.content.rooms.joinToString("、").ifBlank { null },extraLessonId=item.id)
+                    }
+                }
             }
             val lesson = applyChangedLesson(base, changed[date to slot.index])
                 ?.takeIf { it.subject.isNotBlank() } ?: return@mapNotNull null
@@ -105,7 +120,11 @@ class EffectiveSchoolSchedule internal constructor(
             }
             val effectiveCycle = if (effectiveType == DayType.B) SktjfCycle.B else SktjfCycle.A
             val timed = timedSchedule?.resolve(year, term, effectiveDay, candidate.slotIndex + 1, date, effectiveCycle)
-            val origin = if (timed is SktjfTimedSlotResult.Managed) {
+            val elective = electiveSchedule?.resolve(year,term,effectiveDay,candidate.slotIndex+1,date,effectiveCycle)
+            val origin = if (elective is SktjfElectiveSlotResult.Managed) {
+                val selected=(elective.resolution as? SktjfElectiveResolution.Chosen)?.lessonId
+                elective.options.singleOrNull { it.sourceLessonId==selected }?.content?.let { SktjfLessonOrigin(it.kind,it.subject) }
+            } else if (timed is SktjfTimedSlotResult.Managed) {
                 (timed.selection as? SktjfWeekSelection.Selected)?.value?.sourceLessonId?.let { id ->
                     timedSchedule.origin(year, term, effectiveDay, candidate.slotIndex + 1, effectiveCycle, id)
                 }
@@ -162,13 +181,15 @@ class EffectiveSchoolSchedule internal constructor(
             val states = dao.getSktjfSourceStates()
             val origins = SktjfNotificationOrigins.create(mode, profiles, states)
             val extraLessons = dao.getSktjfExtraLessons()
-            val extraResolver = runCatching { SktjfExtraLessonResolver.create(mode, profiles, extraLessons) }.getOrNull()
+            val selectionGroups = dao.getSktjfSelectionGroups()
+            val extraResolver = runCatching { SktjfExtraLessonResolver.create(mode, profiles, extraLessons, selectionGroups, states) }.getOrNull()
+            val electiveSchedule = runCatching { SktjfElectiveSchedule.create(mode,profiles,selectionGroups,extraLessons,states) }.getOrNull()
             val lessons = dao.getLessonsOnce()
             val timedSchedule = SktjfTimedSchedule.create(mode, profiles, states, lessons, extraLessons)
             return EffectiveSchoolSchedule(settings, dao.getEffectiveDayTypes().associateBy { it.date },
                 lessons, dao.getChangedLessonsOnce().associateBy { it.date to it.slotIndex },
                 dao.getCancelledLessonsOnce().map { it.date to it.slotIndex }.toSet(),
-                dao.getExamDaySchedulesOnce().associateBy { it.date }, dao.getExamLessonsOnce().groupBy { it.date }, origins, mode, extraResolver, timedSchedule)
+                dao.getExamDaySchedulesOnce().associateBy { it.date }, dao.getExamLessonsOnce().groupBy { it.date }, origins, mode, extraResolver, timedSchedule, electiveSchedule)
         }
     }
 }

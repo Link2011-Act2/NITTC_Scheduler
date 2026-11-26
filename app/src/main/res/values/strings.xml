@@ -1334,4 +1334,12 @@
     <string name="settings_open_failed">設定を開けませんでした</string>
     <string name="goldy_update_view">更新内容を確認</string>
     <string name="goldy_update_loading">更新情報を読み込み中…</string>
+    <string name="sktjf_elective_title">受講する授業</string>
+    <string name="sktjf_elective_unknown">わからない</string>
+    <string name="sktjf_elective_missing">選択した授業が見つかりません。選び直してください。</string>
+    <string name="sktjf_elective_save_failed">選択を保存できませんでした</string>
+    <string name="sktjf_elective_slot">%1$s・%2$s・%3$s曜日 %4$d限</string>
+    <string name="sktjf_elective_confirm">選択を確定</string>
+    <string name="sktjf_elective_acknowledge">確認</string>
+    <string name="sktjf_elective_removed">選択していた授業が配信から削除されました。時間割を確認してください。</string>
 </resources>

@@ -57,7 +57,11 @@ internal object SktjfV2CandidateJson {
     /** For local inspection only; a candidate with incomplete evidence is not applyable. */
     fun inspect(bytes: ByteArray): SktjfV2Candidate = parseInternal(bytes, allowUnconfirmed = true)
 
-    private fun parseInternal(bytes: ByteArray, allowUnconfirmed: Boolean): SktjfV2Candidate {
+    /** v3 verifies the explicit group membership after parsing the common timetable. */
+    fun parseForV3(bytes: ByteArray, selectionGroups: List<Set<String>>): SktjfV2Candidate =
+        parseInternal(bytes, allowUnconfirmed = false, selectionGroups = selectionGroups)
+
+    private fun parseInternal(bytes: ByteArray, allowUnconfirmed: Boolean, selectionGroups: List<Set<String>> = emptyList()): SktjfV2Candidate {
         val root = strictSktjfObject(bytes, 4 * 1024 * 1024)
         root.fields(setOf("format", "schemaVersion", "schoolId", "academicYear", "term", "classId", "revision", "sources", "periods", "slotCoverage", "lessons", "calendar"), setOf("weekCalendar", "weekSeries"))
         require(root.integer("schemaVersion", 2..2) == 2)
@@ -187,6 +191,7 @@ internal object SktjfV2CandidateJson {
             }
         }
         for ((index, a) in document.lessons.withIndex()) for (b in document.lessons.drop(index + 1)) {
+            if (selectionGroups.any { a.id in it && b.id in it }) continue
             if (a.id !in ranges && b.id !in ranges) continue
             if (a.dayOfWeek != b.dayOfWeek || a.period != b.period) continue
             if (a.conditions.all.any { it in b.conditions.none } || b.conditions.all.any { it in a.conditions.none }) continue

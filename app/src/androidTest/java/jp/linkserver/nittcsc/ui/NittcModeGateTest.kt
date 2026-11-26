@@ -1,6 +1,7 @@
 package jp.linkserver.nittcsc.ui
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -8,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.lifecycle.ViewModelStore
 import androidx.room.Room
+import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
 import android.content.Context
 import jp.linkserver.nittcsc.data.*
@@ -27,6 +29,7 @@ class NittcModeGateTest {
         val repository = SchedulerRepository(db, UiDesignPreferences(context))
         val store = ViewModelStore()
         val today = LocalDate.now()
+        val visible = mutableStateOf(true)
         try {
             runBlocking {
                 repository.initialize(today)
@@ -34,7 +37,7 @@ class NittcModeGateTest {
             }
             lateinit var model: SchedulerViewModel
             compose.runOnIdle { model = SchedulerViewModel(repository); store.put("mode-gate", model) }
-            compose.setContent { MaterialTheme { NittcSchedulerApp(model) } }
+            compose.setContent { MaterialTheme { if (visible.value) NittcSchedulerApp(model) } }
             compose.waitUntil(15_000) { compose.onAllNodesWithText("学校と所属").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("保存").assertIsNotEnabled()
             compose.onNodeWithText("キャンセル").assertDoesNotExist()
@@ -44,7 +47,10 @@ class NittcModeGateTest {
             compose.waitUntil(15_000) { runBlocking { db.schedulerDao().getUsageMode()?.mode == "GENERIC" } }
             runBlocking { assertEquals("課題", db.schedulerDao().getTaskById(42)?.title) }
         } finally {
+            compose.runOnIdle { visible.value = false }
+            compose.waitForIdle()
             compose.runOnIdle { store.clear() }
+            runBlocking { db.withTransaction { } }
             db.close()
         }
     }

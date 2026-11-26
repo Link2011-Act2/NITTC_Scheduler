@@ -49,6 +49,7 @@ internal fun planSchoolVacations(
         SchoolVacationChange(previous, SchoolVacationEntity(period.id, revision, sources, dates, dates),
             days.filter {
                 period.covers(it.date) && (it.dayType == DayType.B || it.overrideLessonDayOfWeek != null ||
+                    it.overrideLessonDayType == DayType.A || it.overrideLessonDayType == DayType.B ||
                     (it.dayType == DayType.A && it.date in distributedTeachingDays)) &&
                     (previous?.local?.let { applied -> it.date in applied.start..applied.confirmedThrough } != true)
             }.map { it.date })

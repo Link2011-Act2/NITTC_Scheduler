@@ -22,6 +22,8 @@ internal fun prepareSktjfV2Merge(
     days: List<DayTypeEntity>,
     state: SktjfSourceStateEntity?,
     extras: List<SktjfExtraLessonEntity> = emptyList(),
+    selectionGroups: List<SktjfSelectionGroup> = emptyList(),
+    previousSelectionIds: Set<String> = emptySet(),
 ): SktjfV2MergePreparation {
     if (!candidate.weekEvidenceComplete) return SktjfV2MergePreparation.Blocked
     val selected = candidate.forProfile(attributes)
@@ -29,10 +31,16 @@ internal fun prepareSktjfV2Merge(
     // A time switch is not a personal course choice. Other overlapping courses
     // must be resolved by the caller before entering the timed merge path.
     if (sktjfProfileSlotOptions(document, emptySet()).any { slot ->
-            selected.series.none { group -> group.dayOfWeek == slot.day && slot.period in group.periods &&
-                slot.lessons.all { it.id in group.lessonIds } && slot.lessons.any { it.id in selected.ranges } }
+            slot.lessons.withIndex().any { (index, a) -> slot.lessons.drop(index + 1).any { b ->
+                val sameCycle = a.cycle == SktjfCycle.WEEKLY || b.cycle == SktjfCycle.WEEKLY || a.cycle == b.cycle
+                val elective = selectionGroups.any { it.dayOfWeek == slot.day && it.period == slot.period && a.id in it.lessonIds && b.id in it.lessonIds }
+                val timed = selected.series.any { it.dayOfWeek == slot.day && slot.period in it.periods &&
+                    a.id in it.lessonIds && b.id in it.lessonIds && (a.id in selected.ranges || b.id in selected.ranges) }
+                sameCycle && !elective && !timed
+            } }
         }) return SktjfV2MergePreparation.Blocked
-    val lessons = prepareSktjfLessonMerge(document, rows, state, extras, allowTimed = true) as? SktjfLessonPreparation.Ready
+    val independentIds = previousSelectionIds + selectionGroups.flatMap { it.lessonIds }
+    val lessons = prepareSktjfLessonMerge(document, rows, state, extras, allowTimed = true, independentSourceIds = independentIds) as? SktjfLessonPreparation.Ready
         ?: return SktjfV2MergePreparation.Blocked
     val calendar = prepareSktjfCalendarMerge(document, days, state) as? SktjfCalendarPreparation.Ready
         ?: return SktjfV2MergePreparation.Blocked

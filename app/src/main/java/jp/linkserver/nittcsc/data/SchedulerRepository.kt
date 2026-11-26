@@ -32,6 +32,7 @@ import jp.linkserver.nittcsc.sktjf.SktjfWeekSelection
 import jp.linkserver.nittcsc.sktjf.SktjfCycle
 import jp.linkserver.nittcsc.sktjf.resolvedLesson
 import jp.linkserver.nittcsc.sktjf.editSktjfExtraLesson as editSktjfExtraLessonContent
+import jp.linkserver.nittcsc.sktjf.selectedLesson
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -106,6 +107,7 @@ class SchedulerRepository(
     val nittcProfilesFlow: Flow<List<NittcProfileEntity>> = dao.observeNittcProfiles()
     val nittcYearTransitionsFlow: Flow<List<NittcYearTransitionEntity>> = dao.observeNittcYearTransitions()
     val sktjfExtraLessonsFlow: Flow<List<SktjfExtraLessonEntity>> = dao.observeSktjfExtraLessons()
+    val sktjfSelectionGroupsFlow: Flow<List<SktjfSelectionGroupEntity>> = dao.observeSktjfSelectionGroups()
     val sktjfSourceStatesFlow: Flow<List<SktjfSourceStateEntity>> = dao.observeSktjfSourceStates()
 
     suspend fun setUsageMode(mode: SchedulerUsageMode) = db.withTransaction {
@@ -164,6 +166,10 @@ class SchedulerRepository(
     internal suspend fun previewTimedSktjf(candidate: jp.linkserver.nittcsc.sktjf.SktjfV2Candidate): jp.linkserver.nittcsc.sktjf.SktjfV2ApplyPreview? =
         jp.linkserver.nittcsc.sktjf.SktjfApplyCoordinator(db, this).previewV2(candidate)
 
+    internal suspend fun previewSelectionSktjf(candidate: jp.linkserver.nittcsc.sktjf.SktjfV3Candidate,
+        choices: Map<String,String?> = emptyMap()): jp.linkserver.nittcsc.sktjf.SktjfV2ApplyPreview? =
+        jp.linkserver.nittcsc.sktjf.SktjfApplyCoordinator(db, this).previewV3(candidate, choices)
+
     internal suspend fun sktjfUpdateSnapshot(): jp.linkserver.nittcsc.sktjf.SktjfUpdateSnapshot = db.withTransaction {
         val mode = dao.getUsageMode()?.mode?.let { value -> SchedulerUsageMode.entries.firstOrNull { it.name == value } }
         jp.linkserver.nittcsc.sktjf.SktjfUpdateSnapshot(mode, dao.getNittcProfilesOnce(), dao.getSktjfSourceStates(), dao.getNittcYearTransitions())
@@ -175,6 +181,32 @@ class SchedulerRepository(
         jp.linkserver.nittcsc.sktjf.SktjfApplyCoordinator(db, this).let { coordinator ->
             preview.timed?.let { coordinator.applyV2(it, lessons, days) } ?: coordinator.apply(preview, lessons, days)
         }
+
+    internal suspend fun selectSktjfCourse(expected: SktjfSelectionGroupEntity, selectedLessonId: String?): Boolean = db.withTransaction {
+        val current = dao.getSktjfSelectionGroups().singleOrNull {
+            it.academicYear == expected.academicYear && it.term == expected.term && it.classId == expected.classId && it.groupId == expected.groupId
+        } ?: return@withTransaction false
+        if (current != expected || dao.getUsageMode()?.mode != SchedulerUsageMode.NITTC.name) return@withTransaction false
+        val profile = dao.getNittcProfilesOnce().singleOrNull { it.academicYear == current.academicYear && it.classId == current.classId }
+            ?: return@withTransaction false
+        if (selectedLessonId != null) {
+            val ids = org.json.JSONArray(current.lessonIdsJson)
+            if ((0 until ids.length()).none { ids.getString(it) == selectedLessonId }) return@withTransaction false
+            val matching = dao.getSktjfExtraLessons().filter { it.academicYear == current.academicYear && it.term == current.term &&
+                it.classId == current.classId && it.sourceLessonId == selectedLessonId }
+            val content = matching.singleOrNull()?.let { jp.linkserver.nittcsc.sktjf.SktjfBaselineCodec.decode(it.contentJson).lessons.lessons[it.id] }
+                ?: return@withTransaction false
+            if (!content.conditions.matches(profile.attributes())) return@withTransaction false
+        }
+        val updated = current.copy(selectedLessonId = selectedLessonId)
+        if (runCatching { SktjfSelectionGroupBackup.validate(updated) }.isFailure) return@withTransaction false
+        if (updated != current) {
+            dao.upsertSktjfSelectionGroups(listOf(updated))
+            val term = if (current.term == "S") TimetableTerm.FIRST else TimetableTerm.SECOND
+            touchSyncDatasetMeta(LessonSyncPartition(current.academicYear, term).datasetKey)
+        }
+        true
+    }
 
     internal suspend fun editSktjfExtraLesson(expected: SktjfVisibleExtra, draft: SktjfExtraLessonDraft): Boolean = db.withTransaction {
         val current = dao.getSktjfExtraLesson(expected.id) ?: return@withTransaction false
@@ -1073,8 +1105,11 @@ class SchedulerRepository(
         val profiles = dao.getNittcProfilesOnce()
         val extraLessons = dao.getSktjfExtraLessons()
         val storedLessons = dao.getLessonsOnce()
-        val extraResolver = jp.linkserver.nittcsc.sktjf.SktjfExtraLessonResolver.create(mode, profiles, extraLessons)
-        val timedSchedule = SktjfTimedSchedule.create(mode, profiles, dao.getSktjfSourceStates(), storedLessons, extraLessons)
+        val selectionGroups = dao.getSktjfSelectionGroups()
+        val sources = dao.getSktjfSourceStates()
+        val extraResolver = jp.linkserver.nittcsc.sktjf.SktjfExtraLessonResolver.create(mode, profiles, extraLessons, selectionGroups, sources)
+        val electiveSchedule = jp.linkserver.nittcsc.sktjf.SktjfElectiveSchedule.create(mode, profiles, selectionGroups, extraLessons, sources)
+        val timedSchedule = SktjfTimedSchedule.create(mode, profiles, sources, storedLessons, extraLessons)
         val dayTypeMap = dao.getEffectiveDayTypes().associateBy { it.date }
         val lessons = storedLessons.map { it.forTimetable(settings.enableAbTimetable) }
             .associateBy { it.lessonKey() }
@@ -1154,10 +1189,14 @@ class SchedulerRepository(
                     ]
                     val cycle = if (lessonDayType == DayType.B) SktjfCycle.B else SktjfCycle.A
                     val timed = timedSchedule.resolve(academicYearForDate(date), timetableTerm, dayKey, slot.index + 1, date, cycle)
-                    if (lesson == null && timed is SktjfTimedSlotResult.Unmanaged) continue
-                    val base = when (timed) {
+                    val timedBase = when (timed) {
                         SktjfTimedSlotResult.Unmanaged -> lesson?.let { resolveLesson(lessonDayType, it) }
                         is SktjfTimedSlotResult.Managed -> (timed.selection as? SktjfWeekSelection.Selected)?.value?.resolvedLesson()
+                    }
+                    val base = when (val elective = electiveSchedule.resolve(academicYearForDate(date), timetableTerm, dayKey, slot.index + 1, date, cycle)) {
+                        jp.linkserver.nittcsc.sktjf.SktjfElectiveSlotResult.Unmanaged -> timedBase
+                        jp.linkserver.nittcsc.sktjf.SktjfElectiveSlotResult.Unconfirmed -> null
+                        is jp.linkserver.nittcsc.sktjf.SktjfElectiveSlotResult.Managed -> elective.selectedLesson()
                     }
                     val resolved = applyChangedLesson(base, dao.getChangedLesson(date, slot.index)) ?: continue
                     if (resolved.subject.isBlank()) continue

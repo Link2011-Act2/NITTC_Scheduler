@@ -24,7 +24,7 @@ data class SchoolVacationEntity(
 
 // Keep the underlying calendar rows intact so shortening a vacation restores A/B information.
 private fun vacationDay(date: LocalDate, existing: DayTypeEntity?): DayTypeEntity {
-    if (existing?.overrideLessonDayOfWeek != null || existing?.holidaySpecialLabel != null) return existing
+    if (existing?.overrideLessonDayOfWeek != null || existing?.overrideLessonDayType != null || existing?.holidaySpecialLabel != null) return existing
     return existing?.copy(dayType = DayType.HOLIDAY) ?: DayTypeEntity(date, DayType.HOLIDAY)
 }
 
