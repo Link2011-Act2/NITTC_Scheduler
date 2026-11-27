@@ -73,6 +73,9 @@ interface SchedulerDao {
     @Query("DELETE FROM sktjf_source_state")
     suspend fun deleteAllSktjfSourceStates()
 
+    @Query("DELETE FROM sktjf_source_state WHERE academicYear = :year AND term = :term AND classId != :classId")
+    suspend fun deleteOtherSktjfSourceStates(year: Int, term: String, classId: String)
+
     @Query("UPDATE sktjf_source_state SET requiresRelinking = 1")
     suspend fun requireSktjfRelinking()
 

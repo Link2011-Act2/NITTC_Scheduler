@@ -115,7 +115,10 @@ internal fun SktjfMergeScreen(
                                             val representative = slot.firstOrNull { it.status == status } ?: slot.firstOrNull()
                                             if (representative != null) {
                                                 Text(stringResource(chosenStatus(representative)), style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                                                val chosen = slot.flatMap { item ->
+                                                val chosen = if (preview.timed?.classSwitch == true &&
+                                                    slot.any { it.incoming != null } && slot.any { selectedIncoming(it) }) {
+                                                    slot.mapNotNull { it.incoming }.distinct()
+                                                } else slot.flatMap { item ->
                                                     if (selectedIncoming(item)) listOfNotNull(item.incoming) else {
                                                         val overlap = preview.lessonConflicts.firstOrNull { it.sourceLessonId == item.sourceLessonId }
                                                             ?.overlappingLocal.orEmpty().map { it.content }
@@ -136,18 +139,7 @@ internal fun SktjfMergeScreen(
                     }
                     if (preview.calendarConflicts.isNotEmpty()) {
                         Text(stringResource(R.string.sktjf_merge_dates), style = MaterialTheme.typography.titleMedium)
-                        preview.calendarConflicts.forEach { conflict ->
-                            Text(conflict.date.toString(), style = MaterialTheme.typography.labelLarge)
-                            Text(stringResource(R.string.sktjf_current_value, calendarDetails(resources, conflict.current)))
-                            Text(stringResource(R.string.sktjf_incoming_value, calendarDetails(resources, conflict.incoming)))
-                            ChoiceRow(R.string.sktjf_keep_current, calendarChoices[conflict.date] != SktjfConflictChoice.APPLY_INCOMING, !pending) {
-                                calendarChoices[conflict.date] = SktjfConflictChoice.KEEP_LOCAL
-                            }
-                            ChoiceRow(R.string.sktjf_apply_incoming, calendarChoices[conflict.date] == SktjfConflictChoice.APPLY_INCOMING,
-                                !pending && conflict.projection is SktjfCalendarProjection.Supported) {
-                                calendarChoices[conflict.date] = SktjfConflictChoice.APPLY_INCOMING
-                            }
-                        }
+                        SktjfCalendarReview(preview, calendarChoices, pending)
                     }
                 }
                 if (error != 0) Text(stringResource(error), color = MaterialTheme.colorScheme.error)

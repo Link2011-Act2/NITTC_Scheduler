@@ -3893,8 +3893,7 @@ internal fun OutputScreen(
                                 "${stringResource(dayOfWeekRes(selectedDate.dayOfWeek))} / ${
                                     selectedExamName ?: dayTypeDisplayText(
                                         dayType, selectedDayTypeEntity?.overrideLessonDayOfWeek,
-                                        selectedDayTypeEntity?.holidaySpecialLabel,
-                                        selectedDayTypeEntity?.schoolEventName
+                                        selectedDayTypeEntity?.holidaySpecialLabel
                                     )
                                 }"
                             } else null,
@@ -5332,9 +5331,10 @@ private fun CalendarPagerCard(
 }
 
 @Composable
-private fun CalendarMonthGrid(
+internal fun CalendarMonthGrid(
     month: YearMonth,
     firstDayOfWeek: DayOfWeek,
+    fixedWeeks: Boolean = true,
     dayContent: @Composable (date: LocalDate, modifier: Modifier) -> Unit
 ) {
     val monthCells = remember(month, firstDayOfWeek) {
@@ -5349,7 +5349,7 @@ private fun CalendarMonthGrid(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        repeat(6) { weekIndex ->
+        repeat(if (fixedWeeks) 6 else (monthCells.indexOfLast { it != null } / 7) + 1) { weekIndex ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -7186,8 +7186,7 @@ private fun WeekScheduleTable(
                                 text = examName ?: dayTypeDisplayText(
                                     dayType,
                                     dayTypeEntity?.overrideLessonDayOfWeek,
-                                    dayTypeEntity?.holidaySpecialLabel,
-                                    dayTypeEntity?.schoolEventName
+                                    dayTypeEntity?.holidaySpecialLabel
                                 ),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -8477,8 +8476,7 @@ internal fun LessonOverrideDialog(
 internal fun dayTypeDisplayText(
     dayType: DayType,
     overrideLessonDayOfWeek: Int?,
-    holidaySpecialLabel: HolidaySpecialLabel? = null,
-    schoolEventName: String? = null
+    holidaySpecialLabel: HolidaySpecialLabel? = null
 ): String {
     val baseLabel = if (dayType == DayType.HOLIDAY && holidaySpecialLabel != null) {
         stringResource(holidaySpecialLabel.textResources().short)
@@ -8487,9 +8485,8 @@ internal fun dayTypeDisplayText(
     } else {
         stringResource(dayTypeRes(dayType))
     }
-    val dayLabel = if (overrideLessonDayOfWeek == null || dayType == DayType.HOLIDAY) baseLabel
+    return if (overrideLessonDayOfWeek == null || dayType == DayType.HOLIDAY) baseLabel
         else "$baseLabel(${stringResource(dayOfWeekRes(DayOfWeek.of(overrideLessonDayOfWeek)))})"
-    return if (schoolEventName.isNullOrBlank()) dayLabel else "$dayLabel / $schoolEventName"
 }
 
 @Composable

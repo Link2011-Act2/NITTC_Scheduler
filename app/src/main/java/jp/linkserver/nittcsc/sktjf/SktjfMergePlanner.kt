@@ -15,7 +15,7 @@ internal fun SktjfLesson.content() = SktjfLessonContent(
 )
 private fun SktjfLessonContent.detached() = copy(teachers = teachers.toList(), rooms = rooms.toList(),
     conditions = SktjfConditions(conditions.all.toSet(), conditions.none.toSet()))
-private fun equivalentLessonContent(left: SktjfLessonContent?, right: SktjfLessonContent?): Boolean = when {
+internal fun equivalentLessonContent(left: SktjfLessonContent?, right: SktjfLessonContent?): Boolean = when {
     left == null || right == null -> left == right
     else -> left.copy(subject = normalizeSubjectRomanNumerals(left.subject)) ==
         right.copy(subject = normalizeSubjectRomanNumerals(right.subject))
@@ -57,10 +57,12 @@ internal class SktjfLessonMergePlan private constructor(
     val conflicts: List<SktjfLessonConflict>,
     val reviewItems: List<SktjfLessonReview>,
     private val nextBaseline: SktjfBaseline,
-    private val removedBaseline: Map<String, SktjfLessonContent>
+    private val removedBaseline: Map<String, SktjfLessonContent>,
+    private val classSwitchSlots: List<SktjfClassSwitchSlot>? = null,
 ) {
     /** Every conflict needs an explicit choice; replacement retains the existing row identity. */
     fun resolve(choices: Map<String, SktjfConflictChoice>, selectionGroups: List<SktjfSelectionGroup> = emptyList()): SktjfResolvedLessonMerge {
+        classSwitchSlots?.let { return resolveSktjfClassSwitch(it, choices, nextBaseline) }
         val conflictIds = conflicts.map { it.sourceLessonId }.toSet()
         val changeIds = changes.map { it.sourceId }.toSet()
         require(choices.keys.containsAll(conflictIds) && choices.keys.all { it in conflictIds || it in changeIds })
@@ -177,6 +179,10 @@ internal class SktjfLessonMergePlan private constructor(
     }
 
     companion object {
+        fun forClassSwitch(slots: List<SktjfClassSwitchSlot>, baseline: SktjfBaseline): SktjfLessonMergePlan =
+            SktjfLessonMergePlan(emptyList(), emptyList(), slots.flatMap { it.conflicts }, slots.flatMap { it.review },
+                baseline, emptyMap(), slots)
+
         fun create(previous: SktjfBaseline?, current: SktjfLocalTimetable, incoming: SktjfDocument,
             independentSourceIds: Set<String> = emptySet()): SktjfLessonMergePlan {
             require(previous == null || (previous.academicYear == incoming.academicYear && previous.term == incoming.term && previous.classId == incoming.classId))

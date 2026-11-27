@@ -1,13 +1,18 @@
 package jp.linkserver.nittcsc.ui
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.Column
 import androidx.test.core.app.ApplicationProvider
 import android.content.Context
 import androidx.room.Room
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.runtime.mutableStateMapOf
+import jp.linkserver.nittcsc.R
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
@@ -29,6 +34,38 @@ class SktjfImportDialogTest {
     private fun existingRow() = LessonEntity(id = 1, academicYear = 2026, timetableTerm = TimetableTerm.FIRST,
         dayOfWeek = 1, slotIndex = 0, mode = LessonMode.WEEKLY, weeklySubject = "物理", weeklyTeacher = "",
         aSubject = "", aTeacher = "", bSubject = "", bTeacher = "")
+
+    @Test fun calendarReviewShowsBothValuesAndKeepsChoicesAcrossMonths() {
+        val resources = ApplicationProvider.getApplicationContext<Context>().resources
+        val first = LocalDate.of(2026, 10, 7)
+        val second = first.plusMonths(1)
+        val before = SktjfCalendarContent(SktjfDayType.A, null, null, null)
+        val after = SktjfCalendarContent(SktjfDayType.HOLIDAY, null, null,
+            SktjfEvent("工場見学", SktjfEventKind.EXCURSION))
+        fun conflict(date: LocalDate) = SktjfCalendarConflict(date, null, before, after,
+            SktjfCalendarConflictReason.BOTH_CHANGED, projectSktjfCalendarDay(
+                SktjfCalendarDay(date, after.dayType, null, null, after.event, emptyList())))
+        val document = SktjfDocument(2026, "F", first, second, "1-4", "2026.F.1",
+            emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
+        val snapshot = SktjfApplySnapshot(null, null, emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
+        val preview = SktjfApplyPreview(document, snapshot, emptyList(), listOf(conflict(first), conflict(second)),
+            calendarDays = mapOf(first.minusDays(1) to before))
+        val choices = mutableStateMapOf<LocalDate, SktjfConflictChoice>()
+        compose.setContent { MaterialTheme { Column { SktjfCalendarReview(preview, choices, pending = false) } } }
+        compose.onNodeWithTag("sktjf-date-${first.minusDays(1)}").assertExists()
+        compose.onNodeWithTag("sktjf-date-$first").performClick()
+        compose.onNodeWithText(resources.getString(R.string.sktjf_incoming_value, calendarDetails(resources, after))).assertExists()
+        compose.onNodeWithText(resources.getString(R.string.sktjf_merge_chosen_incoming)).performClick()
+        compose.onNodeWithText(resources.getString(R.string.sktjf_merge_close)).performClick()
+        compose.onNodeWithTag("sktjf-date-$first").assertIsSelected()
+        compose.onNodeWithContentDescription(resources.getString(R.string.cd_next_month)).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("sktjf-date-$second").assertExists()
+        compose.onNodeWithContentDescription(resources.getString(R.string.cd_previous_month)).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("sktjf-date-$first").assertIsSelected()
+        assertEquals(mapOf(first to SktjfConflictChoice.APPLY_INCOMING), choices)
+    }
 
     @Test fun mergeDetailsShowOpportunityRange() {
         val resources = ApplicationProvider.getApplicationContext<Context>().resources

@@ -118,8 +118,10 @@ internal fun draftSktjfTimedStorage(
             if (group == null && !datedSelection) return null
             if (group != null && group.countingPolicy == null && candidate.weeks.isEmpty()) return null
         }
-        if (lessons.any { it.content.conditions.all.isNotEmpty() || it.content.conditions.none.isNotEmpty() ||
-                it.content.teachers.size > 1 || it.content.rooms.size > 1 }) return null
+        if (lessons.any {
+                it.content.conditions.all.isNotEmpty() || it.content.conditions.none.isNotEmpty() ||
+                    (it.localKey?.startsWith("extra:") != true && (it.content.teachers.size > 1 || it.content.rooms.size > 1))
+            }) return null
         if (lessons.any { it.content.cycle == SktjfCycle.WEEKLY } && lessons.any { it.content.cycle != SktjfCycle.WEEKLY }) return null
         val anchors = mutableSetOf<SktjfMergedLesson>()
         for (cycleItems in lessons.groupBy { it.content.cycle }.values) {

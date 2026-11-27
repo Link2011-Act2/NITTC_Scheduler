@@ -16,9 +16,12 @@ internal class SktjfNotificationOrigins private constructor(private val origins:
         fun create(mode: SchedulerUsageMode?, profiles: List<NittcProfileEntity>, states: List<SktjfSourceStateEntity>): SktjfNotificationOrigins {
             if (mode != SchedulerUsageMode.NITTC) return SktjfNotificationOrigins(emptyMap())
             val classes = profiles.associate { it.academicYear to it.classId }
+            val installed = installedSktjfSources(states)
             val result = mutableMapOf<OriginSlot, SktjfLessonOrigin>()
             for (state in states) {
-                if (state.requiresRelinking || classes[state.academicYear] != state.classId) continue
+                val profileClass = classes[state.academicYear] ?: continue
+                val activeClass = installed[state.academicYear to state.term]?.classId ?: profileClass
+                if (state.requiresRelinking || activeClass != state.classId) continue
                 // Unusable provenance must never suppress a user's manual notification.
                 runCatching {
                     SktjfSourceStateBackup.validate(state)

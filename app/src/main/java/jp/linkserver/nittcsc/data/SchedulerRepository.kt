@@ -33,6 +33,7 @@ import jp.linkserver.nittcsc.sktjf.SktjfCycle
 import jp.linkserver.nittcsc.sktjf.resolvedLesson
 import jp.linkserver.nittcsc.sktjf.editSktjfExtraLesson as editSktjfExtraLessonContent
 import jp.linkserver.nittcsc.sktjf.selectedLesson
+import jp.linkserver.nittcsc.sktjf.installedSktjfSources
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -179,7 +180,8 @@ class SchedulerRepository(
         lessons: Map<String, jp.linkserver.nittcsc.sktjf.SktjfConflictChoice>,
         days: Map<LocalDate, jp.linkserver.nittcsc.sktjf.SktjfConflictChoice>): jp.linkserver.nittcsc.sktjf.SktjfApplyResult =
         jp.linkserver.nittcsc.sktjf.SktjfApplyCoordinator(db, this).let { coordinator ->
-            preview.timed?.let { coordinator.applyV2(it, lessons, days) } ?: coordinator.apply(preview, lessons, days)
+            preview.timed?.let { coordinator.applyV2(it.copy(localFile = preview.localFile), lessons, days) }
+                ?: coordinator.apply(preview, lessons, days)
         }
 
     internal suspend fun selectSktjfCourse(expected: SktjfSelectionGroupEntity, selectedLessonId: String?): Boolean = db.withTransaction {
@@ -187,8 +189,10 @@ class SchedulerRepository(
             it.academicYear == expected.academicYear && it.term == expected.term && it.classId == expected.classId && it.groupId == expected.groupId
         } ?: return@withTransaction false
         if (current != expected || dao.getUsageMode()?.mode != SchedulerUsageMode.NITTC.name) return@withTransaction false
-        val profile = dao.getNittcProfilesOnce().singleOrNull { it.academicYear == current.academicYear && it.classId == current.classId }
+        val profile = dao.getNittcProfilesOnce().singleOrNull { it.academicYear == current.academicYear }
             ?: return@withTransaction false
+        val activeClass = installedSktjfSources(dao.getSktjfSourceStates())[current.academicYear to current.term]?.classId ?: profile.classId
+        if (activeClass != current.classId) return@withTransaction false
         if (selectedLessonId != null) {
             val ids = org.json.JSONArray(current.lessonIdsJson)
             if ((0 until ids.length()).none { ids.getString(it) == selectedLessonId }) return@withTransaction false
@@ -211,8 +215,9 @@ class SchedulerRepository(
     internal suspend fun editSktjfExtraLesson(expected: SktjfVisibleExtra, draft: SktjfExtraLessonDraft): Boolean = db.withTransaction {
         val current = dao.getSktjfExtraLesson(expected.id) ?: return@withTransaction false
         val profile = dao.getNittcProfilesOnce().singleOrNull { it.academicYear == current.academicYear } ?: return@withTransaction false
+        val activeClass = installedSktjfSources(dao.getSktjfSourceStates())[current.academicYear to current.term]?.classId ?: profile.classId
         if (dao.getUsageMode()?.mode != SchedulerUsageMode.NITTC.name ||
-            profile.classId != current.classId ||
+            activeClass != current.classId ||
             current.contentJson != expected.storedContentJson || current.sourceLessonId != expected.sourceLessonId) return@withTransaction false
         if (!runCatching { profile.validateProfile(); expected.content.conditions.matches(profile.attributes()) }.getOrDefault(false)) return@withTransaction false
         val updated = editSktjfExtraLessonContent(current, draft)

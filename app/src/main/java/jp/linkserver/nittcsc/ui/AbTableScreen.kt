@@ -46,10 +46,12 @@ import java.time.temporal.TemporalAdjusters
 
 private val abDateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy/MM/dd")
 
-private data class DayTypeVisual(
+internal data class DayTypeVisual(
     val container: Color,
     val content: Color
 )
+
+internal val AbDayCellShape = RoundedCornerShape(10.dp)
 
 @Composable
 internal fun AbTableScreen(
@@ -672,12 +674,12 @@ internal fun WeekRow(
                         .onGloballyPositioned { onUpdateDayBounds(date, it.boundsInRoot()) }
                         .then(
                             if (previewActive) {
-                                Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(10.dp))
+                                Modifier.border(2.dp, MaterialTheme.colorScheme.primary, AbDayCellShape)
                             } else {
                                 Modifier
                             }
                         )
-                        .background(visual.container, RoundedCornerShape(10.dp))
+                        .background(visual.container, AbDayCellShape)
                         .combinedClickable(
                             onClick = { onSaveDayTypes(listOf(date), nextDayType(dayTypeForDate(date), abEnabled)) },
                             onLongClick = { onOpenLessonOverride(date) }
@@ -814,7 +816,7 @@ private fun buildWeekRows(startDate: LocalDate, endDate: LocalDate): List<WeekRo
 }
 
 @Composable
-private fun dayTypeVisual(dayType: DayType): DayTypeVisual {
+internal fun dayTypeVisual(dayType: DayType): DayTypeVisual {
     val colorScheme = MaterialTheme.colorScheme
     return when (dayType) {
         DayType.A -> DayTypeVisual(colorScheme.tertiaryContainer, colorScheme.onTertiaryContainer)

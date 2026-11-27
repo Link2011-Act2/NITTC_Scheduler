@@ -139,6 +139,113 @@ class SktjfApplyCoordinatorTest {
         }
     }
 
+    @Test fun publishedFallBetaCanSwitchClassesInBothDirections() = runBlocking {
+        val name = InstrumentationRegistry.getArguments().getString("sktjfCandidateBundle")
+        assumeNotNull(name)
+        require(name != null && Regex("^[a-zA-Z0-9._-]+$").matches(name))
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val bundle = JSONObject(File(context.filesDir, name).readText(Charsets.UTF_8)).getJSONObject("F")
+        val manifest = SktjfV2DistributionJson.manifest(
+            bundle.getString("manifest").toByteArray(Charsets.UTF_8), SKTJF_DISTRIBUTION_REPOSITORY)
+        assertEquals("2026.F.1.Beta", manifest.common.revision)
+        val assets = listOf("4M", "3I", "1-4").associateWith { classId ->
+            val asset = manifest.common.assets.single { it.classId == classId }
+            val bytes = bundle.getJSONObject("assets").getString(asset.name).toByteArray(Charsets.UTF_8)
+            when (val parsed = SktjfV2DistributionJson.verifiedDocument(bytes, manifest, asset)) {
+                is SktjfCandidateAsset.V1 -> SktjfFetchResult.Success(manifest.common, parsed.document)
+                is SktjfCandidateAsset.V2 -> SktjfFetchResult.Success(manifest.common, parsed.candidate.document,
+                    parsed.candidate, SktjfLegacySelectionCatalog.adapt(bytes, parsed.candidate))
+                is SktjfCandidateAsset.V3 -> error("Version 3 is not valid in a version 2 manifest")
+            }
+        }
+        assertEquals(assets.getValue("3I").document.calendar.map { it.date to it.content() },
+            assets.getValue("1-4").document.calendar.map { it.date to it.content() })
+        val initial = assets.getValue("4M").document
+        val calendarConflicts = mutableListOf<List<Pair<LocalDate, SktjfCalendarContent>>>()
+        for (destination in listOf("3I", "1-4")) {
+            val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+            val restoredDb = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+            try {
+                val dao = db.schedulerDao()
+                dao.upsertSettings(SettingsEntity(termStart = initial.start, termEnd = initial.end,
+                    enableSemesterTimetables = true))
+                dao.upsertUsageMode(UsageModeEntity(mode = "NITTC"))
+                val repo = SchedulerRepository(db, UiDesignPreferences(context))
+                fun profile(classId: String, dd: Boolean = false, international: Boolean = false) =
+                    NittcProfileEntity(2026, "UNDERGRADUATE", classId.first().digitToInt(), classId, dd, international)
+                suspend fun prepare(repository: SchedulerRepository, classId: String): SktjfApplyPreview {
+                    val asset = assets.getValue(classId)
+                    val preview = when {
+                        asset.selections != null -> repository.previewSelectionSktjf(asset.selections)?.forReview()
+                        asset.timed != null -> repository.previewTimedSktjf(asset.timed)?.forReview()
+                        else -> (repository.previewSktjf(asset.document) as? SktjfPreviewResult.Ready)?.preview
+                    }
+                    return requireNotNull(preview) { "Cannot review $classId" }
+                }
+                suspend fun apply(repository: SchedulerRepository, preview: SktjfApplyPreview) {
+                    val lessons = jp.linkserver.nittcsc.ui.initialSktjfLessonChoices(preview, false)
+                    val dates = preview.calendarConflicts.associate { it.date to SktjfConflictChoice.KEEP_LOCAL }
+                    assertEquals("Cannot apply ${preview.document.classId}", SktjfApplyResult.Applied,
+                        repository.applySktjf(preview, lessons, dates))
+                }
+                dao.upsertNittcProfiles(listOf(profile("4M")))
+                apply(repo, prepare(repo, "4M"))
+                val rows = dao.getLessonsOnce()
+                val extras = dao.getSktjfExtraLessons()
+                val regular = rows.first { it.weeklySubject.isNotEmpty() && it.dayOfWeek == 1 && it.slotIndex == 0 }
+                dao.upsertTask(TaskEntity(lessonId = regular.id, subject = regular.weeklySubject,
+                    title = "Task from 4M", dueDate = initial.start, createdDate = initial.start))
+                dao.upsertPlan(PlanEntity(lessonId = regular.id, subject = regular.weeklySubject,
+                    title = "Plan from 4M", dueDate = initial.start, createdDate = initial.start))
+                val personalDate = dao.getDayTypesOnce().first { it.dayType == DayType.A }.copy(dayType = DayType.B)
+                dao.upsertDayTypes(listOf(personalDate))
+                val days = dao.getDayTypesOnce()
+                val beforeSwitch = requireNotNull(EffectiveSchoolSchedule.load(dao))
+                dao.upsertNittcProfiles(listOf(profile(destination)))
+                val preview = prepare(repo, destination)
+                val pendingSwitch = requireNotNull(EffectiveSchoolSchedule.load(dao))
+                days.forEach { assertEquals(beforeSwitch.lessonsOn(it.date), pendingSwitch.lessonsOn(it.date)) }
+                assertEquals(rows, dao.getLessonsOnce())
+                assertEquals(days, dao.getDayTypesOnce())
+                assertEquals("4M", dao.getSktjfSourceStates().single().classId)
+                assertEquals(extras, dao.getSktjfExtraLessons())
+                calendarConflicts += preview.calendarConflicts.map { it.date to it.incoming }
+                apply(repo, prepare(repo, destination))
+                assertEquals(destination, dao.getSktjfSourceStates().single().classId)
+                assertTrue(dao.getSktjfExtraLessons().all { it.classId == destination })
+                assertTrue(dao.getSktjfSelectionGroups().all { it.classId == destination })
+                assertEquals(personalDate, dao.getDayTypesOnce().single { it.date == personalDate.date })
+                assertEquals("Task from 4M", dao.getTasksOnce().single().title)
+                assertNull(dao.getTasksOnce().single().lessonId)
+                assertEquals("Plan from 4M", dao.getPlansOnce().single().title)
+                assertNull(dao.getPlansOnce().single().lessonId)
+                apply(repo, prepare(repo, destination))
+                if (destination == "1-4") {
+                    val previousIds = SktjfBaselineCodec.decode(dao.getSktjfSourceStates().single().baselineJson).lessons.lessons.keys
+                    dao.upsertNittcProfiles(listOf(profile(destination, dd = true, international = true)))
+                    val attributesPreview = prepare(repo, destination)
+                    assertNotEquals(previousIds, attributesPreview.document.lessons.map { it.id }.toSet())
+                    apply(repo, attributesPreview)
+                }
+
+                val restored = SchedulerRepository(restoredDb, UiDesignPreferences(context))
+                restored.importAllData(repo.exportAllData(), requireSettings = true)
+                val restoredDao = restoredDb.schedulerDao()
+                assertEquals(destination, restoredDao.getSktjfSourceStates().single().classId)
+                restoredDao.upsertNittcProfiles(listOf(profile("4M", dd = true, international = true)))
+                apply(restored, prepare(restored, "4M"))
+                assertEquals("4M", restoredDao.getSktjfSourceStates().single().classId)
+                assertTrue(restoredDao.getSktjfExtraLessons().all { it.classId == "4M" })
+                restoredDao.upsertNittcProfiles(listOf(profile("4M")))
+                apply(restored, prepare(restored, "4M"))
+            } finally {
+                restoredDb.close()
+                db.close()
+            }
+        }
+        assertEquals(calendarConflicts[0], calendarConflicts[1])
+    }
+
     private fun document(): SktjfDocument {
         val source = SktjfReference("src", 1, null)
         return SktjfDocument(2026, "S", date, date, "1-1", "2026.S.0",
@@ -148,6 +255,68 @@ class SktjfApplyCoordinatorTest {
             listOf(SktjfLesson("lesson-1", 1, 1, SktjfCycle.WEEKLY, "配信授業", listOf("先生"), emptyList(),
                 SktjfConditions(emptySet(), emptySet()), SktjfLessonKind.NORMAL, null, listOf(source))),
             listOf(SktjfCalendarDay(date, SktjfDayType.B, null, null, null, listOf(source))))
+    }
+
+    @Test fun switchingFromSelectionsKeepsManualEditsAndRetiresOldCandidates() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        try {
+            val dao = db.schedulerDao()
+            val repository = SchedulerRepository(db, UiDesignPreferences(context))
+            dao.upsertSettings(SettingsEntity(termStart = date, termEnd = date, enableSemesterTimetables = true))
+            dao.upsertUsageMode(UsageModeEntity(mode = "NITTC"))
+            suspend fun setClass(classId: String) {
+                dao.upsertNittcProfiles(listOf(NittcProfileEntity(2026, "UNDERGRADUATE", 1, classId, false, false)))
+            }
+            val ordinary = document()
+            val first = ordinary.lessons.single()
+            val options = listOf(first.copy(id = "elective-a", period = 2, subject = "選択A"),
+                first.copy(id = "elective-b", period = 2, subject = "選択B"))
+            val group = SktjfSelectionGroup("elective", 1, 2, options.map { it.id }, first.sources)
+            val elective = SktjfV3Candidate(SktjfV2Candidate(ordinary.copy(
+                periods = ordinary.periods + SktjfPeriod(2, CLASS_SLOTS[1].start, CLASS_SLOTS[1].end),
+                lessons = ordinary.lessons + options,
+                slotCoverage = ordinary.slotCoverage + ordinary.slotCoverage.single().copy(period = 2)),
+                emptyMap(), emptyMap()), listOf(group))
+            setClass("1-1")
+            val firstImport = requireNotNull(repository.previewSelectionSktjf(elective, mapOf(group.id to options.last().id))).forReview()
+            assertEquals(SktjfApplyResult.Applied, repository.applySktjf(firstImport, emptyMap(), emptyMap()))
+            val row = dao.getLessonsOnce().single()
+            dao.upsertLesson(row.copy(weeklySubject = "手動編集"))
+            val linkedExtra = dao.getSktjfExtraLessons().single { it.sourceLessonId == options.last().id }
+            dao.upsertTask(TaskEntity(extraLessonId = linkedExtra.id, subject = options.last().subject,
+                title = "選択授業の課題", dueDate = date, createdDate = date))
+
+            setClass("1-2")
+            assertTrue(requireNotNull(EffectiveSchoolSchedule.load(dao)).lessonsOn(date).any { it.content.extraLessonId == linkedExtra.id })
+            val newClass = ordinary.copy(classId = "1-2", lessons = listOf(first.copy(subject = "変更先の授業")))
+            val previousSource = dao.getSktjfSourceStates().single()
+            dao.upsertSktjfSourceStates(listOf(previousSource.copy(requiresRelinking = true)))
+            val unlinkedPreview = (repository.previewSktjf(newClass) as SktjfPreviewResult.Ready).preview
+            assertFalse(unlinkedPreview.lessonReview.any { it.current?.subject == options.first().subject })
+            dao.upsertSktjfSourceStates(listOf(previousSource))
+            val preview = (repository.previewSktjf(newClass) as SktjfPreviewResult.Ready).preview
+            assertEquals("手動編集", preview.lessonConflicts.single().overlappingLocal.single().content.subject)
+            assertEquals(2, dao.getSktjfExtraLessons().size)
+            val choices = jp.linkserver.nittcsc.ui.initialSktjfLessonChoices(preview, false)
+            assertEquals(SktjfConflictChoice.KEEP_LOCAL, choices[first.id])
+            assertEquals(SktjfApplyResult.Applied, repository.applySktjf(preview, choices, emptyMap()))
+            assertEquals("手動編集", dao.getLessonsOnce().single().weeklySubject)
+            assertTrue(dao.getSktjfSelectionGroups().isEmpty())
+            assertTrue(dao.getSktjfExtraLessons().isEmpty())
+            assertEquals("選択授業の課題", dao.getTasksOnce().single().title)
+            assertNull(dao.getTasksOnce().single().extraLessonId)
+
+            setClass("1-1")
+            val returnPreview = requireNotNull(repository.previewSelectionSktjf(elective)).forReview()
+            val returnChoices = jp.linkserver.nittcsc.ui.initialSktjfLessonChoices(returnPreview, false)
+            assertEquals(SktjfApplyResult.Applied, repository.applySktjf(returnPreview, returnChoices, emptyMap()))
+            assertNull(dao.getSktjfSelectionGroups().single().selectedLessonId)
+            assertEquals(setOf("elective-a", "elective-b"), dao.getSktjfExtraLessons().mapNotNull { it.sourceLessonId }.toSet())
+            assertEquals("手動編集", dao.getLessonsOnce().single().weeklySubject)
+        } finally {
+            db.close()
+        }
     }
 
     @Test fun explicitSelectionGroupStoresAllCandidatesWithoutGuessing() = runBlocking {

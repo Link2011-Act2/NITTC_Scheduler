@@ -53,10 +53,12 @@ class SktjfTimedSchedule private constructor(private val entries: List<Entry>) {
             rows: List<LessonEntity>, extras: List<SktjfExtraLessonEntity>): SktjfTimedSchedule {
             if (mode != SchedulerUsageMode.NITTC) return SktjfTimedSchedule(emptyList())
             val byYear = profiles.associateBy { it.academicYear }
+            val installed = installedSktjfSources(states)
             val entries = mutableListOf<Entry>()
             for (state in states) {
                 val profile = byYear[state.academicYear] ?: continue
-                if (profile.classId != state.classId) continue
+                val activeClass = installed[state.academicYear to state.term]?.classId ?: profile.classId
+                if (activeClass != state.classId) continue
                 val source = runCatching { SktjfBaselineCodec.decode(state.baselineJson) }.getOrNull() ?: continue
                 if (source.series.isEmpty()) continue
                 val term = if (state.term == "S") TimetableTerm.FIRST else if (state.term == "F") TimetableTerm.SECOND else continue

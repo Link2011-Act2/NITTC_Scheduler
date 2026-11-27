@@ -69,8 +69,11 @@ class SktjfElectiveSchedule private constructor(private val groups: List<Entry>)
             extras: List<SktjfExtraLessonEntity>, states: List<SktjfSourceStateEntity>): SktjfElectiveSchedule {
             if(mode!=SchedulerUsageMode.NITTC)return SktjfElectiveSchedule(emptyList())
             SktjfSelectionGroupBackup.validateList(storedGroups);SktjfExtraLessonBackup.validateList(extras)
+            val installed = installedSktjfSources(states)
             val entries=storedGroups.filterNot { it.suspendedByTimetableReplacement }.mapNotNull { group ->
-                val profile=profiles.singleOrNull { it.academicYear==group.academicYear && it.classId==group.classId } ?: return@mapNotNull null
+                val profile = profiles.singleOrNull { it.academicYear == group.academicYear } ?: return@mapNotNull null
+                val activeClass = installed[group.academicYear to group.term]?.classId ?: profile.classId
+                if (activeClass != group.classId) return@mapNotNull null
                 val ids=JSONArray(group.lessonIdsJson).let { array -> (0 until array.length()).map { array.getString(it) } }
                 val state=states.singleOrNull { it.academicYear==group.academicYear && it.term==group.term && it.classId==group.classId && !it.requiresRelinking }
                 val source=state?.let { runCatching { SktjfBaselineCodec.decode(it.baselineJson) }.getOrNull() }

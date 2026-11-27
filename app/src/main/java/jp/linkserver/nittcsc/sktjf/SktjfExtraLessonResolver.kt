@@ -63,12 +63,14 @@ class SktjfExtraLessonResolver private constructor(private val bySlot: Map<Extra
                     .keys.map { id -> listOf(state.academicYear.toString(), state.term, state.classId, id) }
             }.toSet()
             val byYear = profiles.associate { it.academicYear to (it to it.attributes()) }
+            val installed = installedSktjfSources(states)
             val result = linkedMapOf<ExtraSlot, MutableList<SktjfVisibleExtra>>()
             for (lesson in lessons) {
                 if (listOf(lesson.academicYear.toString(),lesson.term,lesson.classId,lesson.sourceLessonId) in grouped ||
                     listOf(lesson.academicYear.toString(),lesson.term,lesson.classId,lesson.sourceLessonId) in replaced) continue
                 val (profile, attributes) = byYear[lesson.academicYear] ?: continue
-                if (profile.classId != lesson.classId) continue
+                val activeClass = installed[lesson.academicYear to lesson.term]?.classId ?: profile.classId
+                if (activeClass != lesson.classId) continue
                 val baseline = SktjfBaselineCodec.decode(lesson.contentJson)
                 val content = baseline.lessons.lessons.getValue(lesson.id)
                 if (!content.conditions.matches(attributes)) continue

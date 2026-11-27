@@ -42,7 +42,7 @@ internal fun initialSktjfLessonChoices(value: SktjfApplyPreview, automaticUpdate
             previousLinks.none { it.day == conflict.incoming.dayOfWeek && it.period == conflict.incoming.period }
         val protectManualAddition = previousState != null &&
             ((conflict.previous == null && conflict.sourceLessonId !in previousSourceIds) || unlinkedManualAtSlot)
-        conflict.sourceLessonId to if (!automaticUpdate && !protectManualAddition)
+        conflict.sourceLessonId to if (!automaticUpdate && !protectManualAddition && value.timed?.classSwitch != true)
             SktjfConflictChoice.APPLY_INCOMING else SktjfConflictChoice.KEEP_LOCAL
     }.toMutableMap()
     val slots = value.lessonReview.filter { it.sourceLessonId != null && it.status != SktjfLessonReviewStatus.UNCHANGED }
@@ -159,14 +159,14 @@ internal fun SktjfImportDialog(
         if (profile == null) { error = R.string.sktjf_cannot_apply; return }
         val checked = previewSelections(candidate, choices.orEmpty())
         if (checked == null) { error = R.string.sktjf_cannot_apply; return }
-        val existing = checked.snapshot.selectionGroups
+        val existing = if (checked.classSwitch) emptyList() else checked.snapshot.selectionGroups.filter { it.classId == document.classId }
         val needsChoice = candidate.selectionGroups.filter { group ->
             val eligible = document.lessons.filter { it.id in group.lessonIds && it.conditions.matches(profile.attributes()) }
             val previous = matchingSktjfSelectionGroup(group, existing)
             (previous == null && sktjfElectiveNeedsChoice(eligible, candidate.timetable.ranges, candidate.timetable.series)) ||
                 (previous?.selectedLessonId != null && eligible.none { it.id == previous.selectedLessonId })
         }.map { it.id }.toSet()
-        val removedGroups = checked.snapshot.selectionGroups.filter { old ->
+        val removedGroups = existing.filter { old ->
             old.selectedLessonId != null && candidate.selectionGroups.none { matchingSktjfSelectionGroup(it, existing)?.groupId == old.groupId }
         }
         if (choices == null && (needsChoice.isNotEmpty() || removedGroups.isNotEmpty())) {

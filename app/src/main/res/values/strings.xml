@@ -106,6 +106,7 @@
     <string name="sktjf_merge_include">この更新を適用</string>
     <string name="sktjf_merge_selected_apply">選択した内容を適用</string>
     <string name="sktjf_merge_dates">日程の変更</string>
+    <string name="sktjf_calendar_review_month">%1$d年%2$d月</string>
     <string name="sktjf_merge_close">閉じる</string>
     <string name="sktjf_merge_period">%1$d時限</string>
     <string name="sktjf_merge_context">%1$d年度・%2$s・%3$s</string>

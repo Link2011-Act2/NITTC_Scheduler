@@ -28,9 +28,11 @@ internal class SktjfCalendarMergePlan private constructor(
     val conflicts: List<SktjfCalendarConflict>,
     private val nextBaseline: SktjfCalendarBaseline
 ) {
+    val plannedDays: Map<LocalDate, SktjfCalendarContent> get() = local + updates
+
     fun resolve(choices: Map<LocalDate, SktjfConflictChoice>): SktjfResolvedCalendarMerge {
         require(choices.keys == conflicts.map { it.date }.toSet())
-        val result = (local + updates).toMutableMap()
+        val result = plannedDays.toMutableMap()
         for (conflict in conflicts) if (choices.getValue(conflict.date) == SktjfConflictChoice.APPLY_INCOMING) {
             require(conflict.projection is SktjfCalendarProjection.Supported)
             result[conflict.date] = conflict.incoming

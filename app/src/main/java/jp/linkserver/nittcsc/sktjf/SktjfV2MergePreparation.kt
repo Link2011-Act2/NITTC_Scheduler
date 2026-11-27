@@ -24,6 +24,8 @@ internal fun prepareSktjfV2Merge(
     extras: List<SktjfExtraLessonEntity> = emptyList(),
     selectionGroups: List<SktjfSelectionGroup> = emptyList(),
     previousSelectionIds: Set<String> = emptySet(),
+    calendarState: SktjfSourceStateEntity? = state,
+    classSwitch: ((SktjfDocument) -> SktjfLessonMergePlan?)? = null,
 ): SktjfV2MergePreparation {
     if (!candidate.weekEvidenceComplete) return SktjfV2MergePreparation.Blocked
     val selected = candidate.forProfile(attributes)
@@ -40,9 +42,11 @@ internal fun prepareSktjfV2Merge(
             } }
         }) return SktjfV2MergePreparation.Blocked
     val independentIds = previousSelectionIds + selectionGroups.flatMap { it.lessonIds }
-    val lessons = prepareSktjfLessonMerge(document, rows, state, extras, allowTimed = true, independentSourceIds = independentIds) as? SktjfLessonPreparation.Ready
+    val lessons = if (classSwitch != null) classSwitch(document) else
+        (prepareSktjfLessonMerge(document, rows, state, extras, allowTimed = true, independentSourceIds = independentIds)
+            as? SktjfLessonPreparation.Ready)?.plan
+    if (lessons == null) return SktjfV2MergePreparation.Blocked
+    val calendar = prepareSktjfCalendarMerge(document, days, calendarState) as? SktjfCalendarPreparation.Ready
         ?: return SktjfV2MergePreparation.Blocked
-    val calendar = prepareSktjfCalendarMerge(document, days, state) as? SktjfCalendarPreparation.Ready
-        ?: return SktjfV2MergePreparation.Blocked
-    return SktjfV2MergePreparation.Ready(selected, lessons.plan, calendar.plan)
+    return SktjfV2MergePreparation.Ready(selected, lessons, calendar.plan)
 }
