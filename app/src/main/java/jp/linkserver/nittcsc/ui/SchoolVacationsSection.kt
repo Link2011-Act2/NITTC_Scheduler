@@ -1,10 +1,12 @@
 package jp.linkserver.nittcsc.ui
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -13,16 +15,36 @@ import androidx.compose.ui.unit.dp
 import jp.linkserver.nittcsc.R
 import jp.linkserver.nittcsc.data.SchoolVacationEntity
 import jp.linkserver.nittcsc.data.SchoolVacationPeriod
+import jp.linkserver.nittcsc.logic.academicYearForDate
 import jp.linkserver.nittcsc.reminder.NotificationScheduleCoordinator
 import jp.linkserver.nittcsc.sktjf.SchoolVacationCheck
 import jp.linkserver.nittcsc.sktjf.SchoolVacationPreview
+import jp.linkserver.nittcsc.sktjf.pendingSchoolVacationIds
 import jp.linkserver.nittcsc.viewmodel.SchedulerViewModel
+import jp.linkserver.nittcsc.widget.WidgetUpdater
 import kotlinx.coroutines.launch
 import java.time.format.DateTimeFormatter
 
 @Composable
+internal fun SchoolVacationUpdateNotice(viewModel: SchedulerViewModel, resumeRequest: Long) {
+    val context = LocalContext.current
+    val year = academicYearForDate(rememberCurrentDate())
+    val pending by viewModel.pendingSchoolVacationUpdate.collectAsState()
+    var announcedRevision by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(year, resumeRequest) { viewModel.refreshPendingSchoolVacationUpdate(year) }
+    LaunchedEffect(pending?.revision) {
+        val revision = pending?.revision ?: return@LaunchedEffect
+        if (revision != announcedRevision) {
+            announcedRevision = revision
+            Toast.makeText(context, R.string.sktjf_vacations_update_available, Toast.LENGTH_SHORT).show()
+        }
+    }
+}
+
+@Composable
 internal fun SchoolVacationsSection(viewModel: SchedulerViewModel, year: Int) {
     val vacations by viewModel.schoolVacations.collectAsState(initial = emptyList())
+    val pendingUpdate by viewModel.pendingSchoolVacationUpdate.collectAsState()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var preview by remember(year) { mutableStateOf<SchoolVacationPreview?>(null) }
@@ -50,7 +72,10 @@ internal fun SchoolVacationsSection(viewModel: SchedulerViewModel, year: Int) {
 
     suspend fun finish(changed: Boolean) {
         status = if (changed) R.string.sktjf_vacations_saved else R.string.sktjf_vacations_stale
-        if (changed) NotificationScheduleCoordinator.refresh(context)
+        if (changed) {
+            NotificationScheduleCoordinator.refresh(context)
+            WidgetUpdater.updateAll(context)
+        }
     }
 
     fun check(targetYear: Int) {
@@ -75,12 +100,14 @@ internal fun SchoolVacationsSection(viewModel: SchedulerViewModel, year: Int) {
     }
 
     TextButton(enabled = !busy, onClick = { check(year) }) { Text(stringResource(R.string.sktjf_vacations_check)) }
-    if (vacations.any { it.local?.end == null && it.local?.start?.year == year + 1 }) {
+    if (year + 1 in pendingSchoolVacationIds(vacations, year) || vacations.any {
+        it.id == "$year-year_end" && it.local != null && it.local.end == null
+    }) {
         TextButton(enabled = !busy, onClick = { check(year + 1) }) {
             Text(stringResource(R.string.sktjf_vacations_check_next_year))
         }
     }
-    availableUpdate?.let { plan ->
+    (pendingUpdate ?: availableUpdate)?.let { plan ->
         TextButton(enabled = !busy, onClick = { openPreview(plan, manual = false) }) {
             Text(stringResource(R.string.sktjf_vacations_update))
         }
@@ -91,6 +118,8 @@ internal fun SchoolVacationsSection(viewModel: SchedulerViewModel, year: Int) {
         vacation.local?.let { period ->
             Text(vacationLabel(period))
             if (period.end == null) {
+                Text(stringResource(R.string.sktjf_vacations_confirmed_through,
+                    period.confirmedThrough.format(vacationDateFormatter)), style = MaterialTheme.typography.bodySmall)
                 Text(stringResource(R.string.sktjf_vacations_pending), style = MaterialTheme.typography.bodySmall)
             }
             Row {
@@ -181,11 +210,14 @@ internal fun SchoolVacationsSection(viewModel: SchedulerViewModel, year: Int) {
 }
 
 private val vacationDateFormatter = DateTimeFormatter.ofPattern("M月d日")
+private val vacationYearDateFormatter = DateTimeFormatter.ofPattern("yyyy年M月d日")
 
 @Composable
 private fun vacationLabel(period: SchoolVacationPeriod): String {
-    val end = period.end?.format(vacationDateFormatter)
+    val crossesYear = period.end?.year?.let { it != period.start.year } == true
+    val startFormat = if (period.end == null || crossesYear) vacationYearDateFormatter else vacationDateFormatter
+    val end = period.end?.format(if (crossesYear) vacationYearDateFormatter else vacationDateFormatter)
         ?: period.estimatedEndMonth?.let { stringResource(R.string.sktjf_vacations_estimated_month, it) }
         ?: stringResource(R.string.sktjf_vacations_unknown)
-    return stringResource(R.string.sktjf_vacations_period, period.name, period.start.format(vacationDateFormatter), end)
+    return stringResource(R.string.sktjf_vacations_period, period.name, period.start.format(startFormat), end)
 }

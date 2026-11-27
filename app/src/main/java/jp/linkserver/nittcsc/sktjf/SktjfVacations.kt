@@ -6,6 +6,7 @@ import java.time.LocalDate
 
 internal const val VACATION_MANIFEST_NAME = "vacations.manifest.json"
 internal const val VACATION_ASSET_NAME = "vacations.json"
+internal const val VACATION_TAG_PREFIX = "vacations-"
 internal const val VACATION_MANIFEST_LIMIT = 16 * 1024
 internal const val VACATION_ASSET_LIMIT = 512 * 1024
 private val vacationTypes = setOf("summer", "winter", "year_end", "spring")
@@ -28,8 +29,9 @@ internal data class SktjfVacation(
 internal data class SktjfVacationAsset(val revision: String, val url: String, val sha256: String)
 
 internal object SktjfVacationJson {
-    fun manifest(bytes: ByteArray, repository: String, revision: String): SktjfVacationAsset {
+    fun manifest(bytes: ByteArray, repository: String, revision: String, tag: String = revision): SktjfVacationAsset {
         require(parseSktjfRevision(revision) != null)
+        require(tag == revision || tag == VACATION_TAG_PREFIX + revision)
         val root = strictSktjfObject(bytes, VACATION_MANIFEST_LIMIT)
         root.fields(setOf("format", "manifestVersion", "schoolId", "revision", "asset"))
         require(root.text("format") == "SKTJF-VACATIONS-MANIFEST" && root.text("schoolId") == "nittc")
@@ -38,7 +40,7 @@ internal object SktjfVacationJson {
         asset.fields(setOf("name", "url", "sha256", "dataFormatVersion"))
         require(asset.text("name") == VACATION_ASSET_NAME && asset.integer("dataFormatVersion", 1..1) == 1)
         val url = asset.text("url", 2048)
-        require(url == "https://github.com/$repository/releases/download/$revision/$VACATION_ASSET_NAME")
+        require(url == "https://github.com/$repository/releases/download/$tag/$VACATION_ASSET_NAME")
         return SktjfVacationAsset(revision, url, asset.text("sha256").also { require(vacationHash.matches(it)) })
     }
 

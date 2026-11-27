@@ -48,7 +48,7 @@ internal sealed interface SktjfDiscoveryResult {
 }
 
 internal sealed interface SktjfVacationFetchResult {
-    data class Success(val periods: List<SktjfVacation>) : SktjfVacationFetchResult
+    data class Success(val revision: String, val periods: List<SktjfVacation>) : SktjfVacationFetchResult
     data object NotPublished : SktjfVacationFetchResult
     data object Failed : SktjfVacationFetchResult
 }
@@ -103,7 +103,8 @@ internal class SktjfDistributionClient(
                     val prerelease = item.get("prerelease") as? Boolean ?: error("Invalid prerelease flag")
                     val tag = item.get("tag_name") as? String ?: error("Invalid release tag")
                     if (draft || prerelease != beta) continue
-                    val parsed = parseSktjfRevision(tag) ?: continue
+                    val standalone = term == null && tag.startsWith(VACATION_TAG_PREFIX)
+                    val parsed = parseSktjfRevision(if (standalone) tag.removePrefix(VACATION_TAG_PREFIX) else tag) ?: continue
                     if (parsed.year != year || parsed.beta != beta || (term != null && parsed.term != term)) continue
                     if (term == null) {
                         val assets = item.getJSONArray("assets")
@@ -112,7 +113,10 @@ internal class SktjfDistributionClient(
                     }
                     val published = item.get("published_at") as? String ?: error("Invalid publication date")
                     Instant.parse(published)
-                    if (best == null || ordering.compare(parsed, best.second) > 0) best = tag to parsed
+                    val comparison = best?.let { ordering.compare(parsed, it.second) } ?: 1
+                    if (comparison > 0 || (comparison == 0 && standalone && best?.first?.startsWith(VACATION_TAG_PREFIX) == false)) {
+                        best = tag to parsed
+                    }
                 }
                 if (releases.length() < 30) return@withContext best?.let { SktjfDiscoveryResult.Found(it.first) }
                     ?: SktjfDiscoveryResult.NotPublished
@@ -208,17 +212,18 @@ internal class SktjfDistributionClient(
         }
     }
 
-    suspend fun fetchVacations(revision: String): SktjfVacationFetchResult = withContext(Dispatchers.IO) {
+    suspend fun fetchVacations(tag: String): SktjfVacationFetchResult = withContext(Dispatchers.IO) {
         try {
+            val revision = tag.removePrefix(VACATION_TAG_PREFIX)
             require(parseSktjfRevision(revision)?.beta == beta)
             val manifestBytes = try {
-                download("https://github.com/$repository/releases/download/$revision/$VACATION_MANIFEST_NAME", VACATION_MANIFEST_LIMIT)
+                download("https://github.com/$repository/releases/download/$tag/$VACATION_MANIFEST_NAME", VACATION_MANIFEST_LIMIT)
             } catch (error: FetchHttpException) {
                 if (error.status == 404) return@withContext SktjfVacationFetchResult.NotPublished
                 throw error
             }
-            val asset = SktjfVacationJson.manifest(manifestBytes, repository, revision)
-            SktjfVacationFetchResult.Success(SktjfVacationJson.periods(download(asset.url, VACATION_ASSET_LIMIT), asset))
+            val asset = SktjfVacationJson.manifest(manifestBytes, repository, revision, tag)
+            SktjfVacationFetchResult.Success(revision, SktjfVacationJson.periods(download(asset.url, VACATION_ASSET_LIMIT), asset))
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {

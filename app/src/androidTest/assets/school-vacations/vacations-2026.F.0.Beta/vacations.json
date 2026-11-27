@@ -1,0 +1,25 @@
+{
+  "format": "SKTJF-VACATIONS",
+  "schemaVersion": 1,
+  "schoolId": "nittc",
+  "revision": "2026.F.0.Beta",
+  "periods": [
+    {
+      "id": "2026-year_end",
+      "type": "year_end",
+      "name": "学年末休業",
+      "start": "2027-02-20",
+      "end": null,
+      "confirmedThrough": "2027-03-31",
+      "estimatedEndMonth": 4,
+      "sources": [
+        {
+          "name": "synthetic-calendar.pdf",
+          "url": null,
+          "page": 1,
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ]
+    }
+  ]
+}

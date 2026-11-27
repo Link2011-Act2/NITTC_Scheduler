@@ -36,6 +36,13 @@ import jp.linkserver.nittcsc.sktjf.SktjfCycle
 import jp.linkserver.nittcsc.sktjf.resolvedLesson
 import jp.linkserver.nittcsc.sktjf.SktjfVisibleExtra
 import jp.linkserver.nittcsc.sktjf.SktjfExtraLessonDraft
+import jp.linkserver.nittcsc.sktjf.SchoolVacationCheck
+import jp.linkserver.nittcsc.sktjf.SchoolVacationPreview
+import jp.linkserver.nittcsc.sktjf.SktjfAutomaticCheckResult
+import jp.linkserver.nittcsc.sktjf.SktjfDiscoveryResult
+import jp.linkserver.nittcsc.sktjf.SktjfVacationFetchResult
+import jp.linkserver.nittcsc.sktjf.hasNewlyConfirmedDates
+import jp.linkserver.nittcsc.sktjf.pendingSchoolVacationIds
 import jp.linkserver.nittcsc.data.SettingsEntity
 import jp.linkserver.nittcsc.data.PlanEntity
 import jp.linkserver.nittcsc.data.SyncProfileEntity
@@ -74,10 +81,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
@@ -189,27 +199,57 @@ class SchedulerViewModel(
     internal suspend fun discoverSktjf(year: Int, term: String) = sktjfDistribution.discover(year, term)
     internal suspend fun fetchSktjf(revision: String, classId: String) = sktjfDistribution.fetch(revision, classId)
     internal val schoolVacations = repository.schoolVacationsFlow
+    private val _pendingSchoolVacationUpdate = MutableStateFlow<SchoolVacationPreview?>(null)
+    internal val pendingSchoolVacationUpdate = _pendingSchoolVacationUpdate.asStateFlow()
+    private val vacationCheckMutex = Mutex()
+    private var lastVacationCheck: Pair<Map<Int, Set<String>>, Long>? = null
 
-    internal suspend fun checkSchoolVacations(year: Int): jp.linkserver.nittcsc.sktjf.SchoolVacationCheck =
+    internal suspend fun checkSchoolVacations(year: Int, ids: Set<String>? = null): SchoolVacationCheck =
         when (val found = sktjfDistribution.discoverVacations(year)) {
-            is jp.linkserver.nittcsc.sktjf.SktjfDiscoveryResult.Found ->
+            is SktjfDiscoveryResult.Found ->
                 when (val fetched = sktjfDistribution.fetchVacations(found.revision)) {
-                    is jp.linkserver.nittcsc.sktjf.SktjfVacationFetchResult.Success ->
-                        jp.linkserver.nittcsc.sktjf.SchoolVacationCheck.Ready(
-                            repository.previewSchoolVacations(found.revision, fetched.periods)
-                        )
-                    jp.linkserver.nittcsc.sktjf.SktjfVacationFetchResult.NotPublished ->
-                        jp.linkserver.nittcsc.sktjf.SchoolVacationCheck.NotPublished
-                    jp.linkserver.nittcsc.sktjf.SktjfVacationFetchResult.Failed ->
-                        jp.linkserver.nittcsc.sktjf.SchoolVacationCheck.Failed
+                    is SktjfVacationFetchResult.Success -> {
+                        val periods = if (ids == null) fetched.periods else fetched.periods.filter { it.id in ids }
+                        SchoolVacationCheck.Ready(repository.previewSchoolVacations(fetched.revision, periods))
+                    }
+                    SktjfVacationFetchResult.NotPublished -> SchoolVacationCheck.NotPublished
+                    SktjfVacationFetchResult.Failed -> SchoolVacationCheck.Failed
                 }
-            jp.linkserver.nittcsc.sktjf.SktjfDiscoveryResult.NotPublished ->
-                jp.linkserver.nittcsc.sktjf.SchoolVacationCheck.NotPublished
-            else -> jp.linkserver.nittcsc.sktjf.SchoolVacationCheck.Failed
+            SktjfDiscoveryResult.NotPublished -> SchoolVacationCheck.NotPublished
+            else -> SchoolVacationCheck.Failed
         }
 
-    internal suspend fun applySchoolVacations(preview: jp.linkserver.nittcsc.sktjf.SchoolVacationPreview, selected: Set<String>) =
-        repository.applySchoolVacations(preview, selected)
+    internal suspend fun refreshPendingSchoolVacationUpdate(currentYear: Int, timetableDetected: Boolean = false) {
+        if (!vacationCheckMutex.tryLock()) return
+        try {
+            val targets = pendingSchoolVacationIds(schoolVacations.first(), currentYear)
+            if (targets.isEmpty()) {
+                _pendingSchoolVacationUpdate.value = null
+                return
+            }
+            val now = android.os.SystemClock.elapsedRealtime()
+            val minimumInterval = if (timetableDetected) 30_000L else 10 * 60_000L
+            if (lastVacationCheck?.let { (previous, checkedAt) -> previous == targets && now - checkedAt < minimumInterval } == true) return
+            for ((year, ids) in targets.toSortedMap()) {
+                val result = checkSchoolVacations(year, ids)
+                if (result is SchoolVacationCheck.Ready && result.preview.hasNewlyConfirmedDates()) {
+                    _pendingSchoolVacationUpdate.value = result.preview
+                    break
+                }
+            }
+            lastVacationCheck = targets to now
+        } finally {
+            vacationCheckMutex.unlock()
+        }
+    }
+
+    internal suspend fun applySchoolVacations(preview: SchoolVacationPreview, selected: Set<String>): Boolean {
+        val applied = repository.applySchoolVacations(preview, selected)
+        if (applied && _pendingSchoolVacationUpdate.value?.revision == preview.revision) {
+            _pendingSchoolVacationUpdate.value = null
+        }
+        return applied
+    }
 
     internal suspend fun editSchoolVacation(
         expected: jp.linkserver.nittcsc.data.SchoolVacationEntity,
@@ -218,8 +258,17 @@ class SchedulerViewModel(
     internal suspend fun checkSktjfUpdates(year: Int, term: String,
         acknowledged: (jp.linkserver.nittcsc.sktjf.SktjfUpdateKey) -> String?) =
         kotlinx.coroutines.withContext(Dispatchers.IO) {
-            jp.linkserver.nittcsc.sktjf.checkSktjfUpdates(year, term, repository::sktjfUpdateSnapshot,
+            val result = jp.linkserver.nittcsc.sktjf.checkSktjfUpdates(year, term, repository::sktjfUpdateSnapshot,
                 acknowledged, sktjfDistribution::discover, sktjfDistribution::fetch, sktjfDistribution::verifiedManifest)
+            val detectedYear = when (result) {
+                is SktjfAutomaticCheckResult.Available -> result.offer.key.academicYear
+                is SktjfAutomaticCheckResult.NeedsAffiliation -> result.year
+                else -> null
+            }
+            if (detectedYear == year + 1) viewModelScope.launch {
+                refreshPendingSchoolVacationUpdate(year, timetableDetected = true)
+            }
+            result
         }
     internal suspend fun previewSktjf(document: jp.linkserver.nittcsc.sktjf.SktjfDocument) =
         kotlinx.coroutines.withContext(Dispatchers.IO) { repository.previewSktjf(document) }

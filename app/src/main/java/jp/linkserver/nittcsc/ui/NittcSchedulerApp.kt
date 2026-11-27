@@ -437,6 +437,9 @@ fun NittcSchedulerApp(viewModel: SchedulerViewModel, openTransferRequest: Long =
         )
         return
     }
+    if (state.usageMode?.mode == jp.linkserver.nittcsc.data.SchedulerUsageMode.NITTC.name) {
+        SchoolVacationUpdateNotice(viewModel, resumeRequest)
+    }
     androidx.compose.runtime.CompositionLocalProvider(
         LocalAbTimetableEnabled provides (state.settings?.enableAbTimetable != false),
         LocalSecondTermUnset provides SecondTermUnsetDisplay(

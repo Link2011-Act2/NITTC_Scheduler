@@ -29,6 +29,21 @@ internal sealed interface SchoolVacationCheck {
     data object NotPublished : SchoolVacationCheck
 }
 
+internal fun pendingSchoolVacationIds(
+    vacations: List<SchoolVacationEntity>, currentYear: Int
+): Map<Int, Set<String>> = vacations.asSequence()
+    .filter { it.id.endsWith("-year_end") && it.base.end == null && it.local != null }
+    .mapNotNull { event -> event.id.take(4).toIntOrNull()?.let { it + 1 to event.id } }
+    .filter { (year, _) -> year in currentYear..minOf(currentYear + 1, 9998) }
+    .groupBy({ it.first }, { it.second })
+    .mapValues { (_, ids) -> ids.toSet() }
+
+internal fun SchoolVacationPreview.hasNewlyConfirmedDates(): Boolean = changes.any { change ->
+    val before = change.previous ?: return@any false
+    before.base.end == null && (change.candidate.base.end != null ||
+        change.candidate.base.confirmedThrough > before.base.confirmedThrough)
+}
+
 internal fun planSchoolVacations(
     revision: String,
     periods: List<SktjfVacation>,

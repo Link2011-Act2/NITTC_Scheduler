@@ -1,0 +1,12 @@
+{
+  "format": "SKTJF-VACATIONS-MANIFEST",
+  "manifestVersion": 1,
+  "schoolId": "nittc",
+  "revision": "2026.F.0.Beta",
+  "asset": {
+    "name": "vacations.json",
+    "url": "https://github.com/example/SKTJF/releases/download/vacations-2026.F.0.Beta/vacations.json",
+    "sha256": "2a880f2be2b2a1110464391efb8d4db023faecfd8dd8670bc235e9bd25b13619",
+    "dataFormatVersion": 1
+  }
+}

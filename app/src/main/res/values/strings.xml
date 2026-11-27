@@ -3,6 +3,7 @@
     <string name="sktjf_vacations_check">学校の休業期間を確認</string>
     <string name="sktjf_vacations_check_next_year">翌年度の休業期間を確認</string>
     <string name="sktjf_vacations_update">休業期間の更新を確認</string>
+    <string name="sktjf_vacations_update_available">学年末休業の更新をA/B表から確認できます</string>
     <string name="sktjf_vacations_loading">学校の休業期間を確認中…</string>
     <string name="sktjf_vacations_unavailable">休業期間はまだ配信されていません</string>
     <string name="sktjf_vacations_no_changes">休業期間は最新です</string>
@@ -10,6 +11,7 @@
     <string name="sktjf_vacations_edit">休業期間を編集</string>
     <string name="sktjf_vacations_remove">%1$sを削除しますか？</string>
     <string name="sktjf_vacations_pending">終了日は翌年度の行事予定表公開後に確定します</string>
+    <string name="sktjf_vacations_confirmed_through">%1$sまで確認済み</string>
     <string name="sktjf_vacations_review">学校の休業期間</string>
     <string name="sktjf_vacations_adopt">配信を採用　%1$s</string>
     <string name="sktjf_vacations_current">現在　%1$s</string>
