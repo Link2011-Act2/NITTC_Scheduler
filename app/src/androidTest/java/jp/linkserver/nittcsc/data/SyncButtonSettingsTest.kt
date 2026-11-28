@@ -64,7 +64,7 @@ class SyncButtonSettingsTest {
             assertFalse(dao.getSettings()!!.showSyncButton)
             repository.toggleShowSyncButton(true)
             val backup = JSONObject(repository.exportAllData())
-            assertEquals(30, backup.getInt("version"))
+            assertEquals(31, backup.getInt("version"))
             assertTrue(backup.getJSONObject("settings").getBoolean("showSyncButton"))
             assertFalse(repository.exportSyncPayload().toString().contains("showSyncButton"))
             repository.toggleShowSyncButton(false)

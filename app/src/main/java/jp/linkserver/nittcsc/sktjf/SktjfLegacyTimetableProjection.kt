@@ -1,11 +1,12 @@
 package jp.linkserver.nittcsc.sktjf
 
 import jp.linkserver.nittcsc.data.LessonEntity
+import jp.linkserver.nittcsc.data.InactiveLessonModeDrafts
 import jp.linkserver.nittcsc.data.LessonMode
 import jp.linkserver.nittcsc.logic.TimetableTerm
 
 internal enum class SktjfProjectionBlock {
-    INVALID_PARTITION, MISSING_LOCAL_LESSON, IDENTITY_MOVED, NEEDS_ADDITIONAL_STORAGE, INACTIVE_DATA_AT_RISK
+    INVALID_PARTITION, MISSING_LOCAL_LESSON, IDENTITY_MOVED, NEEDS_ADDITIONAL_STORAGE, INVALID_INACTIVE_DRAFTS
 }
 internal sealed interface SktjfTimetableProjection {
     /** Metadata must be committed atomically with these rows; this result does not itself write to Room. */
@@ -76,16 +77,14 @@ internal fun projectSktjfTimetable(
         val old = rows[slot] ?: LessonEntity(academicYear = year, timetableTerm = term, dayOfWeek = day, slotIndex = period - 1,
             mode = LessonMode.WEEKLY, weeklySubject = "", weeklyTeacher = "", aSubject = "", aTeacher = "", bSubject = "", bTeacher = "")
         val nextMode = if (weekly.isNotEmpty()) LessonMode.WEEKLY else LessonMode.ALTERNATING
-        if (old.mode != nextMode) {
-            val hidden = if (old.mode == LessonMode.WEEKLY) hasData(old.aSubject, old.aTeacher, old.aLocation) || hasData(old.bSubject, old.bTeacher, old.bLocation)
-                else hasData(old.weeklySubject, old.weeklyTeacher, old.weeklyLocation)
-            if (hidden) return blocked(SktjfProjectionBlock.INACTIVE_DATA_AT_RISK, old)
-        }
         fun subject(items: List<SktjfMergedLesson>) = items.singleOrNull()?.content?.subject.orEmpty()
         fun teacher(items: List<SktjfMergedLesson>) = items.singleOrNull()?.content?.teachers?.singleOrNull().orEmpty()
         fun room(items: List<SktjfMergedLesson>) = items.singleOrNull()?.content?.rooms?.singleOrNull()
-        rows[slot] = if (nextMode == LessonMode.WEEKLY) old.copy(mode = nextMode, weeklySubject = subject(weekly), weeklyTeacher = teacher(weekly), weeklyLocation = room(weekly))
+        val applied = if (nextMode == LessonMode.WEEKLY) old.copy(mode = nextMode, weeklySubject = subject(weekly), weeklyTeacher = teacher(weekly), weeklyLocation = room(weekly))
         else old.copy(mode = nextMode, aSubject = subject(a), aTeacher = teacher(a), aLocation = room(a), bSubject = subject(b), bTeacher = teacher(b), bLocation = room(b))
+        rows[slot] = runCatching { InactiveLessonModeDrafts.preserve(old, applied) }.getOrElse {
+            return blocked(SktjfProjectionBlock.INVALID_INACTIVE_DRAFTS, old)
+        }
     }
     return SktjfTimetableProjection.Ready(rows.values.sortedWith(compareBy({ it.dayOfWeek }, { it.slotIndex })), bySlot)
 }

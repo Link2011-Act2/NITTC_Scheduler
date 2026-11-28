@@ -18,7 +18,7 @@ internal class SchedulerDataTransfer(
 
     private companion object {
         val EXTRA_LESSON_ID = Regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-        const val CURRENT_EXPORT_VERSION = 30
+        const val CURRENT_EXPORT_VERSION = 31
         const val MIN_SUPPORTED_IMPORT_VERSION = 1
         const val DATASET_TASKS = SchedulerRepository.DATASET_TASKS
         const val DATASET_PLANS = SchedulerRepository.DATASET_PLANS
@@ -140,6 +140,7 @@ internal class SchedulerDataTransfer(
                     obj.put("bSubject", lesson.bSubject)
                     obj.put("bTeacher", lesson.bTeacher)
                     if (lesson.bLocation != null) obj.put("bLocation", lesson.bLocation)
+                    if (lesson.inactiveModeDraftsJson != "[]") obj.put("inactiveModeDrafts", org.json.JSONArray(lesson.inactiveModeDraftsJson))
                 })
             }
         })
@@ -580,12 +581,17 @@ internal class SchedulerDataTransfer(
             val previousByKey = previousRows.associateBy { it.lessonKey() }
             val importedKeys = importedLessons.map { it.lessonKey() }.toSet()
             val referencedIds = (dao.getTasksOnce().mapNotNull { it.lessonId } + dao.getPlansOnce().mapNotNull { it.lessonId }).toSet()
-            val retainedEmptyRows = previousRows.filter { it.lessonKey() !in importedKeys && it.id in referencedIds }.map {
+            val retainedEmptyRows = previousRows.filter {
+                it.lessonKey() !in importedKeys && (it.id in referencedIds || it.inactiveModeDraftsJson != "[]")
+            }.map {
                 it.copy(mode = LessonMode.WEEKLY, weeklySubject = "", weeklyTeacher = "", weeklyLocation = null,
                     aSubject = "", aTeacher = "", aLocation = null, bSubject = "", bTeacher = "", bLocation = null)
             }
             dao.deleteLessonsForPartition(partition.academicYear, partition.term)
-            importedLessons.forEach { dao.upsertLesson(it.copy(id = previousByKey[it.lessonKey()]?.id ?: 0)) }
+            importedLessons.forEach {
+                val previous = previousByKey[it.lessonKey()]
+                dao.upsertLesson(it.copy(id = previous?.id ?: 0, inactiveModeDraftsJson = previous?.inactiveModeDraftsJson ?: "[]"))
+            }
             retainedEmptyRows.forEach { dao.upsertLesson(it) }
             dao.deleteSktjfExtraLessonsForPartition(partition.academicYear, termCode)
             if (extras.isNotEmpty()) dao.upsertSktjfExtraLessons(extras)
@@ -962,7 +968,9 @@ internal class SchedulerDataTransfer(
                     aLocation = obj.optString("aLocation", "").takeIf { it.isNotEmpty() },
                     bSubject = obj.optString("bSubject", ""),
                     bTeacher = obj.optString("bTeacher", ""),
-                    bLocation = obj.optString("bLocation", "").takeIf { it.isNotEmpty() }
+                    bLocation = obj.optString("bLocation", "").takeIf { it.isNotEmpty() },
+                    inactiveModeDraftsJson = if (obj.has("inactiveModeDrafts"))
+                        InactiveLessonModeDrafts.fromBackup(obj.getJSONArray("inactiveModeDrafts")) else "[]"
                 )
             }
         }

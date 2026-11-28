@@ -190,6 +190,10 @@ class SktjfApplyCoordinatorTest {
                 }
                 dao.upsertNittcProfiles(listOf(profile("4M")))
                 apply(repo, prepare(repo, "4M"))
+                val changedPeriod = if (destination == "3I") 4 else 1
+                val legacySlot = requireNotNull(dao.getLesson(2026, TimetableTerm.SECOND, 1, changedPeriod - 1))
+                assertEquals(LessonMode.WEEKLY, legacySlot.mode)
+                dao.upsertLesson(legacySlot.copy(aSubject = "以前の入力", aTeacher = "担当", aLocation = "教室"))
                 val rows = dao.getLessonsOnce()
                 val extras = dao.getSktjfExtraLessons()
                 val regular = rows.first { it.weeklySubject.isNotEmpty() && it.dayOfWeek == 1 && it.slotIndex == 0 }
@@ -211,6 +215,11 @@ class SktjfApplyCoordinatorTest {
                 assertEquals(extras, dao.getSktjfExtraLessons())
                 calendarConflicts += preview.calendarConflicts.map { it.date to it.incoming }
                 apply(repo, prepare(repo, destination))
+                val replacedSlot = requireNotNull(dao.getLesson(2026, TimetableTerm.SECOND, 1, changedPeriod - 1))
+                assertEquals(legacySlot.id, replacedSlot.id)
+                assertEquals(LessonMode.ALTERNATING, replacedSlot.mode)
+                assertTrue(replacedSlot.inactiveModeDraftsJson.contains("以前の入力"))
+                assertNotEquals("以前の入力", replacedSlot.aSubject)
                 assertEquals(destination, dao.getSktjfSourceStates().single().classId)
                 assertTrue(dao.getSktjfExtraLessons().all { it.classId == destination })
                 assertTrue(dao.getSktjfSelectionGroups().all { it.classId == destination })
@@ -235,6 +244,9 @@ class SktjfApplyCoordinatorTest {
                 restoredDao.upsertNittcProfiles(listOf(profile("4M", dd = true, international = true)))
                 apply(restored, prepare(restored, "4M"))
                 assertEquals("4M", restoredDao.getSktjfSourceStates().single().classId)
+                val restoredSlot = requireNotNull(restoredDao.getLesson(2026, TimetableTerm.SECOND, 1, changedPeriod - 1))
+                assertEquals(LessonMode.WEEKLY, restoredSlot.mode)
+                assertEquals("以前の入力", restoredSlot.aSubject)
                 assertTrue(restoredDao.getSktjfExtraLessons().all { it.classId == "4M" })
                 restoredDao.upsertNittcProfiles(listOf(profile("4M")))
                 apply(restored, prepare(restored, "4M"))
@@ -763,7 +775,7 @@ class SktjfApplyCoordinatorTest {
             assertEquals(row.id, dao.getTaskById(93)!!.lessonId)
             assertEquals("製図", dao.getTaskById(93)!!.subject)
             val backup = JSONObject(repository.exportAllData())
-            assertEquals(30, backup.getInt("version"))
+            assertEquals(31, backup.getInt("version"))
             repository.importAllData(backup.toString(), requireSettings = true)
             val restored = SktjfBaselineCodec.decode(dao.getSktjfSourceStates().single().baselineJson)
             assertEquals(9, restored.lessons.lessons.getValue("after").weekRange?.range?.start)

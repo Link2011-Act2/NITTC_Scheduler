@@ -34,6 +34,7 @@ import jp.linkserver.nittcsc.sktjf.resolvedLesson
 import jp.linkserver.nittcsc.sktjf.editSktjfExtraLesson as editSktjfExtraLessonContent
 import jp.linkserver.nittcsc.sktjf.selectedLesson
 import jp.linkserver.nittcsc.sktjf.installedSktjfSources
+import jp.linkserver.nittcsc.sktjf.blockedSktjfApply
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -180,8 +181,13 @@ class SchedulerRepository(
         lessons: Map<String, jp.linkserver.nittcsc.sktjf.SktjfConflictChoice>,
         days: Map<LocalDate, jp.linkserver.nittcsc.sktjf.SktjfConflictChoice>): jp.linkserver.nittcsc.sktjf.SktjfApplyResult =
         jp.linkserver.nittcsc.sktjf.SktjfApplyCoordinator(db, this).let { coordinator ->
-            preview.timed?.let { coordinator.applyV2(it.copy(localFile = preview.localFile), lessons, days) }
-                ?: coordinator.apply(preview, lessons, days)
+            try {
+                preview.timed?.let { coordinator.applyV2(it.copy(localFile = preview.localFile), lessons, days) }
+                    ?: coordinator.apply(preview, lessons, days)
+            } catch (error: Exception) {
+                blockedSktjfApply("apply_transaction", error)
+                throw error
+            }
         }
 
     internal suspend fun selectSktjfCourse(expected: SktjfSelectionGroupEntity, selectedLessonId: String?): Boolean = db.withTransaction {
@@ -1014,7 +1020,8 @@ class SchedulerRepository(
                     aLocation = if (draft.mode == LessonMode.ALTERNATING) aLocation else null,
                     bSubject = if (draft.mode == LessonMode.ALTERNATING) bSubject else "",
                     bTeacher = if (draft.mode == LessonMode.ALTERNATING) bTeacher else "",
-                    bLocation = if (draft.mode == LessonMode.ALTERNATING) bLocation else null
+                    bLocation = if (draft.mode == LessonMode.ALTERNATING) bLocation else null,
+                    inactiveModeDraftsJson = existing?.inactiveModeDraftsJson ?: "[]"
                 )
             )
             val original = renameFrom?.takeIf { existing != null && it.id == existing.id && it.lessonKey() == existing.lessonKey() }

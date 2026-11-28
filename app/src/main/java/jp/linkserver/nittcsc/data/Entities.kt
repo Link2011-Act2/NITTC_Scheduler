@@ -1,5 +1,6 @@
 package jp.linkserver.nittcsc.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -214,7 +215,8 @@ data class LessonEntity(
     val aLocation: String? = null,
     val bSubject: String,
     val bTeacher: String,
-    val bLocation: String? = null
+    val bLocation: String? = null,
+    @ColumnInfo(defaultValue = "'[]'") val inactiveModeDraftsJson: String = "[]"
 )
 
 fun LessonEntity.lessonKey(): LessonKey =

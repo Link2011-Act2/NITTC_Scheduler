@@ -67,7 +67,7 @@ class NittcProfileMigrationTest {
         val name = "sktjf-migration-${UUID.randomUUID()}.db"
         val date = LocalDate.of(2026, 4, 6)
         fun open() = Room.databaseBuilder(context, AppDatabase::class.java, name)
-            .addMigrations(AppDatabase.MIGRATION_53_54, AppDatabase.MIGRATION_54_55, AppDatabase.MIGRATION_55_56, AppDatabase.MIGRATION_56_57, AppDatabase.MIGRATION_57_58, AppDatabase.MIGRATION_58_59, AppDatabase.MIGRATION_59_60).build()
+            .addMigrations(AppDatabase.MIGRATION_53_54, AppDatabase.MIGRATION_54_55, AppDatabase.MIGRATION_55_56, AppDatabase.MIGRATION_56_57, AppDatabase.MIGRATION_57_58, AppDatabase.MIGRATION_58_59, AppDatabase.MIGRATION_59_60, AppDatabase.MIGRATION_60_61).build()
         try {
             val fresh = open()
             assertNull(fresh.schedulerDao().getUsageMode())
@@ -112,7 +112,7 @@ class NittcProfileMigrationTest {
             val transition = NittcYearTransitionEntity(2028, NittcYearOutcome.GRADUATED.name)
             dao.upsertNittcYearTransitions(listOf(transition))
             val backup = JSONObject(repository.exportAllData())
-            assertEquals(30, backup.getInt("version"))
+            assertEquals(31, backup.getInt("version"))
             assertEquals(0, backup.getJSONArray("schoolVacations").length())
             assertFalse(repository.exportSyncPayload().toString().contains("nittcProfile"))
             assertFalse(repository.exportSyncPayload().toString().contains("nittcYearTransitions"))
@@ -159,7 +159,7 @@ class NittcProfileMigrationTest {
                 sql.execSQL("DROP TABLE nittc_year_transitions"); removeExtraLessonColumn(sql, "tasks"); removeExtraLessonColumn(sql, "plans"); removeSchoolEventColumns(sql); sql.version = 55
             }
             val migrated = Room.databaseBuilder(context, AppDatabase::class.java, name)
-                .addMigrations(AppDatabase.MIGRATION_55_56, AppDatabase.MIGRATION_56_57, AppDatabase.MIGRATION_57_58, AppDatabase.MIGRATION_58_59, AppDatabase.MIGRATION_59_60).build()
+                .addMigrations(AppDatabase.MIGRATION_55_56, AppDatabase.MIGRATION_56_57, AppDatabase.MIGRATION_57_58, AppDatabase.MIGRATION_58_59, AppDatabase.MIGRATION_59_60, AppDatabase.MIGRATION_60_61).build()
             try {
                 assertEquals(listOf(profile), migrated.schedulerDao().getNittcProfilesOnce())
                 assertEquals("課題", migrated.schedulerDao().getTaskById(93)?.title)
@@ -188,7 +188,7 @@ class NittcProfileMigrationTest {
                 sql.version = 58
             }
             val db = Room.databaseBuilder(context, AppDatabase::class.java, name)
-                .addMigrations(AppDatabase.MIGRATION_58_59, AppDatabase.MIGRATION_59_60).build()
+                .addMigrations(AppDatabase.MIGRATION_58_59, AppDatabase.MIGRATION_59_60, AppDatabase.MIGRATION_60_61).build()
             try {
                 val dao = db.schedulerDao()
                 assertEquals(listOf(manual), dao.getLongBreaksOnce())

@@ -69,13 +69,33 @@ class SktjfLegacyTimetableProjectionTest {
         assertEquals(SktjfProjectionBlock.NEEDS_ADDITIONAL_STORAGE, blocked(project(listOf(row()), resolved(normal, conditional.copy(content = content())))))
     }
 
-    @Test fun blocksMovingAnExistingIdentityOrOverwritingHiddenFields() {
+    @Test fun blocksMovingAnExistingIdentity() {
         val key = sktjfLegacyKey(71, SktjfCycle.WEEKLY)
         assertEquals(SktjfProjectionBlock.IDENTITY_MOVED, blocked(project(listOf(row()), resolved(SktjfMergedLesson(key, "a", content().copy(period = 2))))))
-        val withHidden = row().copy(aSubject = "保存済み", aTeacher = "別の先生")
-        assertEquals(SktjfProjectionBlock.INACTIVE_DATA_AT_RISK, blocked(project(listOf(withHidden), resolved(SktjfMergedLesson(key, "a", content(SktjfCycle.A))))))
-        val sameMode = project(listOf(withHidden), resolved(SktjfMergedLesson(key, "a", content()))) as SktjfTimetableProjection.Ready
-        assertEquals("保存済み", sameMode.rows.single().aSubject)
+    }
+
+    @Test fun archivesDisplacedInactiveFieldsAndRestoresThemOnlyToTheInactiveMode() {
+        val old = row().copy(aSubject = "保存済み", aTeacher = "別の先生", aLocation = "別の教室", bTeacher = "担当者のみ")
+        val weeklyKey = sktjfLegacyKey(71, SktjfCycle.WEEKLY)
+        val aKey = sktjfLegacyKey(71, SktjfCycle.A)
+        val adopted = resolved(SktjfMergedLesson(null, "new-a", content(SktjfCycle.A)))
+            .copy(clearedLocalKeys = setOf(weeklyKey))
+        val applied = (project(listOf(old), adopted) as SktjfTimetableProjection.Ready).rows.single()
+        assertEquals(71L, applied.id)
+        assertEquals("数学", applied.aSubject)
+        assertEquals("", applied.bTeacher)
+        val weekly = resolved(SktjfMergedLesson(null, "later-weekly", content().copy(subject = "次の授業")))
+            .copy(clearedLocalKeys = setOf(aKey))
+        val restored = (project(listOf(applied), weekly) as SktjfTimetableProjection.Ready).rows.single()
+        assertEquals(LessonMode.WEEKLY, restored.mode)
+        assertEquals("次の授業", restored.weeklySubject)
+        assertEquals("保存済み", restored.aSubject)
+        assertEquals("別の先生", restored.aTeacher)
+        assertEquals("別の教室", restored.aLocation)
+        assertEquals("担当者のみ", restored.bTeacher)
+        assertEquals(applied.inactiveModeDraftsJson, restored.inactiveModeDraftsJson)
+        assertEquals(SktjfProjectionBlock.INVALID_INACTIVE_DRAFTS,
+            blocked(project(listOf(old.copy(inactiveModeDraftsJson = "{}")), adopted)))
     }
 
     @Test fun rejectsDifferentPartitionAndUnknownLocalIdentity() {

@@ -51,7 +51,7 @@ class SktjfSelectionGroupTransferTest {
     @Test fun migration59To60PreservesExistingData() = runBlocking {
         val context=ApplicationProvider.getApplicationContext<Context>()
         val name="selection-migration-${UUID.randomUUID()}.db"
-        fun open()=Room.databaseBuilder(context,AppDatabase::class.java,name).addMigrations(AppDatabase.MIGRATION_59_60).build()
+        fun open()=Room.databaseBuilder(context,AppDatabase::class.java,name).addMigrations(AppDatabase.MIGRATION_59_60, AppDatabase.MIGRATION_60_61).build()
         try {
             val original=open();original.schedulerDao().upsertSettings(SettingsEntity(termStart=date,termEnd=date.plusDays(30)));original.close()
             context.openOrCreateDatabase(name,Context.MODE_PRIVATE,null).use { sql ->

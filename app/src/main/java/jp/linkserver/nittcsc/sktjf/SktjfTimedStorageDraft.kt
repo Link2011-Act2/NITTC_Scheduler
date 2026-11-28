@@ -92,43 +92,48 @@ internal fun draftSktjfTimedStorage(
     resolved: SktjfResolvedLessonMerge,
     calendar: SktjfCalendarBaseline,
     selectionGroups: List<SktjfSelectionGroup> = emptyList(),
+    onBlocked: (String) -> Unit = {},
     newId: () -> String = { UUID.randomUUID().toString() },
 ): SktjfTimedStorageDraft? {
+    fun blocked(reason: String, slot: Pair<Int, Int>? = null): Nothing? {
+        onBlocked(if (slot == null) reason else "$reason day=${slot.first} period=${slot.second}")
+        return null
+    }
     val document = candidate.document
-    val term = when (document.term) { "S" -> TimetableTerm.FIRST; "F" -> TimetableTerm.SECOND; else -> return null }
+    val term = when (document.term) { "S" -> TimetableTerm.FIRST; "F" -> TimetableTerm.SECOND; else -> return blocked("invalid_term") }
     if (!candidate.weekEvidenceComplete || existingExtras.any {
             it.academicYear != document.academicYear || it.term != document.term || it.classId != document.classId
-        } || runCatching { SktjfExtraLessonBackup.validateList(existingExtras) }.isFailure) return null
+        } || runCatching { SktjfExtraLessonBackup.validateList(existingExtras) }.isFailure) return blocked("invalid_existing_alternatives")
     val existing = existingExtras.associateBy { it.id }
     val keys = resolved.lessons.mapNotNull { it.localKey }
-    if (keys.size != keys.distinct().size || keys.any { !it.startsWith("base:") && !it.startsWith("extra:") }) return null
+    if (keys.size != keys.distinct().size || keys.any { !it.startsWith("base:") && !it.startsWith("extra:") }) return blocked("invalid_local_keys")
     val extraKeys = keys.filter { it.startsWith("extra:") }.map { it.removePrefix("extra:") }.toSet()
     val removedExtraKeys = resolved.clearedLocalKeys.filter { it.startsWith("extra:") }.map { it.removePrefix("extra:") }.toSet()
-    if (removedExtraKeys.any { it !in existing } || extraKeys != existing.keys - removedExtraKeys) return null
+    if (removedExtraKeys.any { it !in existing } || extraKeys != existing.keys - removedExtraKeys) return blocked("inconsistent_alternative_keys")
     val ordinary = mutableListOf<SktjfMergedLesson>()
     val alternatives = mutableListOf<SktjfExtraLessonEntity>()
     for ((slot, lessons) in resolved.lessons.groupBy { it.content.dayOfWeek to it.content.period }) {
         val timed = lessons.any { it.content.weekRange != null }
         if (timed) {
-            val ids = lessons.map { it.sourceLessonId ?: return null }.toSet()
+            val ids = lessons.map { it.sourceLessonId ?: return blocked("unlinked_timed_lesson", slot) }.toSet()
             val group = candidate.series.singleOrNull { it.dayOfWeek == slot.first && slot.second in it.periods && ids.all(it.lessonIds::contains) }
             val datedSelection = candidate.weeks.isNotEmpty() && selectionGroups.any {
                 it.dayOfWeek == slot.first && it.period == slot.second && ids.all(it.lessonIds::contains)
             }
-            if (group == null && !datedSelection) return null
-            if (group != null && group.countingPolicy == null && candidate.weeks.isEmpty()) return null
+            if (group == null && !datedSelection) return blocked("missing_timed_group", slot)
+            if (group != null && group.countingPolicy == null && candidate.weeks.isEmpty()) return blocked("missing_week_evidence", slot)
         }
         if (lessons.any {
                 it.content.conditions.all.isNotEmpty() || it.content.conditions.none.isNotEmpty() ||
                     (it.localKey?.startsWith("extra:") != true && (it.content.teachers.size > 1 || it.content.rooms.size > 1))
-            }) return null
-        if (lessons.any { it.content.cycle == SktjfCycle.WEEKLY } && lessons.any { it.content.cycle != SktjfCycle.WEEKLY }) return null
+            }) return blocked("unsupported_lesson_fields", slot)
+        if (lessons.any { it.content.cycle == SktjfCycle.WEEKLY } && lessons.any { it.content.cycle != SktjfCycle.WEEKLY }) return blocked("incompatible_cycles", slot)
         val anchors = mutableSetOf<SktjfMergedLesson>()
         for (cycleItems in lessons.groupBy { it.content.cycle }.values) {
             val pinned = cycleItems.filter { it.localKey?.startsWith("base:") == true }
-            if (pinned.size > 1) return null
+            if (pinned.size > 1) return blocked("multiple_ordinary_anchors", slot)
             val selectable = cycleItems.any { lesson -> selectionGroups.any { lesson.sourceLessonId in it.lessonIds } }
-            if (selectable && pinned.isNotEmpty()) return null // Existing manual rows need explicit merge resolution.
+            if (selectable && pinned.isNotEmpty()) return blocked("selection_overlaps_ordinary_anchor", slot)
             val anchor = if (selectable) null else pinned.singleOrNull() ?: cycleItems.filter { it.localKey == null }
                 .minWithOrNull(compareBy({ it.content.weekRange?.range?.start ?: 1 }, { it.sourceLessonId ?: "" }))
             if (anchor != null) anchors += anchor
@@ -137,20 +142,24 @@ internal fun draftSktjfTimedStorage(
             if (lesson in anchors) {
                 ordinary += lesson.copy(content = lesson.content.copy(weekRange = null))
             } else {
-                if (lesson.localKey?.startsWith("base:") == true) return null
+                if (lesson.localKey?.startsWith("base:") == true) return blocked("ordinary_anchor_used_as_alternative", slot)
                 val id = lesson.localKey?.removePrefix("extra:") ?: newId()
                 val payload = runCatching { SktjfBaselineCodec.encode(SktjfStoredBaseline(
                     SktjfBaseline(document.academicYear, document.term, document.classId, mapOf(id to lesson.content)),
-                    SktjfCalendarBaseline(document.academicYear, document.term, document.classId, emptyMap()))) }.getOrNull() ?: return null
+                    SktjfCalendarBaseline(document.academicYear, document.term, document.classId, emptyMap()))) }.getOrNull()
+                    ?: return blocked("invalid_alternative_content", slot)
                 alternatives += SktjfExtraLessonEntity(id, document.academicYear, document.term, document.classId, lesson.sourceLessonId, payload)
             }
         }
     }
-    if (runCatching { SktjfExtraLessonBackup.validateList(alternatives) }.isFailure) return null
-    val projected = projectSktjfTimetable(document.academicYear, term, document.classId, rows,
-        resolved.copy(lessons = ordinary, clearedLocalKeys = resolved.clearedLocalKeys.filterNot { it.startsWith("extra:") }.toSet()))
-        as? SktjfTimetableProjection.Ready ?: return null
+    if (runCatching { SktjfExtraLessonBackup.validateList(alternatives) }.isFailure) return blocked("invalid_merged_alternatives")
+    val projected = when (val result = projectSktjfTimetable(document.academicYear, term, document.classId, rows,
+        resolved.copy(lessons = ordinary, clearedLocalKeys = resolved.clearedLocalKeys.filterNot { it.startsWith("extra:") }.toSet()))) {
+        is SktjfTimetableProjection.Ready -> result
+        is SktjfTimetableProjection.Blocked ->
+            return blocked("ordinary_projection reason=${result.reason} day=${result.dayOfWeek} period=${result.period}")
+    }
     val source = candidate.sourceBaseline().copy(lessons = resolved.baseline, calendar = calendar)
-    if (runCatching { SktjfBaselineCodec.encode(source) }.isFailure) return null
+    if (runCatching { SktjfBaselineCodec.encode(source) }.isFailure) return blocked("invalid_timed_baseline")
     return SktjfTimedStorageDraft(projected, alternatives, source)
 }
